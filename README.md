@@ -1,0 +1,1 @@
+A rust application to generate an orienteering map (.omap file) directly from a .laz or .las file
