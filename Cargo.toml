@@ -8,7 +8,6 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.5.0", features = ["derive"] }
 kiddo = { version = "4.2.0", features = ["immutable"] }
-las = "0.8.2"
+las = { version = "0.8.2", features = ["laz"] }
 rand = "0.8.5"
-regex = "1.10.3"
 tiff = "0.9.1"
