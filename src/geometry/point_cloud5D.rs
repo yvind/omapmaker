@@ -15,7 +15,6 @@ impl PointCloud5D{
 
     pub fn bound_snapped_convex_hull(&self, cell_size: f64) -> PointCloud2D{
         let hull = self.convex_hull();
-
     }
 
     pub fn to_2D_slice(&self) -> Vec<[f64; 2]>{
@@ -27,14 +26,14 @@ impl PointCloud5D{
     }
 
     pub fn get_dem_dimensions(&self, cell_size: f64) -> (usize, usize, Bounds){
-        let dx: f64 = self.bounds.max.x-self.bounds.min.x;
-        let dy: f64 = self.bounds.max.y-self.bounds.min.y;
+        let dx: f64 = self.bounds.max.x - self.bounds.min.x;
+        let dy: f64 = self.bounds.max.y - self.bounds.min.y;
 
         let width: f64 = (dx / cell_size).round() + 1.;
         let height: f64 = (dy / cell_size).round() + 1.;
 
-        let offset_x: f64 = (dx - (width-1.)*cell_size)/2.;
-        let offset_y: f64 = (dy - (height-1.)*cell_size)/2.;
+        let offset_x: f64 = (dx - (width-1.)*cell_size) / 2.;
+        let offset_y: f64 = (dy - (height-1.)*cell_size) / 2.;
 
         let inner_bounds: Bounds = Bounds{
             min: Vector{x: self.bounds.min.x + offset_x, y: self.bounds.min.y + offset_y, z: 0.,},
@@ -148,22 +147,6 @@ impl PointCloud5D{
         if std[2] < 0.01{
             return mean[2];
         }
-
-        /*
-        // check if all neighbours are one the same side of the query point, if so just take the average
-        let all_on_same_side = true;
-        let v1: [f64; 2] = [self.points[0][0] - point[0], self.points[0][1] - point[1]];
-        for n in neighbours{
-            let v2: [f64; 2] = [self.points[*n][0] - point[0], self.points[*n][1] - point[1]];
-            if v1[0]*v2[0] + v1[1]*v2[1] < 0.{
-                all_on_same_side = false;
-                break;
-            }
-        }
-        if all_on_same_side{
-            return mean[2];
-        }
-        */
         
         let mut xy: Matrix32x6 = Matrix32x6::zeros();
         let mut z: Vector32 = Vector32::zeros();

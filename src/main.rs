@@ -46,10 +46,10 @@ fn main(){
     let xyzir: PointCloud5D = PointCloud5D::from(las_reader.points()
                                 .map(|r| r.unwrap())
                                 .filter_map(|p| (p.classification == Classification::Ground || p.classification == Classification::Water)
-                                .then(|| Point5D{x: p.x + 2.*(random::<f64>()-0.5)/1000. - ref_point.x, y: p.y + 2.*(random::<f64>()-0.5)/1000. - ref_point.y, z: p.z, i: p.dim as f64, r: p.drm as f64})) // add noise on the order of mm for KD-tree stability
+                                .then(|| Point5D{x: p.x + 2.*(random::<f64>()-0.5)/1000. - ref_point.x, y: p.y + 2.*(random::<f64>()-0.5)/1000. - ref_point.y, z: p.z, i: p.intensity as f64, r: p.return_number as f64})) // add noise on the order of mm for KD-tree stability
                                 .collect(), &las_bounds);
     let num_ground_points: usize = xyzir.len();
-    println!("Number of ground/water points: {}", num_ground_points);
+    println!("Number of ground points: {}", num_ground_points);
 
     let sqm: f64 = (las_bounds.max.x-las_bounds.min.x)*(las_bounds.max.y-las_bounds.min.y);
     println!("Area: {:.3} sqkm", sqm / 1_000_000.);
