@@ -6,8 +6,6 @@ use std::{fs, fs::File, io::BufWriter, path::Path};
 pub struct Omap{
     filepath: Path,
     ref_point: &Point2D,
-    colors: Vec<ColorKind>,
-    symbols: Vec<SymbolKind>,
     objects: Vec<MapObject>,
 }
 
@@ -16,29 +14,8 @@ impl Omap{
         Omap{
             filepath: Path::new(format!("{}/{}.omap", output_dir, filename)),
             ref_point: georef_point,
-            colors: vec![],
-            symbols: vec![],
             objects: vec![],
         };
-    }
-
-    fn add_color(&mut self, c: ColorKind){
-        if !self.colors.contains(c) {
-            self.colors.push(c);
-        }
-    }
-
-    fn add_symbol(&mut self, s: SymbolKind){
-        if !self.symbols.contains(s) {
-            self.symbols.push(s);
-            let sym = s.get_symbol();
-
-        }
-    }
-
-    pub fn add_all_symbols(&mut self){
-
-
     }
 
     pub fn write_to_file(&self){
@@ -46,8 +23,7 @@ impl Omap{
         let mut f = BufWriter::new(f);
 
         self.write_header(&f);
-        self.write_colors(&f);
-        self.write_symbols(&f);
+        self.write_colors_symbols(&f);
         self.write_objects(&f);
         self.write_end_of_file(&f);
     }
@@ -57,65 +33,15 @@ impl Omap{
         f.write(format!("<georeferencing scale=\"15000\"><projected_crs id=\"Local\"><ref_point x=\"{}\" y=\"{}\"/></projected_crs></georeferencing>\n", self.ref_point.x, self.ref_point.y));
     }
 
-    fn write_colors(&self, f: &BufWriter){
-        self.colors.sort();
-        f.write(format!("<colors count=\"{}\">\n", colors.len() + SpotColor::iter().len()));
-
-        for (prio, color) in self.colors.iter().enumerate(){
-            let col = color.get_color();
-
-            let mut c = 0.;
-            let mut m = 0.;
-            let mut y = 0.;
-            let mut k = 0.;
-
-            for (sc, s) in zip(col.colors, col.strengths){
-                let spot = sc.get_spotcolor();
-                c += s*spot.c;
-                m += s*spot.m;
-                y += s*spot.y;
-                k += s*spot.k;
-            }
-
-            c = c.min(1.0);
-            m = m.min(1.0);
-            y = y.min(1.0);
-            k = k.min(1.0);
-
-            let (r, g, b) = SpotColor::cmyk2rgb(c, m, y, k);
-
-            f.write(format!("<color priority=\"{}\" name=\"{}\" c=\"{}\" m=\"{}\" y=\"{}\" k=\"{}\" opacity=\"1\">", prio, col.name, c, m, y, k));
-            match col.knock_out{
-                true => f.write("<spotcolors knockout=\"true\">"),
-                false => f.write("<spotcolors>"),
-            }
-            for for (sc, s) in zip(col.colors, col.strengths){
-                f.write(format!("<component factor=\"{}\" spotcolor=\"{}\"/>", s, sc as usize + self.colors.len()));
-            }
-            f.write(format!("<spotcolors/><cmyk method=\"spotcolor\"/><rgb method=\"spotcolor\" r=\"{}\" g=\"{}\" b=\"{}\"\n", r, g, b));
-        }
-
-        for (i, spot) in SpotColorKind::iter().enumerate(){
-            let prio = i + self.colors.len();
-
-            let sc = spot.get_spotcolor();
-            let (r, g, b) = SpotColor::cmyk2rgb(sc.c, sc.m, sc.y, sc.k);
-
-            f.write(format!("<color priority=\"{}\" name=\"SPOTCOLOR {}\" c=\"{}\" m=\"{}\" y=\"{}\" k=\"{}\" opacity=\"1\">", prio, sc.name, sc.c, sc.m, sc.y, sc.k));
-            f.write(format!("<spotcolors knockout=\"true\"><namedcolor>{}</namedcolor><spotcolors/>", sc.name)),
-            f.write(format!("<cmyk method=\"custom\"/><rgb method=\"cmyk\" r=\"{}\" g=\"{}\" b=\"{}\"\n", r, g, b));
-        }
-    }
-
-    fn write_symbols(&self, f: &BufWriter){
-
+    fn write_colors_symbols(&self, f: &BufWriter){
+        f.write(include_str!("colors_and_symbols_omap.txt"));
     }
 
     fn write_objects(&self, f: &BufWriter){
         f.write(format!("<parts count=\"1\" current=\"0\">\n<part name=\"map\"><objects count=\"{}\">\n", self.objects.len()));
 
         for object in self.objects{
-
+            object.write
         }
     }
 

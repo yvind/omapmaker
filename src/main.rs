@@ -33,7 +33,7 @@ fn main(){
 
     fs::create_dir_all(&output_directory).expect("Could not create output folder");
 
-    let mut las_reader = Reader::from_path(&las_file).unwrap();
+    let mut las_reader = Reader::from_path(&las_file).expect("Could not read laz/las file");
 
     let header = las_reader.header();
     let las_bounds: Bounds = header.bounds();
