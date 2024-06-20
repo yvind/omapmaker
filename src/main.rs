@@ -43,7 +43,7 @@ fn main(){
     let ref_point = Point2D{ x: ( las_bounds.min.x + las_bounds.max.x ) / 2.0, y: ( las_bounds.min.y + las_bounds.max.y ) / 2.0 };
 
     println!("Filtering points...");
-    let xyzir: PointCloud5D = PointCloud5D::from(las_reader.points()
+    let xyzir: PointCloud5D = PointCloud5D::new(las_reader.points()
                                 .map(|r| r.unwrap())
                                 .filter_map(|p| (p.classification == Classification::Ground || p.classification == Classification::Water)
                                 .then(|| Point5D{x: p.x + 2.*(random::<f64>()-0.5)/1000. - ref_point.x, y: p.y + 2.*(random::<f64>()-0.5)/1000. - ref_point.y, z: p.z, i: p.intensity as f64, r: p.return_number as f64})) // add noise on the order of mm for KD-tree stability
@@ -202,8 +202,8 @@ fn main(){
 
     if args.write_tiff{
         println!("Writing gridded Las-fields to Tiff files...");
-        write_gtiff(FieldType::ReturnNumber, &output_directory, &file_stem, drm, width, height, cell_size, &map_bounds);
-        write_gtiff(FieldType::Intensity, &output_directory, &file_stem, dim, width, height, cell_size, &map_bounds);
-        write_gtiff(FieldType::Elevation, &output_directory, &file_stem, dem, width, height, cell_size, &map_bounds);
+        dem.write_to_tiff(&file_stem, &output_directory);
+        drm.write_to_tiff(&file_stem, &output_directory);
+        dim.write_to_tiff(&file_stem, &output_directory);
     }
 }

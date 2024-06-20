@@ -27,6 +27,10 @@ impl Contour{
         self.vertices.push(vert);
     }
 
+    pub fn pop(&mut self){
+        self.vertices.pop();
+    }
+
     pub fn close(&mut self){
         self.vertices.push(self.first_vertex());
     }

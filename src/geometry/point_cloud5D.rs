@@ -5,27 +5,19 @@ pub struct PointCloud5D{
 }
 
 impl PointCloud5D{
-    pub fn from(v: Vec<Point5D>, b: &Bounds) -> PointCloud5D{
-        return PointCloud5D{points: v, bounds: b};
-    }
-
-    pub fn convex_hull(&self) -> PointCloud5D{
-
-    }
-
-    pub fn bound_snapped_convex_hull(&self, cell_size: f64) -> PointCloud2D{
-        let hull = self.convex_hull();
+    pub fn new(v: Vec<Point5D>, b: &Bounds) -> PointCloud5D{
+        PointCloud5D{points: v, bounds: b}
     }
 
     pub fn to_2D_slice(&self) -> Vec<[f64; 2]>{
-        return self.points.iter().map(|p| [p.x, p.y]);
+        self.points.iter().map(|p| [p.x, p.y]).collect()
     }
 
     pub fn len(&self) -> usize{
-        return self.points.len();
+        self.points.len()
     }
 
-    pub fn get_dem_dimensions(&self, cell_size: f64) -> (usize, usize, Bounds){
+    pub fn get_dfm_dimensions(&self, cell_size: f64) -> (usize, usize, Bounds){
         let dx: f64 = self.bounds.max.x - self.bounds.min.x;
         let dy: f64 = self.bounds.max.y - self.bounds.min.y;
 
@@ -35,87 +27,83 @@ impl PointCloud5D{
         let offset_x: f64 = (dx - (width-1.)*cell_size) / 2.;
         let offset_y: f64 = (dy - (height-1.)*cell_size) / 2.;
 
-        let inner_bounds: Bounds = Bounds{
+        let dfm_bounds: Bounds = Bounds{
             min: Vector{x: self.bounds.min.x + offset_x, y: self.bounds.min.y + offset_y, z: 0.,},
             max: Vector{x: self.bounds.max.x - offset_x, y: self.bounds.max.y - offset_y, z: 0.,}
         };
-        return (width as usize, height as usize, inner_bounds);
+        (width as usize, height as usize, dfm_bounds)
     }
 
-    fn point_min(a: &[f64; 2], b: &[f64; 2]) -> Ordering {
-        if a[1] == b[1] {
-            return a[0].partial_cmp(&b[0]).unwrap();
-        } else {
-            return a[1].partial_cmp(&b[1]).unwrap();
+    pub fn calculate_simple_convex_hull(&mut self) -> Contour {
+
+        let point_compare_position = |a: &Point5D, b: &Point5D| -> Ordering{
+            if a.y == b.y {
+                a.x.partial_cmp(&b.x).unwrap()
+            }
+            else {
+                a.y.partial_cmp(&b.y).unwrap()
+            }
         }
-    }
+        let most_south_west_point = self.points.iter().min_by(point_compare_position).unwrap();
 
-    pub fn calculate_simple_convex_hull(points: &Vec<[f64; 2]>) -> Contour {
-        let min_point = points.iter().min_by(point_min).unwrap().clone();
-
-        let point_cmp = |a: &Point, b: &Point| -> Ordering {
-            // Sort points in counter-clockwise direction relative to the min point. We can this by checking the orientation of consecutive vectors (min_point, a) and (a, b).
-            let orientation = min_point.consecutive_orientation(a, b);
+        let point_compare_angle = |a: &Point5D, b: &Point5D| -> Ordering {
+            let orientation = most_south_west_point.consecutive_orientation(a, b);
             if orientation < 0.0 {
                 Ordering::Greater
             } else if orientation > 0.0 {
                 Ordering::Less
             } else {
-                let a_dist = min_point.euclidean_distance(a);
-                let b_dist = min_point.euclidean_distance(b);
+                let a_dist = most_south_west_point.dist_squared(a);
+                let b_dist = most_south_west_point.dist_squared(b);
 
-                b_dist.partial_cmp(&a_dist).unwrap() // keep only furthest point if equal angle
+                b_dist.partial_cmp(&a_dist).unwrap()
             }
         };
-        points.sort_by(point_cmp);
-        let mut convex_hull: Contour = Contour{elevation: f64::MIN, vertices: Vec<Vertex>::new(), id: 0, is_closed: false};
+        self.points.sort_by(point_compare_angle);
 
-        // We always add the min_point, and the first two points in the sorted vec.
-        convex_hull.append(min_point.clone());
-        convex_hull.append(points[0].clone());
-        let mut top = 1;
+        let mut convex_hull: Contour = Contour{elevation: f64::MIN, vertices: Vec<Vertex>::new(), id: 0};
+
+        convex_hull.push(most_south_west_point.clone());
+        convex_hull.push(points[0].clone());
+        let mut hull_length = 1;
         for point in points.iter().skip(1) {
-            if min_point.consecutive_orientation(point, &convex_hull[top]) == 0.0 {
+            if most_south_west_point.consecutive_orientation(point, &convex_hull[hull_length]) == 0.0 {
                 // Remove consecutive points with the same angle. We make sure include the furthest point in the convex hull in the sort comparator.
                 continue;
             }
-            loop {
-                // In this loop, we remove points that we determine are no longer part of the convex hull.
-                if top <= 1 {
-                    break;
-                }
-                // If there is a segment(i+1, i+2) turns right relative to segment(i, i+1), point(i+1) is not part of the convex hull.
-                let orientation = convex_hull[top - 1].consecutive_orientation(&convex_hull[top], point);
+            while (hull_length > 1) {
+                // If segment(i+1, i+2) turns right relative to segment(i, i+1), point(i+1) is not part of the convex hull.
+                let orientation = convex_hull[hull_length - 1].consecutive_orientation(&convex_hull[hull_length], point);
                 if orientation <= 0.0 {
-                    top -= 1;
+                    hull_length -= 1;
                     convex_hull.pop();
                 } else {
                     break;
                 }
             }
             convex_hull.push(point.clone());
-            top += 1;
+            hull_length += 1;
         }
 
         for mut point in hull.vertices{
-            if point.x - cell_size <= bounds.min.x{
-                point.x = bounds.min.x;
+            if point.x - cell_size <= self.bounds.min.x{
+                point.x = self.bounds.min.x;
             }
-            else if point.x + cell_size >= bounds.max.x{
-                point.x = bounds.max.x;
+            else if point.x + cell_size >= self.bounds.max.x{
+                point.x = self.bounds.max.x;
             }
-            if point.y - cell_size <= bounds.min.y{
-                point.y = bounds.min.y;
+            if point.y - cell_size <= self.bounds.min.y{
+                point.y = self.bounds.min.y;
             }
-            else if point.y + cell_size >= bounds.max.y{
-                point.y = bounds.max.y;
+            else if point.y + cell_size >= self.bounds.max.y{
+                point.y = self.bounds.max.y;
             }
         }
         convex_hull.close();
-        return convex_hull;
+        convex_hull
     }
 
-    pub fn interpolate_field(&self, field: FieldType, neighbours: &Vec<usize>, point: &[f64; 2], smoothing: f64) -> f64{
+    pub fn interpolate_field(&self, field: FieldType, neighbours: &Vec<usize>, point: &[f64; 2], smoothing: f64) -> (f64, f64){
         let nrows = neighbours.len();
 
         let mut mean: [f64; 3] = [0., 0., 0.];
@@ -145,7 +133,7 @@ impl PointCloud5D{
         std = [(std[0]/nrows as f64).sqrt(), (std[1]/nrows as f64).sqrt(), (std[2]/nrows as f64).sqrt()];
 
         if std[2] < 0.01{
-            return mean[2];
+            return (mean[2], 0.0);
         }
         
         let mut xy: Matrix32x6 = Matrix32x6::zeros();
@@ -170,7 +158,14 @@ impl PointCloud5D{
         let ny = (point[1] - mean[1])/std[1];
 
         let x0: Vector6 = Vector6::new([1.0, nx, ny, nx*nx, ny*ny, nx*ny]);
+        let dx: Vector6 = Vector6::new([0.0, 1.0, 0.0, 2.0*nx, 0.0, ny]);
+        let dy: Vector6 = Vector6::new([0.0, 0.0, 1.0, 0.0, 2.0*ny, nx]);
+
         let value: f64 = x0.dot(&beta);
-        return value*std[2] + mean[2];
+        let gradient_x: f64 = dx.dot(&beta)*std[2]/std[0];
+        let gradient_y: f64 = dy.dot(&beta)*std[2]/std[1];
+        let gradient_size: f64 = (gradient_x.powi(2) + gradient_y.powi(2)).sqrt();
+
+        (value*std[2] + mean[2], gradient_size)
     }
 }

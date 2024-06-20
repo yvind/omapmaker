@@ -7,8 +7,8 @@ pub struct Args{
     #[arg(short, long)]
     pub in_file: String,
 
-    /// Path to output directory, creates a new dir if given path doesn't exist
-    #[arg(short, long)]
+    /// Path to output directory, creates a new dir if given path doesn't exist, defaults to current working directory
+    #[arg(short, long, default_value = "./")]
     pub output_directory: String,
 
     /// Contour interval of map output
