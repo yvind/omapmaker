@@ -397,7 +397,7 @@ dependencies = [
  "kiddo",
  "las",
  "rand",
- "strum",
+ "rustc-hash",
  "tiff",
 ]
 
@@ -529,6 +529,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustc-hash"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "583034fd73374156e66797ed8e5b0d5690409c9226b22d87cb7f19821c05d152"
+
+[[package]]
 name = "rustversion"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -560,12 +566,6 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
-
-[[package]]
-name = "strum"
-version = "0.26.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d8cec3501a5194c432b2b7976db6b7d10ec95c253208b45f83f7136aa985e29"
 
 [[package]]
 name = "syn"

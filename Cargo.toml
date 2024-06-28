@@ -10,5 +10,5 @@ clap = { version = "4.5.0", features = ["derive"] }
 kiddo = { version = "4.2.0", features = ["immutable"] }
 las = { version = "0.8.2", features = ["laz"] }
 rand = "0.8.5"
-strum = { version = "0.26.2", features = ["strum_macros"] }
+rustc-hash = "2.0.0"
 tiff = "0.9.1"

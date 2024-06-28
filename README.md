@@ -20,9 +20,8 @@ Optional arguments:
     
     -f, passing this flag adds formlines to the output map
 
+    -t <threads>, number of threads to run on, default value 4
 
 To do:
-
-    -t <threads>, number of threads to run on
 
     -GPU, passing this flag runs the calculations on the GPU

@@ -11,19 +11,19 @@ pub struct Args{
     #[arg(short, long, default_value = "./")]
     pub output_directory: String,
 
-    /// Contour interval of map output
-    #[arg(short, long, default_value_t = 5)]
+    /// Contour interval in meters of map output, default 5.0
+    #[arg(short, long, default_value_t = 5.)]
     pub contour_interval: f64,
 
-    /// Grid cell size in DFM generation
+    /// Grid cell size in meters for DFM generation, default 0.5
     #[arg(short, long, default_value_t = 0.5)]
     pub grid_size: f64,
 
-    /// Export a contour basemap of this contour interval to own symbol. Defaults 0m ie no basemap.
+    /// Contour interval in meters of basemap (analytic contours), default 0 ie no basemap
     #[arg(short, long, default_value_t = 0.)]
     pub basemap_contours: f64,
 
-    /// Write DEM, intensity and return_number to Tiff-file
+    /// Write elevation, intensity and return_number and their gradients to Tiff-files
     #[clap(short, long, action)]
     pub write_tiff: bool,
     
@@ -31,7 +31,7 @@ pub struct Args{
     #[clap(short, long, action)]
     pub form_lines: bool,
 
-    // Number of threads used in computation, defaults to 4
-    //#[arg(short, long, default_value_t = 4)]
-    //pub threads: usize
+    /// Number of threads used in computation, defaults to 4
+    #[arg(short, long, default_value_t = 4)]
+    pub threads: usize
 }
