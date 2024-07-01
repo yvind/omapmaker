@@ -52,10 +52,14 @@ impl PointCloud5D {
         (width as usize, height as usize, dfm_bounds)
     }
 
-    pub fn bounded_convex_hull(&mut self, cell_size: f64, bounds: &Bounds) -> Contour {
+    pub fn bounded_convex_hull(&self, cell_size: f64, bounds: &Bounds) -> Contour {
         let mut convex_hull = self.convex_hull();
+        let mut hull_contour: Contour = Contour {
+            elevation: f64::MIN,
+            vertices: vec![],
+        };
 
-        for mut point in convex_hull.vertices {
+        for mut point in convex_hull {
             if point.x - cell_size <= bounds.min.x {
                 point.x = bounds.min.x;
             } else if point.x + cell_size >= bounds.max.x {
@@ -66,16 +70,19 @@ impl PointCloud5D {
             } else if point.y + cell_size >= bounds.max.y {
                 point.y = bounds.max.y;
             }
+
+            hull_contour.push(point.into())
         }
-        convex_hull
+        hull_contour.close();
+        hull_contour
     }
 
-    fn convex_hull(&mut self) -> Contour {
-        let point_compare_position = |a: &Point5D, b: &Point5D| -> Ordering {
+    fn convex_hull(&self) -> Vec<Point5D> {
+        let point_compare_position = |a: &&Point5D, b: &&Point5D| -> Ordering {
             if a.y == b.y {
-                a.x.partial_cmp(&b.x).unwrap()
+                a.x.partial_cmp(&b.x).unwrap_or(Ordering::Equal)
             } else {
-                a.y.partial_cmp(&b.y).unwrap()
+                a.y.partial_cmp(&b.y).unwrap_or(Ordering::Equal)
             }
         };
 
@@ -90,31 +97,26 @@ impl PointCloud5D {
             } else {
                 let a_dist = most_south_west_point.squared_euclidean_distance(a);
                 let b_dist = most_south_west_point.squared_euclidean_distance(b);
-                b_dist.partial_cmp(&a_dist).unwrap()
+                b_dist.partial_cmp(&a_dist).unwrap_or(Ordering::Equal)
             }
         };
         self.points.sort_by(point_compare_angle);
 
-        let mut convex_hull: Contour = Contour {
-            elevation: f64::MIN,
-            vertices: Vec::new(),
-            id: 0,
-        };
+        let mut convex_hull: Vec<Point5D> = vec![];
 
         convex_hull.push(most_south_west_point.clone());
         convex_hull.push(self.points[0].clone());
+
         let mut hull_head = 1;
         for point in self.points.iter().skip(1) {
-            if most_south_west_point
-                .consecutive_orientation(point, &convex_hull.vertices[hull_head])
-                == 0.0
+            if most_south_west_point.consecutive_orientation(point, &convex_hull[hull_head]) == 0.0
             {
                 continue;
             }
             while (hull_head > 1) {
-                // If segment(i+1, i+2) turns right relative to segment(i, i+1), point(i+1) is not part of the convex hull.
-                let orientation = convex_hull.vertices[hull_head - 1]
-                    .consecutive_orientation(&convex_hull.vertices[hull_head], point);
+                // If segment(i, i+1) turns right relative to segment(i-1, i), point(i) is not part of the convex hull.
+                let orientation = convex_hull[hull_head - 1]
+                    .consecutive_orientation(&convex_hull[hull_head], point);
                 if orientation <= 0.0 {
                     hull_head -= 1;
                     convex_hull.pop();
@@ -125,8 +127,6 @@ impl PointCloud5D {
             convex_hull.push(point.clone());
             hull_head += 1;
         }
-
-        convex_hull.close();
         convex_hull
     }
 
@@ -202,15 +202,15 @@ impl PointCloud5D {
         let nx = (point.x - mean[0]) / std[0];
         let ny = (point.y - mean[1]) / std[1];
 
-        let x0: Vector6 = Vector6::new([1.0, nx, ny, nx * nx, ny * ny, nx * ny]);
-        let dx: Vector6 = Vector6::new([0.0, 1.0, 0.0, 2.0 * nx, 0.0, ny]);
-        let dy: Vector6 = Vector6::new([0.0, 0.0, 1.0, 0.0, 2.0 * ny, nx]);
+        let x0 = Vector6::new([1.0, nx, ny, nx * nx, ny * ny, nx * ny]);
+        let dx = Vector6::new([0.0, 1.0, 0.0, 2.0 * nx, 0.0, ny]);
+        let dy = Vector6::new([0.0, 0.0, 1.0, 0.0, 2.0 * ny, nx]);
 
-        let value: f64 = x0.dot(&beta);
-        let gradient_x: f64 = dx.dot(&beta) * std[2] / std[0];
-        let gradient_y: f64 = dy.dot(&beta) * std[2] / std[1];
-        let gradient_size: f64 = (gradient_x.powi(2) + gradient_y.powi(2)).sqrt();
+        let value = x0.dot(&beta) * std[2] + mean[2];
+        let gradient_x = dx.dot(&beta) * std[2] / std[0];
+        let gradient_y = dy.dot(&beta) * std[2] / std[1];
+        let gradient_size = (gradient_x.powi(2) + gradient_y.powi(2)).sqrt();
 
-        (value * std[2] + mean[2], gradient_size)
+        (value, gradient_size)
     }
 }

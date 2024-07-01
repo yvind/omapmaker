@@ -1,23 +1,25 @@
 mod dfm;
 mod geometry;
 mod matrix;
+mod omap;
 mod parser;
 
 use dfm::{Dfm, FieldType};
 use geometry::{Contour, Point2D, Point5D, PointCloud5D, Polygon, PolygonTrigger};
+use omap::Omap;
 use parser::Args;
 
 use clap::Parser;
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::{point::Classification, Bounds, Read, Reader};
 use rand::random;
-use std::{fs, fs::File, io::BufWriter, path::Path, time::Instant};
+use std::{fs, path::Path, time::Instant};
 
 fn main() {
     let args = Args::parse();
 
-    let las_file = args.in_file.clone();
-    let output_directory = args.output_directory.clone();
+    let las_file = args.in_file;
+    let output_directory = args.output_directory;
     let contour_interval: f64 = if args.form_lines {
         args.contour_interval / 2.
     } else {
@@ -40,9 +42,11 @@ fn main() {
         .to_str()
         .unwrap();
 
-    fs::create_dir_all(&output_directory).expect("Could not create output folder");
+    if !(output_directory == "./".to_string()) {
+        fs::create_dir_all(&output_directory).expect("Could not create output folder");
+    }
 
-    let mut las_reader = Reader::from_path(&las_file).expect("Could not read laz/las file");
+    let mut las_reader = Reader::from_path(&las_file).expect("Could not read givem laz/las file");
 
     let header = las_reader.header();
     let las_bounds: Bounds = header.bounds();
@@ -140,17 +144,23 @@ fn main() {
     println!("Computing contours...");
 
     if basemap_interval > 0. {
-        println!("Computing basemap contours...")
+        println!("Computing basemap contours...");
+
+        let bm_levels = ((las_bounds.max.z - las_bounds.min.z) / basemap_interval).ceil() as u64;
+
+        for i in 0..bm_levels {
+            let bm_level = i as f64 * basemap_interval + las_bounds.min.z;
+
+            let bm_contours = dem.marching_squares(bm_level).unwrap();
+
+            for bm_c in bm_contours {}
+        }
     }
 
     println!("Computing yellow...");
     let return_contours: Vec<Contour> = drm.marching_squares(1.2).unwrap();
-    let return_polygons: Vec<Polygon> = Polygon::from_contours(
-        return_contours,
-        convex_hull.clone(),
-        PolygonTrigger::Below,
-        225.,
-    );
+    let return_polygons: Vec<Polygon> =
+        Polygon::from_contours(return_contours, &convex_hull, PolygonTrigger::Below, 225.);
 
     if args.write_tiff {
         println!("Writing gridded Las-fields and their gradients to Tiff files...");

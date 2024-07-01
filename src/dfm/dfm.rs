@@ -1,4 +1,4 @@
-use crate::geometry::{Contour, Point2D, Vertex};
+use crate::geometry::{Contour, Point2D};
 
 use rustc_hash::FxHashMap as HashMap;
 use std::{fs::File, io::BufWriter, io::Write};
@@ -72,8 +72,8 @@ impl Dfm {
             3       2
         */
         let dem = &self.field;
-        let mut contour_by_end: HashMap<Vertex, Contour> = HashMap::default();
-        let mut contour_by_start: HashMap<Vertex, Contour> = HashMap::default();
+        let mut contour_by_end: HashMap<Point2D, Contour> = HashMap::default();
+        let mut contour_by_start: HashMap<Point2D, Contour> = HashMap::default();
         let lut: [[usize; 2]; 16] = [
             [0, 0],
             [3, 0],
@@ -92,8 +92,6 @@ impl Dfm {
             [0, 3],
             [0, 0],
         ];
-
-        let mut contour_count: usize = 0;
 
         for yi in 0..self.height - 1 {
             let ys = [yi, yi, yi + 1, yi + 1];
@@ -157,22 +155,8 @@ impl Dfm {
                             / (b - a);
 
                     if i % 2 == 1 {
-                        let vertex1: Vertex = Vertex::new(
-                            coordinates[0].x,
-                            coordinates[0].y,
-                            xi,
-                            yi,
-                            edge_indices[i - 1],
-                            self.width,
-                        );
-                        let vertex2: Vertex = Vertex::new(
-                            coordinates[1].x,
-                            coordinates[1].y,
-                            xi,
-                            yi,
-                            edge_indices[i],
-                            self.width,
-                        );
+                        let vertex1 = coordinates[0];
+                        let vertex2 = coordinates[1];
 
                         if contour_by_end.contains_key(&vertex1)
                             && contour_by_start.contains_key(&vertex2)
@@ -185,8 +169,7 @@ impl Dfm {
                             if contour == contour2 {
                                 // close a contour (joining a contour with it self)
                                 contour.close();
-                                contour_by_end.insert(vertex2.clone(), contour.clone());
-                                contour_by_start.insert(vertex2, contour);
+                                contour_by_end.insert(vertex2, contour);
                             } else {
                                 // join two different contours
                                 contour.append(&mut contour2);
@@ -194,45 +177,39 @@ impl Dfm {
                                 let end_vertex = contour.last_vertex();
                                 let start_vertex = contour.first_vertex();
 
-                                contour_by_end.remove(&end_vertex).unwrap(); // unwrapping to cause a panic if logic fails
-                                contour_by_start.remove(&start_vertex).unwrap();
+                                contour_by_end.remove(end_vertex).unwrap(); // unwrapping to cause a panic if logic fails
+                                contour_by_start.remove(start_vertex).unwrap();
 
-                                contour_by_end.insert(end_vertex, contour.clone());
-                                contour_by_start.insert(start_vertex, contour);
+                                contour_by_end.insert(*end_vertex, contour.clone());
+                                contour_by_start.insert(*start_vertex, contour);
                             }
                         } else if let Some(mut contour) = contour_by_end.remove(&vertex1) {
                             // append to an existing contour
                             contour.push(vertex2.clone());
 
                             let start_vertex = contour.first_vertex();
-                            contour_by_start.remove(&start_vertex).unwrap();
+                            contour_by_start.remove(start_vertex).unwrap();
 
                             contour_by_end.insert(vertex2, contour.clone());
-                            contour_by_start.insert(start_vertex, contour);
+                            contour_by_start.insert(*start_vertex, contour);
                         } else if let Some(mut contour) = contour_by_start.remove(&vertex2) {
                             // prepend to an existing contour
                             contour.prepend(vertex1.clone());
 
                             let end_vertex = contour.last_vertex();
-                            contour_by_end.remove(&end_vertex).unwrap();
+                            contour_by_end.remove(end_vertex).unwrap();
 
                             contour_by_start.insert(vertex1, contour.clone());
-                            contour_by_end.insert(end_vertex, contour);
+                            contour_by_end.insert(*end_vertex, contour);
                         } else if !contour_by_end.contains_key(&vertex1)
                             && !contour_by_start.contains_key(&vertex2)
                         {
                             // start a new contour
-                            let contour: Contour = Contour::new(
-                                level,
-                                vertex1.clone(),
-                                vertex2.clone(),
-                                contour_count,
-                            );
+                            let contour: Contour =
+                                Contour::new(level, vertex1.clone(), vertex2.clone());
 
                             contour_by_end.insert(vertex2, contour.clone());
                             contour_by_start.insert(vertex1, contour);
-
-                            contour_count += 1;
                         } else {
                             panic!("Contour generation failed. Logic error...");
                         }

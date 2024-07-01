@@ -1,3 +1,7 @@
+use crate::geometry::{Contour, Point2D};
+
+use std::{fs::File, io::BufWriter};
+
 pub struct Tag {
     key: String,
     value: String,
@@ -32,7 +36,7 @@ pub struct AreaObject {
 }
 
 pub trait MapObject {
-    fn write_object(&self, f: &BufWriter);
+    fn write_object(&self, f: &BufWriter<File>);
 
     fn add_tag(&self, k: &str, v: &str);
 
@@ -55,7 +59,7 @@ impl PointObject {
 }
 
 impl MapObject for PointObject {
-    fn write_object(&self, f: &Bufwriter) {
+    fn write_object(&self, f: &Bufwriter<File>) {
         f.write(format!("<object type=\"0\" symbol={}>",));
         if (!self.tags.is_empty()) {
             f.write("<tags>");

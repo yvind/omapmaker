@@ -189,8 +189,8 @@ impl Vertex {
 
     // Returns the orientation of consecutive segments ab and bc.
     pub fn consecutive_orientation(&self, b: &Vertex, c: &Vertex) -> f64 {
-        let p1 = b - self;
-        let p2 = c - self;
+        let p1 = *b - *self;
+        let p2 = *c - *self;
         return p1.cross_prod(&p2);
     }
 
@@ -206,7 +206,7 @@ impl Vertex {
 impl Eq for Vertex {}
 
 impl PartialEq for Vertex {
-    fn eq(&self, other: &Vertex) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         return self.id == other.id;
     }
 }
@@ -218,21 +218,21 @@ impl Hash for Vertex {
 }
 
 impl Sub for Vertex {
-    type Output = Vertex;
+    type Output = Self;
 
-    fn sub(self, other: Self) -> Vertex {
+    fn sub(self, other: Self) -> Self::Output {
         let x = self.x - other.x;
         let y = self.y - other.y;
-        return Vertex { x, y, id: self.id };
+        return Self { x, y, id: self.id };
     }
 }
 
 impl Add for Vertex {
-    type Output = Vertex;
+    type Output = Self;
 
-    fn add(self, other: Self) -> Vertex {
+    fn add(self, other: Self) -> Self::Output {
         let x = self.x + other.x;
         let y = self.y + other.y;
-        return Vertex { x, y, id: self.id };
+        return Self { x, y, id: self.id };
     }
 }

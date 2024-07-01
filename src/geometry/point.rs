@@ -4,4 +4,6 @@ pub trait Point {
     fn squared_euclidean_distance(&self, other: &Self) -> f64;
 
     fn cross_product(&self, other: &Self) -> f64;
+
+    fn dist_to_line_squared(&self, a: &Self, b: &Self) -> f64;
 }

@@ -29,6 +29,15 @@ impl Point for Point5D {
     fn cross_product(&self, other: &Self) -> f64 {
         self.x * other.y - other.x * self.y
     }
+
+    fn dist_to_line_squared(&self, a: &Self, b: &Self) -> f64 {
+        let diff = *b - *a;
+
+        (self.cross_product(&diff) + b.cross_product(a))
+            .abs()
+            .powi(2)
+            / b.squared_euclidean_distance(a)
+    }
 }
 
 impl Add for Point5D {

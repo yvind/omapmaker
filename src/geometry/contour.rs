@@ -1,4 +1,4 @@
-use super::{Point2D, Vertex};
+use super::Point2D;
 
 use las::Bounds;
 use std::hash::{Hash, Hasher};
@@ -6,16 +6,14 @@ use std::hash::{Hash, Hasher};
 #[derive(Clone, Debug)]
 pub struct Contour {
     pub elevation: f64,
-    pub vertices: Vec<Vertex>,
-    pub id: usize,
+    pub vertices: Vec<Point2D>,
 }
 
 impl Contour {
-    pub fn new(elevation: f64, vert1: Vertex, vert2: Vertex, count: usize) -> Contour {
+    pub fn new(elevation: f64, vert1: Point2D, vert2: Point2D) -> Contour {
         Contour {
             elevation,
             vertices: vec![vert1, vert2],
-            id: count,
         }
     }
 
@@ -23,7 +21,7 @@ impl Contour {
         self.first_vertex() == self.last_vertex()
     }
 
-    pub fn push(&mut self, vert: Vertex) {
+    pub fn push(&mut self, vert: Point2D) {
         self.vertices.push(vert);
     }
 
@@ -33,9 +31,22 @@ impl Contour {
 
     pub fn close(&mut self) {
         if !self.is_closed() {
-            self.vertices.push(self.first_vertex());
+            self.vertices.push(*self.first_vertex());
         }
     }
+
+    pub fn close_clockwise_by_convex_hull(&mut self, convex_hull: &Contour) {
+        let first_vertex = self.first_vertex();
+        let last_vertex = self.last_vertex();
+
+        // define the next point on the convex hull moving clockwise from last_vertex as first point
+        // and the last point on the convex hull before passing first_vertex moving clockwise as last point
+        // add all hull points between first and last point to the contour and close it
+
+        for (i, point) in convex_hull.vertices.iter().rev().enumerate() {}
+    }
+
+    pub fn close_counter_clockwise_convex_hull(&mut self, convex_hull: &Contour) {}
 
     pub fn close_by_boundary(&mut self, bounding_box: &Bounds) {
         let first_vertex = self.first_vertex();
@@ -368,8 +379,8 @@ impl Contour {
         return Ok(intersection_count % 2 != 0);
     }
 
-    pub fn first_vertex(&self) -> Vertex {
-        return self.vertices[0].clone();
+    pub fn first_vertex(&self) -> &Point2D {
+        &self.vertices[0]
     }
 
     pub fn append(&mut self, other: &mut Contour) {
@@ -377,25 +388,21 @@ impl Contour {
     }
 
     pub fn append_by_boundary(&mut self, other: &mut Contour, bounding_box: &Bounds) {
-        let bl = Vertex {
+        let bl = Point2D {
             x: bounding_box.min.x,
             y: bounding_box.min.y,
-            id: 0,
         };
-        let br = Vertex {
+        let br = Point2D {
             x: bounding_box.max.x,
             y: bounding_box.min.y,
-            id: 0,
         };
-        let tl = Vertex {
+        let tl = Point2D {
             x: bounding_box.min.x,
             y: bounding_box.max.y,
-            id: 0,
         };
-        let tr = Vertex {
+        let tr = Point2D {
             x: bounding_box.max.x,
             y: bounding_box.max.y,
-            id: 0,
         };
 
         let dist = self
@@ -498,22 +505,22 @@ impl Contour {
         self.vertices.append(&mut other.vertices);
     }
 
-    pub fn last_vertex(&self) -> Vertex {
-        self.vertices[self.len() - 1].clone()
+    pub fn last_vertex(&self) -> &Point2D {
+        &self.vertices[self.len() - 1]
     }
 
     pub fn len(&self) -> usize {
         self.vertices.len()
     }
 
-    pub fn prepend(&mut self, vert: Vertex) {
+    pub fn prepend(&mut self, vert: Point2D) {
         let mut verts = vec![vert];
         verts.append(&mut self.vertices);
         self.vertices = verts;
     }
 
     pub fn signed_area(&self) -> Result<f64, &'static str> {
-        if !self.is_closed {
+        if !self.is_closed() {
             return Err("Cannot compute area of unclosed contour");
         }
         let mut area: f64 = 0.;
@@ -530,12 +537,13 @@ impl Eq for Contour {}
 
 impl PartialEq for Contour {
     fn eq(&self, other: &Contour) -> bool {
-        self.id == other.id
+        self.first_vertex() == other.last_vertex() && self.last_vertex() == other.first_vertex()
     }
 }
 
 impl Hash for Contour {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
+        self.first_vertex().hash(state);
+        self.last_vertex().hash(state);
     }
 }

@@ -64,7 +64,6 @@ impl Polygon {
     ) -> Vec<Polygon> {
         let mut polygons: Vec<Polygon> = Vec::new();
         let mut unclosed_contours: Vec<Contour> = Vec::new();
-        let mut closed_contours: Vec<Contour> = Vec::new();
 
         // filter out all unclosed contours
         let mut i: usize = 0;
@@ -76,51 +75,58 @@ impl Polygon {
             }
         }
 
-        // for each unclosed contour wander counterclockwise along the convex hull and merge with the first encountered unclosed contour.
-        while unclosed_contours.len() > 0 {
-            let mut best_neighbour = usize::MAX;
-            let mut best_boundary_dist = f64::MAX;
-            for (j, other) in unclosed_contours.iter().enumerate() {
-                let dist = unclosed_contours[0]
-                    .last_vertex()
-                    .get_boundary_dist(&other.first_vertex(), &convex_hull)
-                    .unwrap();
-                if dist < best_boundary_dist {
-                    best_neighbour = j;
-                    best_boundary_dist = dist;
-                }
-            }
-
-            if best_neighbour == 0 {
-                let mut contour = unclosed_contours.swap_remove(0);
-                contour.close_by_boundary(&convex_hull);
-                closed_contours.push(contour);
-            } else {
-                let mut other = unclosed_contours.swap_remove(best_neighbour);
-                unclosed_contours[0].join_by_boundary(&mut other, &convex_hull);
-            }
-        }
-
-        // If we want the areas below the contour-value to be the polygons
-        // All edge polygons were closed in the wrong direction. Fix it by
-        // Taking the inverse of the edge polygons by making a background polygon
-        // and adding the edge polygons as holes
-        // PRO:
-        //   - don't have to implement all the boundary functions again in the clockwise order
-        // CON:
-        //   - all edge polygons become one object ( one click fix in Omapper )
+        // for each unclosed contour wander along the convex hull and merge with the first encountered unclosed contour
+        // Above => counterclockwise
+        // Below => clockwise
         match polygon_type {
-            PolygonTrigger::Below => {
-                convex_hull.elevation = contours[0].elevation;
-                polygons.push(Polygon::new(convex_hull.clone()));
+            PolygonTrigger::Above => {
+                while unclosed_contours.len() > 0 {
+                    let mut best_neighbour = usize::MAX;
+                    let mut best_boundary_dist = f64::MAX;
+                    for (j, other) in unclosed_contours.iter().enumerate() {
+                        let dist = unclosed_contours[0]
+                            .last_vertex()
+                            .get_boundary_dist(other.first_vertex(), convex_hull)
+                            .unwrap();
+                        if dist < best_boundary_dist {
+                            best_neighbour = j;
+                            best_boundary_dist = dist;
+                        }
+                    }
 
-                for contour in closed_contours {
-                    polygons[0].add_hole(contour);
+                    if best_neighbour == 0 {
+                        let mut contour = unclosed_contours.swap_remove(0);
+                        contour.close_by_boundary(convex_hull);
+                        contours.push(contour);
+                    } else {
+                        let mut other = unclosed_contours.swap_remove(best_neighbour);
+                        unclosed_contours[0].join_by_boundary(&mut other, &convex_hull);
+                    }
                 }
             }
-            PolygonTrigger::Above => {
-                for contour in closed_contours {
-                    polygons.push(Polygon::new(contour));
+            PolygonTrigger::Below => {
+                while unclosed_contours.len() > 0 {
+                    let mut best_neighbour = usize::MAX;
+                    let mut best_boundary_dist = f64::MAX;
+                    for (j, other) in unclosed_contours.iter().enumerate() {
+                        let dist = unclosed_contours[0]
+                            .last_vertex()
+                            .get_boundary_dist(other.first_vertex(), convex_hull)
+                            .unwrap();
+                        if dist < best_boundary_dist {
+                            best_neighbour = j;
+                            best_boundary_dist = dist;
+                        }
+                    }
+
+                    if best_neighbour == 0 {
+                        let mut contour = unclosed_contours.swap_remove(0);
+                        contour.close_by_boundary(convex_hull);
+                        contours.push(contour);
+                    } else {
+                        let mut other = unclosed_contours.swap_remove(best_neighbour);
+                        unclosed_contours[0].join_by_boundary(&mut other, &convex_hull);
+                    }
                 }
             }
         }
