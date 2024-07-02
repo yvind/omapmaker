@@ -18,6 +18,10 @@ impl Point2D {
     pub fn get_boundary_dist() {}
 
     pub fn get_box_edge_index() {}
+
+    pub fn to_map_coordinates(&self) -> (i32, i32) {
+        (0, 0)
+    }
 }
 
 impl From<Point5D> for Point2D {

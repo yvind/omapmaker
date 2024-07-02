@@ -6,7 +6,7 @@ mod parser;
 
 use dfm::{Dfm, FieldType};
 use geometry::{Contour, Point2D, Point5D, PointCloud5D, Polygon, PolygonTrigger};
-use omap::Omap;
+use omap::{AreaObject, LineObject, MapObject, Omap};
 use parser::Args;
 
 use clap::Parser;
@@ -16,9 +16,11 @@ use rand::random;
 use std::{fs, path::Path, time::Instant};
 
 fn main() {
+    // read inputs
+
     let args = Args::parse();
 
-    let las_file = args.in_file;
+    let las_path = Path::new(&args.in_file);
     let output_directory = args.output_directory;
     let contour_interval: f64 = if args.form_lines {
         args.contour_interval / 2.
@@ -30,23 +32,21 @@ fn main() {
 
     assert!(contour_interval > 0.);
 
-    let las_path = Path::new(&las_file);
-    if !(las_path.extension().unwrap() == "laz" || las_path.extension().unwrap() == "las")
-        || !las_path.exists()
-    {
-        panic!("Invalid input file path");
+    // create output folder and open laz file
+
+    if !(output_directory == "./".to_string()) {
+        fs::create_dir_all(&output_directory).expect("Could not create output folder");
     }
+
+    let mut las_reader = Reader::from_path(&las_path).expect("Could not read givem laz/las file");
+
     let file_stem = Path::new(las_path.file_name().unwrap())
         .file_stem()
         .unwrap()
         .to_str()
         .unwrap();
 
-    if !(output_directory == "./".to_string()) {
-        fs::create_dir_all(&output_directory).expect("Could not create output folder");
-    }
-
-    let mut las_reader = Reader::from_path(&las_file).expect("Could not read givem laz/las file");
+    // read laz file and build pointcloud and KD-tree
 
     let header = las_reader.header();
     let las_bounds: Bounds = header.bounds();
@@ -89,6 +89,8 @@ fn main() {
     println!("Building KD-tree...");
     let point_cloud: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
+
+    // Compute DFMs using multiple threads
 
     println!("Computing DFMs...");
     let now = Instant::now();
@@ -138,8 +140,11 @@ fn main() {
             grad_drm.field[y][x] = grad_rn;
         }
     }
-    let elapsed = now.elapsed();
-    println!("Elapsed time in DFM generation: {:?}", elapsed);
+    println!("Elapsed time in DFM generation: {:?}", now.elapsed());
+
+    // create map and the objects and add them to the map
+
+    let mut map = Omap::new(file_stem, &output_directory.as_str(), ref_point);
 
     println!("Computing contours...");
 
@@ -153,15 +158,27 @@ fn main() {
 
             let bm_contours = dem.marching_squares(bm_level).unwrap();
 
-            for bm_c in bm_contours {}
+            for bm_c in bm_contours {
+                let bm_object = LineObject::from_line(bm_c, 2);
+                bm_object.add_auto_tag();
+                bm_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
+
+                map.add_object(bm_object);
+            }
         }
     }
 
     println!("Computing yellow...");
-    let return_contours: Vec<Contour> = drm.marching_squares(1.2).unwrap();
-    let return_polygons: Vec<Polygon> =
-        Polygon::from_contours(return_contours, &convex_hull, PolygonTrigger::Below, 225.);
+    let yellow_contours = drm.marching_squares(1.2).unwrap();
+    let yellow_polygons =
+        Polygon::from_contours(yellow_contours, &convex_hull, PolygonTrigger::Below, 225.);
 
+    for polygon in yellow_polygons {
+        let yellow_object = AreaObject::from_polygon(polygon, 79);
+        map.add_object(yellow_object);
+    }
+
+    // write dfms to tiff
     if args.write_tiff {
         println!("Writing gridded Las-fields and their gradients to Tiff files...");
         dem.write_to_tiff(format!("dem_{}", &file_stem), &output_directory);
@@ -171,4 +188,7 @@ fn main() {
         drm.write_to_tiff(format!("drm_{}", &file_stem), &output_directory);
         grad_drm.write_to_tiff(format!("grad_drm_{}", &file_stem), &output_directory);
     }
+
+    // save map to file
+    map.write_to_file();
 }
