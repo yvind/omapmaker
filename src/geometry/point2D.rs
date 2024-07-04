@@ -18,9 +18,38 @@ impl Point2D {
     pub fn get_distance_along_hull(
         &self,
         other: &Point2D,
-        hull: &Line,
+        convex_hull: &Line,
+        epsilon: f64,
     ) -> Result<f64, &'static str> {
-        a
+        let length = convex_hull.len();
+
+        let last_index = self.on_edge_index(&convex_hull, epsilon)?;
+        let first_index = other.on_edge_index(&convex_hull, epsilon)?;
+
+        if last_index == first_index {
+            let prev_vertex = &convex_hull.vertices[first_index];
+
+            if self.squared_euclidean_distance(prev_vertex)
+                <= other.squared_euclidean_distance(prev_vertex)
+            {
+                return Ok(self.squared_euclidean_distance(other));
+            }
+        }
+
+        let range = Line::get_range_on_convex_hull(last_index, first_index, length);
+
+        let mut dist = 0.;
+
+        let mut prev_vertex = self;
+        for i in range {
+            let next_vertex = &convex_hull.vertices[i];
+
+            dist += prev_vertex.squared_euclidean_distance(next_vertex);
+            prev_vertex = next_vertex;
+        }
+        dist += other.squared_euclidean_distance(prev_vertex);
+
+        Ok(dist)
     }
 
     pub fn to_map_coordinates(&self) -> Result<(i32, i32), &'static str> {

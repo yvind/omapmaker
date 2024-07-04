@@ -1,4 +1,4 @@
-//#![feature(portable_simd)]
+#![feature(portable_simd)]
 
 mod dfm;
 mod geometry;
@@ -41,6 +41,8 @@ fn main() {
 
     let simd = args.simd;
 
+    let dist_to_hull_epsilon = cell_size / 2.;
+
     assert!(contour_interval >= 1.);
 
     // create output folder and open laz file
@@ -70,7 +72,7 @@ fn main() {
     };
 
     println!("Filtering points...");
-    let xyzir: PointCloud5D = PointCloud5D::new(
+    let mut xyzir: PointCloud5D = PointCloud5D::new(
         las_reader
             .points()
             .map(|r| r.unwrap())
@@ -126,8 +128,8 @@ fn main() {
 
     let pt_arc = Arc::new(point_tree);
     let pc_arc = Arc::new(xyzir);
-    let ch_arc = Arc::new(convex_hull);
-    let dem_arc = Arc::new(dem);
+    let ch_arc = Arc::new(convex_hull.clone());
+    let dem_arc = Arc::new(dem.clone());
 
     let (sender, receiver) = mpsc::channel();
 
@@ -258,7 +260,7 @@ fn main() {
             let bm_contours = dem.marching_squares(bm_level).unwrap();
 
             for bm_c in bm_contours {
-                let bm_object = LineObject::from_line(bm_c, Symbol::BasemapContour);
+                let mut bm_object = LineObject::from_line(bm_c, Symbol::BasemapContour);
                 bm_object.add_auto_tag();
                 bm_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
 
@@ -269,8 +271,13 @@ fn main() {
 
     println!("Computing yellow...");
     let yellow_contours = drm.marching_squares(1.2).unwrap();
-    let yellow_polygons =
-        Polygon::from_contours(yellow_contours, &convex_hull, PolygonTrigger::Below, 225.);
+    let yellow_polygons = Polygon::from_contours(
+        yellow_contours,
+        &convex_hull,
+        PolygonTrigger::Below,
+        225.,
+        dist_to_hull_epsilon,
+    );
 
     for polygon in yellow_polygons {
         let yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);

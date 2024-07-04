@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 pub mod matrix32x6;
 pub mod matrix6x6;
 pub mod vector32;

@@ -47,7 +47,7 @@ impl Polygon {
         if !inside {
             return Ok(false);
         }
-        for hole in &self.holes {
+        for hole in self.holes.iter() {
             inside &= !hole.contains(point)?;
             if !inside {
                 return Ok(false);
@@ -58,15 +58,16 @@ impl Polygon {
 
     pub fn from_contours(
         mut contours: Vec<Line>,
-        mut convex_hull: &Line,
+        convex_hull: &Line,
         polygon_type: PolygonTrigger,
         min_size: f64,
+        epsilon: f64,
     ) -> Vec<Polygon> {
         let mut polygons: Vec<Polygon> = Vec::new();
         let mut unclosed_contours: Vec<Line> = Vec::new();
 
         if polygon_type == PolygonTrigger::Below {
-            for mut c in contours {
+            for c in contours.iter_mut() {
                 c.vertices.reverse();
             }
         }
@@ -88,7 +89,7 @@ impl Polygon {
             for (j, other) in unclosed_contours.iter().enumerate() {
                 let dist = unclosed_contours[0]
                     .last_vertex()
-                    .get_distance_along_hull(other.first_vertex(), convex_hull)
+                    .get_distance_along_hull(other.first_vertex(), convex_hull, epsilon)
                     .unwrap();
                 if dist < best_boundary_dist {
                     best_neighbour = j;
@@ -98,11 +99,11 @@ impl Polygon {
 
             if best_neighbour == 0 {
                 let mut contour = unclosed_contours.swap_remove(0);
-                contour.close_by_hull(convex_hull);
+                contour.close_by_hull(convex_hull, epsilon).unwrap();
                 contours.push(contour);
             } else {
-                let mut other = unclosed_contours.swap_remove(best_neighbour);
-                unclosed_contours[0].append_by_hull(other, &convex_hull);
+                let other = unclosed_contours.swap_remove(best_neighbour);
+                unclosed_contours[0].append_by_hull(other, &convex_hull, epsilon);
             }
         }
 

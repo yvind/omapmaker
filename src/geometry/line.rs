@@ -32,14 +32,14 @@ impl Line {
         }
     }
 
-    pub fn close_by_hull(&mut self, convex_hull: &Line) -> Result<(), &'static str> {
+    pub fn close_by_hull(&mut self, convex_hull: &Line, epsilon: f64) -> Result<(), &'static str> {
         let first_vertex = self.first_vertex();
         let last_vertex = self.last_vertex();
 
         let length = convex_hull.len();
 
-        let last_index = last_vertex.on_edge_index(&convex_hull)?;
-        let first_index = first_vertex.on_edge_index(&convex_hull)?;
+        let last_index = last_vertex.on_edge_index(&convex_hull, epsilon)?;
+        let first_index = first_vertex.on_edge_index(&convex_hull, epsilon)?;
 
         if last_index == first_index {
             let prev_vertex = &convex_hull.vertices[first_index];
@@ -52,7 +52,7 @@ impl Line {
             }
         }
 
-        for i in Line::get_ccw_range(last_index, first_index, length) {
+        for i in Line::get_range_on_convex_hull(last_index, first_index, length) {
             self.vertices.push(convex_hull.vertices[i]);
         }
         self.close();
@@ -60,7 +60,11 @@ impl Line {
         Ok(())
     }
 
-    fn get_ccw_range(last_index: usize, first_index: usize, length: usize) -> Vec<usize> {
+    pub fn get_range_on_convex_hull(
+        last_index: usize,
+        first_index: usize,
+        length: usize,
+    ) -> Vec<usize> {
         if last_index < first_index {
             (last_index + 1..first_index + 1).collect()
         } else {
@@ -104,8 +108,19 @@ impl Line {
         self.vertices.extend(other.vertices);
     }
 
-    pub fn append_by_hull(&mut self, other: Line, convex_hull: &Line) {
-        a
+    pub fn append_by_hull(&mut self, other: Line, convex_hull: &Line, epsilon: f64) {
+        let last_self = self.last_vertex();
+        let first_other = other.first_vertex();
+
+        let self_index = last_self.on_edge_index(convex_hull, epsilon).unwrap();
+        let other_index = first_other.on_edge_index(convex_hull, epsilon).unwrap();
+
+        let range = Self::get_range_on_convex_hull(self_index, other_index, convex_hull.len());
+
+        for i in range {
+            self.push(convex_hull.vertices[i]);
+        }
+        self.append(other);
     }
 
     pub fn last_vertex(&self) -> &Point2D {

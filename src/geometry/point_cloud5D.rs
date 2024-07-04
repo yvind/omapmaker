@@ -52,8 +52,8 @@ impl PointCloud5D {
         (width as usize, height as usize, dfm_bounds)
     }
 
-    pub fn bounded_convex_hull(&self, cell_size: f64, bounds: &Bounds) -> Line {
-        let mut convex_hull = self.convex_hull();
+    pub fn bounded_convex_hull(&mut self, cell_size: f64, bounds: &Bounds) -> Line {
+        let convex_hull = self.convex_hull();
         let mut hull_contour: Line = Line { vertices: vec![] };
 
         for mut point in convex_hull {
@@ -73,7 +73,7 @@ impl PointCloud5D {
         hull_contour
     }
 
-    fn convex_hull(&self) -> Vec<Point5D> {
+    fn convex_hull(&mut self) -> Vec<Point5D> {
         let point_compare_position = |a: &&Point5D, b: &&Point5D| -> Ordering {
             if a.y == b.y {
                 a.x.partial_cmp(&b.x).unwrap_or(Ordering::Equal)
@@ -82,7 +82,12 @@ impl PointCloud5D {
             }
         };
 
-        let most_south_west_point = self.points.iter().min_by(point_compare_position).unwrap();
+        let most_south_west_point = self
+            .points
+            .iter()
+            .min_by(point_compare_position)
+            .unwrap()
+            .clone();
 
         let point_compare_angle = |a: &Point5D, b: &Point5D| -> Ordering {
             let orientation = most_south_west_point.consecutive_orientation(a, b);
@@ -109,7 +114,7 @@ impl PointCloud5D {
             {
                 continue;
             }
-            while (hull_head > 1) {
+            while hull_head > 1 {
                 // If segment(i, i+1) turns right relative to segment(i-1, i), point(i) is not part of the convex hull.
                 let orientation = convex_hull[hull_head - 1]
                     .consecutive_orientation(&convex_hull[hull_head], point);

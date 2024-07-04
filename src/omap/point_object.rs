@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::{MapObject, Symbol, Tag};
 use crate::geometry::Point2D;
 use std::{
@@ -24,37 +26,41 @@ impl PointObject {
 }
 
 impl MapObject for PointObject {
-    fn add_tag(&self, k: &str, v: &str) {
+    fn add_tag(&mut self, k: &str, v: &str) {
         self.tags.push(Tag::new(k, v));
     }
 
-    fn write_to_map(&self, f: &BufWriter<File>) {
+    fn write_to_map(&self, f: &mut BufWriter<File>) {
         f.write(
             format!(
                 "<object type=\"0\" symbol=\"{}\" rotation=\"{}\">",
                 self.symbol, self.rotation
             )
             .as_bytes(),
-        );
+        )
+        .expect("Could not write to map file");
         self.write_tags(f);
         self.write_coords(f);
-        f.write(b"</object>\n");
+        f.write(b"</object>\n")
+            .expect("Could not write to map file");
     }
 
-    fn write_coords(&self, f: &BufWriter<File>) {
+    fn write_coords(&self, f: &mut BufWriter<File>) {
         let c = self.coordinates.to_map_coordinates().unwrap();
-        f.write(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes());
+        f.write(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes())
+            .expect("Could not write to map file");
     }
 
-    fn write_tags(&self, f: &BufWriter<File>) {
+    fn write_tags(&self, f: &mut BufWriter<File>) {
         if self.tags.is_empty() {
             return;
         }
 
-        f.write(b"<tags>");
-        for tag in self.tags {
-            f.write(tag.to_string().as_bytes());
+        f.write(b"<tags>").expect("Could not write to map file");
+        for tag in self.tags.iter() {
+            f.write(tag.to_string().as_bytes())
+                .expect("Could not write to map file");
         }
-        f.write(b"</tags>");
+        f.write(b"</tags>").expect("Could not write to map file");
     }
 }

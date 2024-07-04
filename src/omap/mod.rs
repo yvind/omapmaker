@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 pub mod area_object;
 pub mod line_object;
 pub mod map_object;

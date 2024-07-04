@@ -164,7 +164,7 @@ impl Dfm {
                             // join two existing contours
 
                             let mut contour: Line = contour_by_end.remove(&vertex1).unwrap();
-                            let mut contour2: Line = contour_by_start.remove(&vertex2).unwrap();
+                            let contour2: Line = contour_by_start.remove(&vertex2).unwrap();
 
                             if contour == contour2 {
                                 // close a contour (joining a contour with it self)

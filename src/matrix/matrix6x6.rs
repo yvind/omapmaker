@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::simd::{f64x4, Simd, SimdFloat};
+use std::simd::{f64x4, Simd};
 
 use crate::matrix::vector6::Vector6;
 
@@ -243,6 +243,7 @@ impl Matrix6x6 {
 
     // same algorithm as inverse_spd just with simd intrinsics (should still be portable)
     pub fn inverse_spd_simd(&self) -> Matrix6x6 {
+        /*
         let mat = &self.data;
 
         let row0 = f64x4::from_array([mat[0][0], mat[0][1], mat[0][2], 0.0]);
@@ -263,8 +264,8 @@ impl Matrix6x6 {
         let r2 = (row0.shuffle::<1, 2, 0, 3>() * row1.shuffle::<2, 0, 1, 3>()
             - row0.shuffle::<2, 0, 1, 3>() * row1.shuffle::<1, 2, 0, 3>())
             * inv_det;
-
-        let mut result = Matrix6x6::zeros();
+        */
+        let result = Matrix6x6::zeros();
         result
     }
 }
