@@ -57,19 +57,20 @@ impl PointCloud5D {
         let mut hull_contour: Line = Line { vertices: vec![] };
 
         for mut point in convex_hull {
-            if point.x - cell_size <= bounds.min.x {
+            if (bounds.min.x - point.x).abs() <= 2. * cell_size {
                 point.x = bounds.min.x;
-            } else if point.x + cell_size >= bounds.max.x {
+            } else if (bounds.max.x - point.x).abs() <= 2. * cell_size {
                 point.x = bounds.max.x;
             }
-            if point.y - cell_size <= bounds.min.y {
+            if (bounds.min.y - point.y).abs() <= 2. * cell_size {
                 point.y = bounds.min.y;
-            } else if point.y + cell_size >= bounds.max.y {
+            } else if (bounds.max.y - point.y).abs() <= 2. * cell_size {
                 point.y = bounds.max.y;
             }
 
             hull_contour.push(point.into())
         }
+        hull_contour.simplify(cell_size);
         hull_contour
     }
 

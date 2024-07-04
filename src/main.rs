@@ -114,6 +114,10 @@ fn main() {
         y: map_bounds.max.y,
     };
     let convex_hull: Line = xyzir.bounded_convex_hull(cell_size, &map_bounds);
+    println!("{:?}", convex_hull);
+
+    let mut closed_hull = convex_hull.clone();
+    closed_hull.close();
 
     let num_neighbours = 32;
 
@@ -128,7 +132,7 @@ fn main() {
 
     let pt_arc = Arc::new(point_tree);
     let pc_arc = Arc::new(xyzir);
-    let ch_arc = Arc::new(convex_hull.clone());
+    let ch_arc = Arc::new(closed_hull.clone());
     let dem_arc = Arc::new(dem.clone());
 
     let (sender, receiver) = mpsc::channel();

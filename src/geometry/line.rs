@@ -149,6 +149,19 @@ impl Line {
         }
         return Ok(area);
     }
+
+    pub fn simplify(&mut self, epsilon: f64) {
+        let mut i = 1;
+        while i < self.len() - 1 {
+            if self.vertices[i].dist_to_line_squared(&self.vertices[i - 1], &self.vertices[i + 1])
+                < epsilon.powi(2)
+            {
+                self.vertices.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+    }
 }
 
 impl Eq for Line {}

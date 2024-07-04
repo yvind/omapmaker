@@ -58,11 +58,14 @@ impl Omap {
         for object in self.objects.iter() {
             object.write_to_map(f);
         }
+
+        f.write(b"</objects></part>\n</parts>\n")
+            .expect("Could not write to map file");
     }
 
     fn write_end_of_file(&self, f: &mut BufWriter<File>) {
         f.write(b"<templates count=\"0\" first_front_template=\"0\">\n<defaults use_meters_per_pixel=\"true\" meters_per_pixel=\"0\" dpi=\"0\" scale=\"0\"/></templates>\n<view>\n").expect("Could not write to map file");
         f.write(b"<grid color=\"#646464\" display=\"0\" alignment=\"0\" additional_rotation=\"0\" unit=\"1\" h_spacing=\"500\" v_spacing=\"500\" h_offset=\"0\" v_offset=\"0\" snapping_enabled=\"true\"/>\n").expect("Could not write to map file");
-        f.write(b"<map_view zoom=\"1\" position_x=\"0\" position_y=\"0\"><map opacity=\"1\" visible=\"true\"/><templates count=\"0\"/></map_view></view></barrier></map>").expect("Could not write to map file");
+        f.write(b"<map_view zoom=\"1\" position_x=\"0\" position_y=\"0\"><map opacity=\"1\" visible=\"true\"/><templates count=\"0\"/></map_view>\n</view>\n</barrier>\n</map>").expect("Could not write to map file");
     }
 }
