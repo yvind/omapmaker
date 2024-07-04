@@ -1,3 +1,5 @@
+//#![feature(portable_simd)]
+
 mod dfm;
 mod geometry;
 mod matrix;
@@ -36,6 +38,8 @@ fn main() {
     let cell_size = args.grid_size;
     let basemap_interval = args.basemap_contours;
     let num_threads: usize = if args.threads > 1 { args.threads } else { 1 };
+
+    let simd = args.simd;
 
     assert!(contour_interval >= 1.);
 
@@ -152,16 +156,55 @@ fn main() {
 
                     // slow due to matrix inversion
                     // gradients are almost for free
-                    let (elev, grad_elev) =
-                        pc_ref.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.01);
-                    let (intens, grad_intens) =
-                        pc_ref.interpolate_field(FieldType::Intensity, &neighbours, &coords, 0.1);
-                    let (rn, grad_rn) = pc_ref.interpolate_field(
-                        FieldType::ReturnNumber,
-                        &neighbours,
-                        &coords,
-                        0.1,
-                    );
+                    let elev;
+                    let grad_elev;
+                    let intens;
+                    let grad_intens;
+                    let rn;
+                    let grad_rn;
+
+                    match simd {
+                        false => {
+                            (elev, grad_elev) = pc_ref.interpolate_field(
+                                FieldType::Elevation,
+                                &neighbours,
+                                &coords,
+                                0.01,
+                            );
+                            (intens, grad_intens) = pc_ref.interpolate_field(
+                                FieldType::Intensity,
+                                &neighbours,
+                                &coords,
+                                0.1,
+                            );
+                            (rn, grad_rn) = pc_ref.interpolate_field(
+                                FieldType::ReturnNumber,
+                                &neighbours,
+                                &coords,
+                                0.1,
+                            );
+                        }
+                        true => {
+                            (elev, grad_elev) = pc_ref.interpolate_field(
+                                FieldType::Elevation,
+                                &neighbours,
+                                &coords,
+                                0.01,
+                            );
+                            (intens, grad_intens) = pc_ref.interpolate_field(
+                                FieldType::Intensity,
+                                &neighbours,
+                                &coords,
+                                0.1,
+                            );
+                            (rn, grad_rn) = pc_ref.interpolate_field(
+                                FieldType::ReturnNumber,
+                                &neighbours,
+                                &coords,
+                                0.1,
+                            );
+                        }
+                    }
 
                     thread_sender.send((elev, y_index, x_index, 0)).unwrap();
                     thread_sender.send((intens, y_index, x_index, 1)).unwrap();

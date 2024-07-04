@@ -1,8 +1,7 @@
 use clap::Parser;
 /// Extract contours and open areas from a classified point cloud
 #[derive(Parser)]
-pub struct Args{
-
+pub struct Args {
     /// Path to input, accepts .las or .laz files
     #[arg(short, long)]
     pub in_file: String,
@@ -26,12 +25,16 @@ pub struct Args{
     /// Write elevation, intensity and return_number and their gradients to Tiff-files
     #[clap(short, long, action)]
     pub write_tiff: bool,
-    
+
     /// Compute the contours with formlines, defaults to no form lines
     #[clap(short, long, action)]
     pub form_lines: bool,
 
     /// Number of threads used in computation, defaults to 4
     #[arg(short, long, default_value_t = 4)]
-    pub threads: usize
+    pub threads: usize,
+
+    /// Use SIMD intrinsics, unstable but possible speed up
+    #[clap(long, action)]
+    pub simd: bool,
 }
