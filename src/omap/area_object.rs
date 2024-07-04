@@ -1,4 +1,4 @@
-use super::{MapObject, Tag};
+use super::{MapObject, Symbol, Tag};
 use crate::geometry::Polygon;
 use std::{
     fs::File,
@@ -6,13 +6,13 @@ use std::{
 };
 
 pub struct AreaObject {
-    symbol: u16,
+    symbol: Symbol,
     coordinates: Polygon,
     tags: Vec<Tag>,
 }
 
 impl AreaObject {
-    pub fn from_polygon(polygon: Polygon, symbol: u16) -> Self {
+    pub fn from_polygon(polygon: Polygon, symbol: Symbol) -> Self {
         Self {
             symbol: symbol,
             coordinates: polygon,
@@ -44,7 +44,7 @@ impl MapObject for AreaObject {
         f.write(format!("<coords count=\"{}\">", num_coords).as_bytes());
 
         for (i, coord) in self.coordinates.boundary.vertices.iter().enumerate() {
-            let c = coord.to_map_coordinates();
+            let c = coord.to_map_coordinates().unwrap();
 
             if i == boundary_length - 1 {
                 f.write(format!("{} {} 18;", c.0, c.1).as_bytes());
@@ -56,7 +56,7 @@ impl MapObject for AreaObject {
             let hole_length = hole.len();
 
             for (i, coord) in hole.vertices.iter().enumerate() {
-                let c = coord.to_map_coordinates();
+                let c = coord.to_map_coordinates().unwrap();
 
                 if i == hole_length - 1 {
                     f.write(format!("{} {} 18;", c.0, c.1).as_bytes());

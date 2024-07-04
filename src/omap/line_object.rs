@@ -1,5 +1,5 @@
-use super::{MapObject, Tag};
-use crate::geometry::Contour;
+use super::{MapObject, Symbol, Tag};
+use crate::geometry::Line;
 
 use std::{
     fs::File,
@@ -7,13 +7,13 @@ use std::{
 };
 
 pub struct LineObject {
-    symbol: u16,
-    coordinates: Contour,
+    symbol: Symbol,
+    coordinates: Line,
     tags: Vec<Tag>,
 }
 
 impl LineObject {
-    pub fn from_line(line: Contour, symbol: u16) -> Self {
+    pub fn from_line(line: Line, symbol: Symbol) -> Self {
         Self {
             symbol: symbol,
             coordinates: line,
@@ -39,7 +39,7 @@ impl MapObject for LineObject {
 
         f.write(format!("<coords count=\"{num_coords}\">").as_bytes());
         for (i, coord) in self.coordinates.vertices.iter().enumerate() {
-            let c = coord.to_map_coordinates();
+            let c = coord.to_map_coordinates().unwrap();
 
             if i == num_coords - 1 && self.coordinates.is_closed() {
                 f.write(format!("{} {} 18;", c.0, c.1).as_bytes());

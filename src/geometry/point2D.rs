@@ -1,4 +1,4 @@
-use super::{Point, Point5D};
+use super::{Line, Point, Point5D};
 
 use std::convert::From;
 use std::hash::{Hash, Hasher};
@@ -15,12 +15,35 @@ impl Point2D {
         Point2D { x, y }
     }
 
-    pub fn get_boundary_dist() {}
+    pub fn get_distance_along_hull(
+        &self,
+        other: &Point2D,
+        hull: &Line,
+    ) -> Result<f64, &'static str> {
+        a
+    }
 
-    pub fn get_box_edge_index() {}
+    pub fn to_map_coordinates(&self) -> Result<(i32, i32), &'static str> {
+        let x = (self.x * 1_000_000.).round();
+        let y = (self.y * 1_000_000.).round();
 
-    pub fn to_map_coordinates(&self) -> (i32, i32) {
-        (0, 0)
+        if (x > 2.0_f64.powi(32) - 1.) || (y > 2.0_f64.powi(32) - 1.) {
+            Err("map coordinate overflow, try a smaller laz file")
+        } else {
+            Ok((x as i32, y as i32))
+        }
+    }
+
+    pub fn on_edge_index(&self, hull: &Line, epsilon: f64) -> Result<usize, &'static str> {
+        let len = hull.vertices.len();
+        for i in 0..len {
+            if self.dist_to_line_squared(&hull.vertices[i], &hull.vertices[(i + 1) % len])
+                < epsilon.powi(2)
+            {
+                return Ok(i);
+            }
+        }
+        Err("The given point is not on the edge of the convex hull")
     }
 }
 
@@ -33,8 +56,8 @@ impl From<Point5D> for Point2D {
 // don't know if it works. Overflow prone.
 impl Hash for Point2D {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        ((self.x * 1_000_000.) as i64).hash(state);
-        ((self.y * 1_000_000.) as i64).hash(state);
+        ((self.x * 10_000_000.) as i64).hash(state);
+        ((self.y * 10_000_000.) as i64).hash(state);
     }
 }
 

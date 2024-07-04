@@ -1,14 +1,14 @@
 #![allow(dead_code)]
-use super::{Contour, Point2D};
+use super::{Line, Point2D};
 
 #[derive(Clone, Debug)]
 pub struct Polygon {
-    pub boundary: Contour,
-    pub holes: Vec<Contour>,
+    pub boundary: Line,
+    pub holes: Vec<Line>,
 }
 
 impl Polygon {
-    pub fn new(mut outer: Contour) -> Polygon {
+    pub fn new(mut outer: Line) -> Polygon {
         if !outer.is_closed() {
             outer.close();
         }
@@ -26,7 +26,7 @@ impl Polygon {
         self.holes.len() > 0
     }
 
-    pub fn add_hole(&mut self, mut hole: Contour) {
+    pub fn add_hole(&mut self, mut hole: Line) {
         if !hole.is_closed() {
             hole.close();
         }
@@ -57,13 +57,19 @@ impl Polygon {
     }
 
     pub fn from_contours(
-        mut contours: Vec<Contour>,
-        mut convex_hull: &Contour,
+        mut contours: Vec<Line>,
+        mut convex_hull: &Line,
         polygon_type: PolygonTrigger,
         min_size: f64,
     ) -> Vec<Polygon> {
         let mut polygons: Vec<Polygon> = Vec::new();
-        let mut unclosed_contours: Vec<Contour> = Vec::new();
+        let mut unclosed_contours: Vec<Line> = Vec::new();
+
+        if polygon_type == PolygonTrigger::Below {
+            for mut c in contours {
+                c.vertices.reverse();
+            }
+        }
 
         // filter out all unclosed contours
         let mut i: usize = 0;
@@ -75,59 +81,28 @@ impl Polygon {
             }
         }
 
-        // for each unclosed contour wander along the convex hull and merge with the first encountered unclosed contour
-        // Above => counterclockwise
-        // Below => clockwise
-        match polygon_type {
-            PolygonTrigger::Above => {
-                while unclosed_contours.len() > 0 {
-                    let mut best_neighbour = usize::MAX;
-                    let mut best_boundary_dist = f64::MAX;
-                    for (j, other) in unclosed_contours.iter().enumerate() {
-                        let dist = unclosed_contours[0]
-                            .last_vertex()
-                            .get_boundary_dist(other.first_vertex(), convex_hull)
-                            .unwrap();
-                        if dist < best_boundary_dist {
-                            best_neighbour = j;
-                            best_boundary_dist = dist;
-                        }
-                    }
-
-                    if best_neighbour == 0 {
-                        let mut contour = unclosed_contours.swap_remove(0);
-                        contour.close_by_boundary(convex_hull);
-                        contours.push(contour);
-                    } else {
-                        let mut other = unclosed_contours.swap_remove(best_neighbour);
-                        unclosed_contours[0].join_by_boundary(&mut other, &convex_hull);
-                    }
+        // for each unclosed contour wander ccw along the convex hull and merge with the first encountered unclosed contour
+        while unclosed_contours.len() > 0 {
+            let mut best_neighbour = usize::MAX;
+            let mut best_boundary_dist = f64::MAX;
+            for (j, other) in unclosed_contours.iter().enumerate() {
+                let dist = unclosed_contours[0]
+                    .last_vertex()
+                    .get_distance_along_hull(other.first_vertex(), convex_hull)
+                    .unwrap();
+                if dist < best_boundary_dist {
+                    best_neighbour = j;
+                    best_boundary_dist = dist;
                 }
             }
-            PolygonTrigger::Below => {
-                while unclosed_contours.len() > 0 {
-                    let mut best_neighbour = usize::MAX;
-                    let mut best_boundary_dist = f64::MAX;
-                    for (j, other) in unclosed_contours.iter().enumerate() {
-                        let dist = unclosed_contours[0]
-                            .last_vertex()
-                            .get_boundary_dist(other.first_vertex(), convex_hull)
-                            .unwrap();
-                        if dist < best_boundary_dist {
-                            best_neighbour = j;
-                            best_boundary_dist = dist;
-                        }
-                    }
 
-                    if best_neighbour == 0 {
-                        let mut contour = unclosed_contours.swap_remove(0);
-                        contour.close_by_boundary(convex_hull);
-                        contours.push(contour);
-                    } else {
-                        let mut other = unclosed_contours.swap_remove(best_neighbour);
-                        unclosed_contours[0].join_by_boundary(&mut other, &convex_hull);
-                    }
-                }
+            if best_neighbour == 0 {
+                let mut contour = unclosed_contours.swap_remove(0);
+                contour.close_by_hull(convex_hull);
+                contours.push(contour);
+            } else {
+                let mut other = unclosed_contours.swap_remove(best_neighbour);
+                unclosed_contours[0].append_by_hull(other, &convex_hull);
             }
         }
 
@@ -135,7 +110,7 @@ impl Polygon {
         i = 0;
         while i < contours.len() {
             let contour = &contours[i];
-            let area: f64 = polygon_type as i32 as f64 * contour.signed_area().unwrap();
+            let area: f64 = contour.signed_area().unwrap();
             if area > -min_size / 10. && area < min_size {
                 contours.swap_remove(i);
             } else if area >= min_size {
@@ -144,6 +119,13 @@ impl Polygon {
             } else {
                 i += 1;
             }
+        }
+
+        // a background polygon must to be added if only holes exist
+        if polygons.len() == 0 {
+            let mut outer = convex_hull.clone();
+            outer.close();
+            polygons.push(Polygon::new(outer));
         }
 
         // add the holes to the polygons
@@ -159,7 +141,7 @@ impl Polygon {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PolygonTrigger {
     Above = 1,
     Below = -1,

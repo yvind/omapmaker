@@ -1,4 +1,4 @@
-use crate::geometry::{Contour, Point2D};
+use crate::geometry::{Line, Point2D};
 
 use rustc_hash::FxHashMap as HashMap;
 use std::{fs::File, io::BufWriter, io::Write};
@@ -62,7 +62,7 @@ impl Dfm {
         return Ok(());
     }
 
-    pub fn marching_squares(&self, level: f64) -> Result<Vec<Contour>, &'static str> {
+    pub fn marching_squares(&self, level: f64) -> Result<Vec<Line>, &'static str> {
         /*
             0       1
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
@@ -72,8 +72,8 @@ impl Dfm {
             3       2
         */
         let dem = &self.field;
-        let mut contour_by_end: HashMap<Point2D, Contour> = HashMap::default();
-        let mut contour_by_start: HashMap<Point2D, Contour> = HashMap::default();
+        let mut contour_by_end: HashMap<Point2D, Line> = HashMap::default();
+        let mut contour_by_start: HashMap<Point2D, Line> = HashMap::default();
         let lut: [[usize; 2]; 16] = [
             [0, 0],
             [3, 0],
@@ -163,8 +163,8 @@ impl Dfm {
                         {
                             // join two existing contours
 
-                            let mut contour: Contour = contour_by_end.remove(&vertex1).unwrap();
-                            let mut contour2: Contour = contour_by_start.remove(&vertex2).unwrap();
+                            let mut contour: Line = contour_by_end.remove(&vertex1).unwrap();
+                            let mut contour2: Line = contour_by_start.remove(&vertex2).unwrap();
 
                             if contour == contour2 {
                                 // close a contour (joining a contour with it self)
@@ -172,7 +172,7 @@ impl Dfm {
                                 contour_by_end.insert(vertex2, contour);
                             } else {
                                 // join two different contours
-                                contour.append(&mut contour2);
+                                contour.append(contour2);
 
                                 let end_vertex = contour.last_vertex();
                                 let start_vertex = contour.first_vertex();
@@ -205,8 +205,7 @@ impl Dfm {
                             && !contour_by_start.contains_key(&vertex2)
                         {
                             // start a new contour
-                            let contour: Contour =
-                                Contour::new(level, vertex1.clone(), vertex2.clone());
+                            let contour: Line = Line::new(vertex1.clone(), vertex2.clone());
 
                             contour_by_end.insert(vertex2, contour.clone());
                             contour_by_start.insert(vertex1, contour);

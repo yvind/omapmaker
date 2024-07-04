@@ -1,4 +1,4 @@
-use super::{MapObject, Tag};
+use super::{MapObject, Symbol, Tag};
 use crate::geometry::Point2D;
 use std::{
     fs::File,
@@ -6,14 +6,14 @@ use std::{
 };
 
 pub struct PointObject {
-    symbol: u16,
+    symbol: Symbol,
     coordinates: Point2D,
     rotation: f64,
     tags: Vec<Tag>,
 }
 
 impl PointObject {
-    fn from_point(coordinates: Point2D, symbol: u16, rotation: f64) -> Self {
+    fn from_point(coordinates: Point2D, symbol: Symbol, rotation: f64) -> Self {
         Self {
             symbol,
             coordinates,
@@ -42,7 +42,7 @@ impl MapObject for PointObject {
     }
 
     fn write_coords(&self, f: &BufWriter<File>) {
-        let c = self.coordinates.to_map_coordinates();
+        let c = self.coordinates.to_map_coordinates().unwrap();
         f.write(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes());
     }
 

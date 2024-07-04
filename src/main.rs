@@ -5,15 +5,21 @@ mod omap;
 mod parser;
 
 use dfm::{Dfm, FieldType};
-use geometry::{Contour, Point2D, Point5D, PointCloud5D, Polygon, PolygonTrigger};
-use omap::{AreaObject, LineObject, MapObject, Omap};
+use geometry::{Line, Point2D, Point5D, PointCloud5D, Polygon, PolygonTrigger};
+use omap::{AreaObject, LineObject, MapObject, Omap, Symbol};
 use parser::Args;
 
 use clap::Parser;
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::{point::Classification, Bounds, Read, Reader};
 use rand::random;
-use std::{fs, path::Path, time::Instant};
+use std::{
+    fs,
+    path::Path,
+    sync::{mpsc, Arc},
+    thread,
+    time::Instant,
+};
 
 fn main() {
     // read inputs
@@ -29,8 +35,9 @@ fn main() {
     };
     let cell_size = args.grid_size;
     let basemap_interval = args.basemap_contours;
+    let num_threads: usize = if args.threads > 1 { args.threads } else { 1 };
 
-    assert!(contour_interval > 0.);
+    assert!(contour_interval >= 1.);
 
     // create output folder and open laz file
 
@@ -87,7 +94,7 @@ fn main() {
     );
 
     println!("Building KD-tree...");
-    let point_cloud: ImmutableKdTree<f64, usize, 2, 32> =
+    let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 
     // Compute DFMs using multiple threads
@@ -100,55 +107,104 @@ fn main() {
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };
-    let convex_hull: Contour = xyzir.bounded_convex_hull(cell_size, &map_bounds);
+    let convex_hull: Line = xyzir.bounded_convex_hull(cell_size, &map_bounds);
 
     let num_neighbours = 32;
 
-    let mut dem: Dfm = Dfm::new(width, height, tl, cell_size);
-    let mut grad_dem: Dfm = Dfm::new(width, height, tl, cell_size);
-    let mut drm: Dfm = Dfm::new(width, height, tl, cell_size);
-    let mut grad_drm: Dfm = Dfm::new(width, height, tl, cell_size);
-    let mut dim: Dfm = Dfm::new(width, height, tl, cell_size);
-    let mut grad_dim: Dfm = Dfm::new(width, height, tl, cell_size);
+    let mut dem = Dfm::new(width, height, tl, cell_size);
+    let mut grad_dem = Dfm::new(width, height, tl, cell_size);
+    let mut drm = Dfm::new(width, height, tl, cell_size);
+    let mut grad_drm = Dfm::new(width, height, tl, cell_size);
+    let mut dim = Dfm::new(width, height, tl, cell_size);
+    let mut grad_dim = Dfm::new(width, height, tl, cell_size);
 
-    for y in 0..height {
-        for x in 0..width {
-            let coords: Point2D = dem.index2coord(x, y).unwrap();
-            if !convex_hull.contains(&coords).unwrap() {
-                continue;
+    let mut thread_handles = vec![];
+
+    let pt_arc = Arc::new(point_tree);
+    let pc_arc = Arc::new(xyzir);
+    let ch_arc = Arc::new(convex_hull);
+    let dem_arc = Arc::new(dem);
+
+    let (sender, receiver) = mpsc::channel();
+
+    for i in 0..num_threads {
+        let pt_ref = pt_arc.clone();
+        let pc_ref = pc_arc.clone();
+        let ch_ref = ch_arc.clone();
+        let dem_ref = dem_arc.clone();
+
+        let thread_sender = sender.clone();
+
+        thread_handles.push(thread::spawn(move || -> () {
+            let mut y_index = i;
+
+            while y_index < height {
+                for x_index in 0..width {
+                    let coords: Point2D = dem_ref.index2coord(x_index, y_index).unwrap();
+                    if !ch_ref.contains(&coords).unwrap() {
+                        continue;
+                    }
+
+                    // slow due to very many lookups
+                    let nearest_n =
+                        pt_ref.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);
+                    let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();
+
+                    // slow due to matrix inversion
+                    // gradients are almost for free
+                    let (elev, grad_elev) =
+                        pc_ref.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.01);
+                    let (intens, grad_intens) =
+                        pc_ref.interpolate_field(FieldType::Intensity, &neighbours, &coords, 0.1);
+                    let (rn, grad_rn) = pc_ref.interpolate_field(
+                        FieldType::ReturnNumber,
+                        &neighbours,
+                        &coords,
+                        0.1,
+                    );
+
+                    thread_sender.send((elev, y_index, x_index, 0)).unwrap();
+                    thread_sender.send((intens, y_index, x_index, 1)).unwrap();
+                    thread_sender.send((rn, y_index, x_index, 2)).unwrap();
+                    thread_sender
+                        .send((grad_elev, y_index, x_index, 3))
+                        .unwrap();
+                    thread_sender
+                        .send((grad_intens, y_index, x_index, 4))
+                        .unwrap();
+                    thread_sender.send((grad_rn, y_index, x_index, 5)).unwrap();
+                }
+
+                y_index += num_threads;
             }
+            drop(thread_sender);
+        }));
+    }
+    drop(sender);
 
-            // slow due to very many lookups
-            let nearest_n =
-                point_cloud.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);
-            let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();
-
-            // slow due to matrix inversion
-            // gradients are almost for free
-            let (elev, grad_elev) =
-                xyzir.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.01);
-            let (intens, grad_intens) =
-                xyzir.interpolate_field(FieldType::Intensity, &neighbours, &coords, 0.1);
-            let (rn, grad_rn) =
-                xyzir.interpolate_field(FieldType::ReturnNumber, &neighbours, &coords, 0.1);
-
-            dem.field[y][x] = elev;
-            grad_dem.field[y][x] = grad_elev;
-            dim.field[y][x] = intens;
-            grad_dim.field[y][x] = grad_intens;
-            drm.field[y][x] = rn;
-            grad_drm.field[y][x] = grad_rn;
+    for (value, yi, xi, ii) in receiver.iter() {
+        match ii {
+            0 => dem.field[yi][xi] = value,
+            1 => dim.field[yi][xi] = value,
+            2 => drm.field[yi][xi] = value,
+            3 => grad_dem.field[yi][xi] = value,
+            4 => grad_dim.field[yi][xi] = value,
+            _ => grad_drm.field[yi][xi] = value,
         }
+    }
+
+    for t in thread_handles {
+        t.join().unwrap();
     }
     println!("Elapsed time in DFM generation: {:?}", now.elapsed());
 
-    // create map and the objects and add them to the map
+    // create map and the map objects and add them to the map
 
     let mut map = Omap::new(file_stem, &output_directory.as_str(), ref_point);
 
     println!("Computing contours...");
 
-    if basemap_interval > 0. {
+    if basemap_interval >= 0.1 {
         println!("Computing basemap contours...");
 
         let bm_levels = ((las_bounds.max.z - las_bounds.min.z) / basemap_interval).ceil() as u64;
@@ -159,7 +215,7 @@ fn main() {
             let bm_contours = dem.marching_squares(bm_level).unwrap();
 
             for bm_c in bm_contours {
-                let bm_object = LineObject::from_line(bm_c, 2);
+                let bm_object = LineObject::from_line(bm_c, Symbol::BasemapContour);
                 bm_object.add_auto_tag();
                 bm_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
 
@@ -174,7 +230,7 @@ fn main() {
         Polygon::from_contours(yellow_contours, &convex_hull, PolygonTrigger::Below, 225.);
 
     for polygon in yellow_polygons {
-        let yellow_object = AreaObject::from_polygon(polygon, 79);
+        let yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
         map.add_object(yellow_object);
     }
 

@@ -1,4 +1,4 @@
-use super::{Contour, Point, Point2D, Point5D};
+use super::{Line, Point, Point2D, Point5D};
 use crate::dfm::FieldType;
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 
@@ -52,12 +52,9 @@ impl PointCloud5D {
         (width as usize, height as usize, dfm_bounds)
     }
 
-    pub fn bounded_convex_hull(&self, cell_size: f64, bounds: &Bounds) -> Contour {
+    pub fn bounded_convex_hull(&self, cell_size: f64, bounds: &Bounds) -> Line {
         let mut convex_hull = self.convex_hull();
-        let mut hull_contour: Contour = Contour {
-            elevation: f64::MIN,
-            vertices: vec![],
-        };
+        let mut hull_contour: Line = Line { vertices: vec![] };
 
         for mut point in convex_hull {
             if point.x - cell_size <= bounds.min.x {
@@ -73,7 +70,6 @@ impl PointCloud5D {
 
             hull_contour.push(point.into())
         }
-        hull_contour.close();
         hull_contour
     }
 
