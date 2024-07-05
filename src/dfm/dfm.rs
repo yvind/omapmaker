@@ -39,12 +39,13 @@ impl Dfm {
 
     pub fn index2coord(&self, xi: usize, yi: usize) -> Result<Point2D, &'static str> {
         if xi >= self.width || yi >= self.height {
-            return Err("Index out of bounds for DFM coordinate");
+            Err("Index out of bounds for DFM coordinate")
+        } else {
+            Ok(Point2D {
+                x: xi as f64 * self.cell_size + self.tl_coord.x,
+                y: self.tl_coord.y - yi as f64 * self.cell_size,
+            })
         }
-        return Ok(Point2D {
-            x: xi as f64 * self.cell_size + self.tl_coord.x,
-            y: self.tl_coord.y - yi as f64 * self.cell_size,
-        });
     }
 
     pub fn adjust(

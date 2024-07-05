@@ -28,14 +28,14 @@ impl PointCloud5D {
     }
 
     pub fn get_dfm_dimensions(&self, cell_size: f64) -> (usize, usize, Bounds) {
-        let dx: f64 = self.bounds.max.x - self.bounds.min.x;
-        let dy: f64 = self.bounds.max.y - self.bounds.min.y;
+        let dx = self.bounds.max.x - self.bounds.min.x;
+        let dy = self.bounds.max.y - self.bounds.min.y;
 
-        let width: f64 = (dx / cell_size).round() + 1.;
-        let height: f64 = (dy / cell_size).round() + 1.;
+        let width = (dx / cell_size).round() + 1.;
+        let height = (dy / cell_size).round() + 1.;
 
-        let offset_x: f64 = (dx - (width - 1.) * cell_size) / 2.;
-        let offset_y: f64 = (dy - (height - 1.) * cell_size) / 2.;
+        let offset_x = (dx - (width - 1.) * cell_size) / 2.;
+        let offset_y = (dy - (height - 1.) * cell_size) / 2.;
 
         let dfm_bounds: Bounds = Bounds {
             min: Vector {

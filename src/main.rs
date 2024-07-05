@@ -39,7 +39,7 @@ fn main() {
     let basemap_interval = args.basemap_contours;
     let num_threads: usize = if args.threads > 1 { args.threads } else { 1 };
 
-    let simd = args.simd;
+    let _simd = args.simd;
 
     let dist_to_hull_epsilon = cell_size / 2.;
 
@@ -62,17 +62,22 @@ fn main() {
     // read laz file and build pointcloud and KD-tree
 
     let header = las_reader.header();
-    let las_bounds: Bounds = header.bounds();
+    let mut las_bounds: Bounds = header.bounds();
     println!("Number of points: {:?}", header.number_of_points());
     println!("Point cloud {:?}", las_bounds);
 
     let ref_point = Point2D {
-        x: (las_bounds.min.x + las_bounds.max.x) / 2.0,
-        y: (las_bounds.min.y + las_bounds.max.y) / 2.0,
+        x: ((las_bounds.min.x + las_bounds.max.x) / 2.).round(),
+        y: ((las_bounds.min.y + las_bounds.max.y) / 2.).round(),
     };
 
+    las_bounds.max.x -= ref_point.x;
+    las_bounds.min.x -= ref_point.x;
+    las_bounds.max.y -= ref_point.y;
+    las_bounds.min.y -= ref_point.y;
+
     println!("Filtering points...");
-    let mut xyzir: PointCloud5D = PointCloud5D::new(
+    let mut xyzir = PointCloud5D::new(
         las_reader
             .points()
             .map(|r| r.unwrap())
@@ -80,8 +85,10 @@ fn main() {
                 (p.classification == Classification::Ground
                     || p.classification == Classification::Water)
                     .then(|| Point5D {
-                        x: p.x + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.x,
-                        y: p.y + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.y,
+                        x: p.x + 2. * ((random::<f64>() * 10_000.).round() / 10_000. - 0.5) / 1000.
+                            - ref_point.x,
+                        y: p.y + 2. * ((random::<f64>() * 10_000.).round() / 10_000. - 0.5) / 1000.
+                            - ref_point.y,
                         z: p.z,
                         i: p.intensity as u32,
                         r: p.return_number as u8,
@@ -99,10 +106,6 @@ fn main() {
         xyzir.len() as f64 / sqm
     );
 
-    println!("Building KD-tree...");
-    let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
-        ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
-
     // Compute DFMs using multiple threads
 
     println!("Computing DFMs...");
@@ -114,7 +117,8 @@ fn main() {
         y: map_bounds.max.y,
     };
     let convex_hull: Line = xyzir.bounded_convex_hull(cell_size, &map_bounds);
-    println!("{:?}", convex_hull);
+    println!("{:#?}", map_bounds);
+    println!("{:#?}", convex_hull);
 
     let mut closed_hull = convex_hull.clone();
     closed_hull.close();
@@ -129,6 +133,9 @@ fn main() {
     let mut grad_dim = Dfm::new(width, height, tl, cell_size);
 
     let mut thread_handles = vec![];
+
+    let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
+        ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 
     let pt_arc = Arc::new(point_tree);
     let pc_arc = Arc::new(xyzir);
@@ -162,55 +169,16 @@ fn main() {
 
                     // slow due to matrix inversion
                     // gradients are almost for free
-                    let elev;
-                    let grad_elev;
-                    let intens;
-                    let grad_intens;
-                    let rn;
-                    let grad_rn;
-
-                    match simd {
-                        false => {
-                            (elev, grad_elev) = pc_ref.interpolate_field(
-                                FieldType::Elevation,
-                                &neighbours,
-                                &coords,
-                                0.01,
-                            );
-                            (intens, grad_intens) = pc_ref.interpolate_field(
-                                FieldType::Intensity,
-                                &neighbours,
-                                &coords,
-                                0.1,
-                            );
-                            (rn, grad_rn) = pc_ref.interpolate_field(
-                                FieldType::ReturnNumber,
-                                &neighbours,
-                                &coords,
-                                0.1,
-                            );
-                        }
-                        true => {
-                            (elev, grad_elev) = pc_ref.interpolate_field(
-                                FieldType::Elevation,
-                                &neighbours,
-                                &coords,
-                                0.01,
-                            );
-                            (intens, grad_intens) = pc_ref.interpolate_field(
-                                FieldType::Intensity,
-                                &neighbours,
-                                &coords,
-                                0.1,
-                            );
-                            (rn, grad_rn) = pc_ref.interpolate_field(
-                                FieldType::ReturnNumber,
-                                &neighbours,
-                                &coords,
-                                0.1,
-                            );
-                        }
-                    }
+                    let (elev, grad_elev) =
+                        pc_ref.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.01);
+                    let (intens, grad_intens) =
+                        pc_ref.interpolate_field(FieldType::Intensity, &neighbours, &coords, 0.1);
+                    let (rn, grad_rn) = pc_ref.interpolate_field(
+                        FieldType::ReturnNumber,
+                        &neighbours,
+                        &coords,
+                        0.1,
+                    );
 
                     thread_sender.send((elev, y_index, x_index, 0)).unwrap();
                     thread_sender.send((intens, y_index, x_index, 1)).unwrap();
