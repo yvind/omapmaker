@@ -1,7 +1,5 @@
 use super::{Point, Point2D};
 
-use std::hash::{Hash, Hasher};
-
 #[derive(Clone, Debug)]
 pub struct Line {
     pub vertices: Vec<Point2D>,
@@ -161,6 +159,17 @@ impl Line {
                 i += 1;
             }
         }
+
+        if self.is_closed() {
+            if self.vertices[0]
+                .dist_to_line_squared(&self.vertices[self.vertices.len() - 2], &self.vertices[1])
+                < epsilon.powi(2)
+            {
+                self.vertices.remove(0);
+                self.vertices.remove(self.vertices.len() - 1);
+                self.close();
+            }
+        }
     }
 }
 
@@ -168,13 +177,6 @@ impl Eq for Line {}
 
 impl PartialEq for Line {
     fn eq(&self, other: &Line) -> bool {
-        self.first_vertex() == other.last_vertex() && self.last_vertex() == other.first_vertex()
-    }
-}
-
-impl Hash for Line {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.first_vertex().hash(state);
-        self.last_vertex().hash(state);
+        self.first_vertex() == other.first_vertex() && self.last_vertex() == other.last_vertex()
     }
 }

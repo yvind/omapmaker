@@ -1,4 +1,4 @@
-use super::{Line, Point, Point2D, Point5D};
+use super::{Line, Point, Point2D, PointLaz};
 use crate::dfm::FieldType;
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 
@@ -6,14 +6,14 @@ use las::{Bounds, Vector};
 use std::cmp::Ordering;
 
 #[derive(Clone)]
-pub struct PointCloud5D {
-    pub points: Vec<Point5D>,
+pub struct PointCloud {
+    pub points: Vec<PointLaz>,
     pub bounds: Bounds,
 }
 
-impl PointCloud5D {
-    pub fn new(v: Vec<Point5D>, b: Bounds) -> PointCloud5D {
-        PointCloud5D {
+impl PointCloud {
+    pub fn new(v: Vec<PointLaz>, b: Bounds) -> Self {
+        Self {
             points: v,
             bounds: b,
         }
@@ -31,21 +31,21 @@ impl PointCloud5D {
         let dx = self.bounds.max.x - self.bounds.min.x;
         let dy = self.bounds.max.y - self.bounds.min.y;
 
-        let width = (dx / cell_size).round() + 1.;
-        let height = (dy / cell_size).round() + 1.;
+        let width = (dx / cell_size).trunc() + 1.;
+        let height = (dy / cell_size).trunc() + 1.;
 
-        let offset_x = (dx - (width - 1.) * cell_size) / 2.;
-        let offset_y = (dy - (height - 1.) * cell_size) / 2.;
+        let offset_x = (width * cell_size - dx) / 2.;
+        let offset_y = (height * cell_size - dy) / 2.;
 
-        let dfm_bounds: Bounds = Bounds {
+        let dfm_bounds = Bounds {
             min: Vector {
-                x: self.bounds.min.x + offset_x,
-                y: self.bounds.min.y + offset_y,
+                x: self.bounds.min.x - offset_x,
+                y: self.bounds.min.y - offset_y,
                 z: 0.,
             },
             max: Vector {
-                x: self.bounds.max.x - offset_x,
-                y: self.bounds.max.y - offset_y,
+                x: self.bounds.max.x + offset_x,
+                y: self.bounds.max.y + offset_y,
                 z: 0.,
             },
         };
@@ -70,12 +70,14 @@ impl PointCloud5D {
 
             hull_contour.push(point.into())
         }
+        hull_contour.close();
+
         hull_contour.simplify(cell_size);
         hull_contour
     }
 
-    fn convex_hull(&mut self) -> Vec<Point5D> {
-        let point_compare_position = |a: &&Point5D, b: &&Point5D| -> Ordering {
+    fn convex_hull(&mut self) -> Vec<PointLaz> {
+        let point_compare_position = |a: &PointLaz, b: &PointLaz| -> Ordering {
             if a.y == b.y {
                 a.x.partial_cmp(&b.x).unwrap_or(Ordering::Equal)
             } else {
@@ -83,14 +85,20 @@ impl PointCloud5D {
             }
         };
 
-        let most_south_west_point = self
-            .points
-            .iter()
-            .min_by(point_compare_position)
-            .unwrap()
-            .clone();
+        self.points.sort_by(point_compare_position);
 
-        let point_compare_angle = |a: &Point5D, b: &Point5D| -> Ordering {
+        let mut most_south_west_point = PointLaz::new(0., 0., 0., 0, 0, 0, 0);
+        for point in self.points.iter() {
+            if point.c == 2 {
+                most_south_west_point = point.clone();
+                break;
+            }
+        }
+        if most_south_west_point.n == 0 {
+            panic!("No ground points in the pointcloud");
+        }
+
+        let point_compare_angle = |a: &PointLaz, b: &PointLaz| -> Ordering {
             let orientation = most_south_west_point.consecutive_orientation(a, b);
             if orientation < 0.0 {
                 Ordering::Greater
@@ -104,13 +112,24 @@ impl PointCloud5D {
         };
         self.points.sort_by(point_compare_angle);
 
-        let mut convex_hull: Vec<Point5D> = vec![];
+        let mut convex_hull: Vec<PointLaz> = vec![];
 
         convex_hull.push(most_south_west_point.clone());
-        convex_hull.push(self.points[0].clone());
+
+        let mut skip_to = 1;
+        for (i, point) in self.points.iter().skip(0).enumerate() {
+            if point.c == 2 {
+                convex_hull.push(point.clone());
+                skip_to = i;
+                break;
+            }
+        }
 
         let mut hull_head = 1;
-        for point in self.points.iter().skip(1) {
+        for point in self.points.iter().skip(skip_to) {
+            if point.c != 2 {
+                continue;
+            }
             if most_south_west_point.consecutive_orientation(point, &convex_hull[hull_head]) == 0.0
             {
                 continue;

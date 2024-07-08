@@ -1,7 +1,6 @@
-use super::{Line, Point, Point5D};
+use super::{Line, Point, PointLaz};
 
 use std::convert::From;
-use std::hash::{Hash, Hasher};
 use std::ops::{Add, Sub};
 
 #[derive(Copy, Clone, Debug)]
@@ -53,8 +52,11 @@ impl Point2D {
     }
 
     pub fn to_map_coordinates(&self) -> Result<(i32, i32), &'static str> {
-        let x = (self.x * 1_000_000.).round();
-        let y = (self.y * 1_000_000.).round();
+        // 1_000 map units = 15m
+        // 1_000 / 15 = 66.66...
+
+        let x = (self.x * 66.66666).round();
+        let y = -(self.y * 66.66666).round();
 
         if (x > 2.0_f64.powi(32) - 1.) || (y > 2.0_f64.powi(32) - 1.) {
             Err("map coordinate overflow, try a smaller laz file")
@@ -76,17 +78,9 @@ impl Point2D {
     }
 }
 
-impl From<Point5D> for Point2D {
-    fn from(p5: Point5D) -> Point2D {
+impl From<PointLaz> for Point2D {
+    fn from(p5: PointLaz) -> Point2D {
         Point2D::new(p5.x, p5.y)
-    }
-}
-
-// don't know if it works. Overflow prone.
-impl Hash for Point2D {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        ((self.x * 10_000_000.) as i64).hash(state);
-        ((self.y * 10_000_000.) as i64).hash(state);
     }
 }
 
@@ -94,13 +88,7 @@ impl Eq for Point2D {}
 
 impl PartialEq for Point2D {
     fn eq(&self, other: &Self) -> bool {
-        if (self.x - other.x).abs() > f64::EPSILON * 2.0 {
-            false
-        } else if (self.y - other.y).abs() > f64::EPSILON * 2.0 {
-            false
-        } else {
-            true
-        }
+        self.x == other.x && self.y == other.y
     }
 }
 
@@ -142,9 +130,6 @@ impl Point for Point2D {
     fn dist_to_line_squared(&self, a: &Self, b: &Self) -> f64 {
         let diff = *b - *a;
 
-        (self.cross_product(&diff) + b.cross_product(a))
-            .abs()
-            .powi(2)
-            / b.squared_euclidean_distance(a)
+        (self.cross_product(&diff) + b.cross_product(a)).powi(2) / b.squared_euclidean_distance(a)
     }
 }

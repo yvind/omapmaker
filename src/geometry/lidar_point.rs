@@ -3,26 +3,36 @@ use super::Point;
 use std::ops::{Add, Sub};
 
 #[derive(Copy, Clone, Debug)]
-pub struct Point5D {
+pub struct PointLaz {
     pub x: f64,
     pub y: f64,
     pub z: f64,
     pub r: u8,
     pub i: u32,
+    pub c: u8,
+    pub n: u8,
 }
 
-impl Point5D {
-    pub fn new(x: f64, y: f64, z: f64, r: u8, i: u32) -> Self {
-        Point5D { x, y, z, r, i }
+impl PointLaz {
+    pub fn new(x: f64, y: f64, z: f64, r: u8, i: u32, c: u8, n: u8) -> Self {
+        PointLaz {
+            x,
+            y,
+            z,
+            r,
+            i,
+            c,
+            n,
+        }
     }
 }
 
-impl Point for Point5D {
-    fn squared_euclidean_distance(&self, b: &Point5D) -> f64 {
+impl Point for PointLaz {
+    fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
         (self.x - b.x).powi(2) + (self.y - b.y).powi(2)
     }
 
-    fn consecutive_orientation(&self, a: &Point5D, b: &Point5D) -> f64 {
+    fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64 {
         (a.x - self.x) * (b.y - self.y) - (a.y - self.y) * (b.x - self.x)
     }
 
@@ -40,7 +50,7 @@ impl Point for Point5D {
     }
 }
 
-impl Add for Point5D {
+impl Add for PointLaz {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -50,11 +60,13 @@ impl Add for Point5D {
             z: self.z + rhs.z,
             r: self.r,
             i: self.i,
+            c: self.c,
+            n: self.n,
         }
     }
 }
 
-impl Sub for Point5D {
+impl Sub for PointLaz {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -64,6 +76,8 @@ impl Sub for Point5D {
             z: self.z - rhs.z,
             r: self.r,
             i: self.i,
+            c: self.c,
+            n: self.n,
         }
     }
 }

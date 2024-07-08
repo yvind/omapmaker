@@ -63,18 +63,81 @@ impl Dfm {
         return Ok(());
     }
 
+    fn get_edge_index(&self, point: &Point2D) -> Option<usize> {
+        let p0 = Point2D::new(point.x - self.tl_coord.x, self.tl_coord.y - point.y);
+
+        if p0.x < 0.
+            || p0.x > self.width as f64 * self.cell_size
+            || p0.y < 0.
+            || p0.y > self.height as f64 * self.cell_size
+        {
+            return None;
+        }
+
+        let mut dx = p0.x / self.cell_size;
+        let mut dy = p0.y / self.cell_size;
+
+        let x = dx.trunc();
+        let y = dy.trunc();
+
+        let xi = x as usize;
+        let yi = y as usize;
+
+        dx -= x + 0.5;
+        dy -= y + 0.5;
+
+        let ei;
+        if dx > 0. && dy > 0. {
+            // right or top edge
+            if dx > dy {
+                ei = 1;
+            } else {
+                ei = 0;
+            }
+        } else if dx > 0. {
+            // right or bottom edge
+            if dx > dy.abs() {
+                ei = 1;
+            } else {
+                ei = 2;
+            }
+        } else if dy > 0. {
+            // left or top edge
+            if dy > dx.abs() {
+                ei = 0;
+            } else {
+                ei = 3;
+            }
+        } else {
+            // left or bottom edge
+            if dy.abs() > dx.abs() {
+                ei = 2;
+            } else {
+                ei = 3;
+            }
+        }
+
+        match ei {
+            0 => return Some(yi * (2 * self.width + 1) + xi),
+            1 => return Some(yi * (2 * self.width + 1) + (xi + 1) + self.width),
+            2 => return Some((yi + 1) * (2 * self.width + 1) + xi),
+            3 => return Some(yi * (2 * self.width + 1) + xi + self.width),
+            _ => panic!("edge index out of bounds: {ei} not in [0, 3]"),
+        }
+    }
+
     pub fn marching_squares(&self, level: f64) -> Result<Vec<Line>, &'static str> {
         /*
             0       1
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
             |       |   the lut gives which directed edge that should be crossed by the contour as corner indecies of the start and end corner
             |       |   performs linear interpolation based on the corner values of the crossed edges
-            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handled seperately)
+            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handeled seperately)
             3       2
         */
         let dem = &self.field;
-        let mut contour_by_end: HashMap<Point2D, Line> = HashMap::default();
-        let mut contour_by_start: HashMap<Point2D, Line> = HashMap::default();
+        let mut contour_by_end: HashMap<usize, Line> = HashMap::default();
+        let mut contour_by_start: HashMap<usize, Line> = HashMap::default();
         let lut: [[usize; 2]; 16] = [
             [0, 0],
             [3, 0],
@@ -102,8 +165,8 @@ impl Dfm {
 
                 if dem[ys[0]][xs[0]].is_nan()
                     || dem[ys[1]][xs[1]].is_nan()
-                    || dem[ys[1]][xs[1]].is_nan()
-                    || dem[ys[1]][xs[1]].is_nan()
+                    || dem[ys[2]][xs[2]].is_nan()
+                    || dem[ys[3]][xs[3]].is_nan()
                 {
                     continue;
                 }
@@ -159,57 +222,62 @@ impl Dfm {
                         let vertex1 = coordinates[0];
                         let vertex2 = coordinates[1];
 
-                        if contour_by_end.contains_key(&vertex1)
-                            && contour_by_start.contains_key(&vertex2)
+                        let key1 = self.get_edge_index(&vertex1).unwrap();
+                        let key2 = self.get_edge_index(&vertex2).unwrap();
+
+                        if contour_by_end.contains_key(&key1)
+                            && contour_by_start.contains_key(&key2)
                         {
                             // join two existing contours
 
-                            let mut contour: Line = contour_by_end.remove(&vertex1).unwrap();
-                            let contour2: Line = contour_by_start.remove(&vertex2).unwrap();
+                            let mut contour: Line = contour_by_end.remove(&key1).unwrap();
+                            let contour2: Line = contour_by_start.remove(&key2).unwrap();
 
                             if contour == contour2 {
                                 // close a contour (joining a contour with it self)
+
                                 contour.close();
-                                contour_by_end.insert(vertex2, contour);
+                                contour_by_end.insert(key2, contour);
                             } else {
                                 // join two different contours
                                 contour.append(contour2);
 
-                                let end_vertex = contour.last_vertex();
-                                let start_vertex = contour.first_vertex();
+                                let end_key = self.get_edge_index(contour.last_vertex()).unwrap();
+                                let start_key =
+                                    self.get_edge_index(contour.first_vertex()).unwrap();
 
-                                contour_by_end.remove(end_vertex).unwrap(); // unwrapping to cause a panic if logic fails
-                                contour_by_start.remove(start_vertex).unwrap();
+                                contour_by_end.remove(&end_key).unwrap(); // unwrapping to cause a panic if logic fails
+                                contour_by_start.remove(&start_key).unwrap();
 
-                                contour_by_end.insert(*end_vertex, contour.clone());
-                                contour_by_start.insert(*start_vertex, contour);
+                                contour_by_end.insert(end_key, contour.clone());
+                                contour_by_start.insert(start_key, contour);
                             }
-                        } else if let Some(mut contour) = contour_by_end.remove(&vertex1) {
+                        } else if let Some(mut contour) = contour_by_end.remove(&key1) {
                             // append to an existing contour
                             contour.push(vertex2.clone());
 
-                            let start_vertex = contour.first_vertex();
-                            contour_by_start.remove(start_vertex).unwrap();
+                            let start_key = self.get_edge_index(contour.first_vertex()).unwrap();
+                            contour_by_start.remove(&start_key).unwrap();
 
-                            contour_by_end.insert(vertex2, contour.clone());
-                            contour_by_start.insert(*start_vertex, contour);
-                        } else if let Some(mut contour) = contour_by_start.remove(&vertex2) {
+                            contour_by_end.insert(key2, contour.clone());
+                            contour_by_start.insert(start_key, contour);
+                        } else if let Some(mut contour) = contour_by_start.remove(&key2) {
                             // prepend to an existing contour
                             contour.prepend(vertex1.clone());
 
-                            let end_vertex = contour.last_vertex();
-                            contour_by_end.remove(end_vertex).unwrap();
+                            let end_key = self.get_edge_index(contour.last_vertex()).unwrap();
+                            contour_by_end.remove(&end_key).unwrap();
 
-                            contour_by_start.insert(vertex1, contour.clone());
-                            contour_by_end.insert(*end_vertex, contour);
-                        } else if !contour_by_end.contains_key(&vertex1)
-                            && !contour_by_start.contains_key(&vertex2)
+                            contour_by_start.insert(key1, contour.clone());
+                            contour_by_end.insert(end_key, contour);
+                        } else if !contour_by_end.contains_key(&key1)
+                            && !contour_by_start.contains_key(&key2)
                         {
                             // start a new contour
                             let contour: Line = Line::new(vertex1.clone(), vertex2.clone());
 
-                            contour_by_end.insert(vertex2, contour.clone());
-                            contour_by_start.insert(vertex1, contour);
+                            contour_by_end.insert(key2, contour.clone());
+                            contour_by_start.insert(key1, contour);
                         } else {
                             panic!("Contour generation failed. Logic error...");
                         }
@@ -220,7 +288,7 @@ impl Dfm {
         return Ok(contour_by_end.into_values().collect());
     }
 
-    pub fn write_to_tiff(&self, filename: String, output_directory: &str) {
+    pub fn write_to_tiff(&self, filename: String, output_directory: &str, ref_point: &Point2D) {
         let tiff_path = format!("{}/{}.tiff", output_directory, filename);
         let tfw_path = format!("{}/{}.tfw", output_directory, filename);
 
@@ -243,7 +311,10 @@ impl Dfm {
         tfw.write(
             format!(
                 "{}\n0\n0\n-{}\n{}\n{}",
-                self.cell_size, self.cell_size, self.tl_coord.x, self.tl_coord.y
+                self.cell_size,
+                self.cell_size,
+                self.tl_coord.x + ref_point.x,
+                self.tl_coord.y + ref_point.y
             )
             .as_bytes(),
         )
