@@ -82,8 +82,9 @@ fn main() {
             .points()
             .map(|r| r.unwrap())
             .filter_map(|p| {
-                (p.classification == Classification::Ground
+                ((p.classification == Classification::Ground
                     || p.classification == Classification::Water)
+                    && !p.is_withheld)
                     .then(|| PointLaz {
                         x: p.x + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.x,
                         y: p.y + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.y,
@@ -172,13 +173,16 @@ fn main() {
     }
 
     println!("Computing yellow...");
-    let yellow_contours = drm.marching_squares(1.2).unwrap();
+    let yellow_level = 1.2;
+    let yellow_contours = drm.marching_squares(yellow_level).unwrap();
+    let yellow_hint = drm.field[drm.width / 2][drm.height / 2] > yellow_level;
     let yellow_polygons = Polygon::from_contours(
         yellow_contours,
         &convex_hull,
         PolygonTrigger::Below,
         225.,
         dist_to_hull_epsilon,
+        yellow_hint,
     );
 
     for polygon in yellow_polygons {

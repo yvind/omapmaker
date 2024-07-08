@@ -62,12 +62,24 @@ impl Polygon {
         polygon_type: PolygonTrigger,
         min_size: f64,
         epsilon: f64,
+        hint: bool,
     ) -> Vec<Polygon> {
         let mut polygons: Vec<Polygon> = Vec::new();
         let mut unclosed_contours: Vec<Line> = Vec::new();
 
         let mut unclosed_hull = convex_hull.clone();
         unclosed_hull.pop();
+
+        if contours.is_empty() {
+            // everywhere is either above or below the limit
+            // needs to use the hint to classify everywhere correctly
+            if polygon_type as i8 * (2 * hint as i8 - 1) > 0 {
+                let mut outer = unclosed_hull.clone();
+                outer.close();
+                polygons.push(Polygon::new(outer));
+            }
+            return polygons;
+        }
 
         if polygon_type == PolygonTrigger::Below {
             for c in contours.iter_mut() {
@@ -99,6 +111,8 @@ impl Polygon {
                     best_boundary_dist = dist;
                 }
             }
+
+            println!("{best_neighbour}: {best_boundary_dist}");
 
             if best_neighbour == 0 {
                 let mut contour = unclosed_contours.swap_remove(0);
