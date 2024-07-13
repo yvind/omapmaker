@@ -37,4 +37,7 @@ pub struct Args {
     /// Use SIMD intrinsics, unstable but possible speed up
     #[clap(long, action)]
     pub simd: bool,
+
+    #[clap(long, action)]
+    pub simplify: bool,
 }

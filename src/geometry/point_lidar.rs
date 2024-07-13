@@ -48,6 +48,27 @@ impl Point for PointLaz {
             .powi(2)
             / b.squared_euclidean_distance(a)
     }
+
+    fn dot(&self, other: &PointLaz) -> f64 {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn norm(self) -> Self {
+        let l = self.length();
+        Self {
+            x: self.x / l,
+            y: self.y / l,
+            z: self.z,
+            r: self.r,
+            i: self.i,
+            c: self.c,
+            n: self.n,
+        }
+    }
+
+    fn length(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
 }
 
 impl Add for PointLaz {

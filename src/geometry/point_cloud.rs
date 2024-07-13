@@ -41,31 +41,36 @@ impl PointCloud {
             min: Vector {
                 x: self.bounds.min.x - offset_x,
                 y: self.bounds.min.y - offset_y,
-                z: 0.,
+                z: self.bounds.min.z,
             },
             max: Vector {
                 x: self.bounds.max.x + offset_x,
                 y: self.bounds.max.y + offset_y,
-                z: 0.,
+                z: self.bounds.max.z,
             },
         };
-        (width as usize, height as usize, dfm_bounds)
+        (width as usize + 1, height as usize + 1, dfm_bounds)
     }
 
-    pub fn bounded_convex_hull(&mut self, cell_size: f64, bounds: &Bounds) -> Line {
+    pub fn bounded_convex_hull(
+        &mut self,
+        cell_size: f64,
+        dfm_bounds: &Bounds,
+        epsilon: f64,
+    ) -> Line {
         let convex_hull = self.convex_hull();
         let mut hull_contour: Line = Line { vertices: vec![] };
 
         for mut point in convex_hull {
-            if (bounds.min.x - point.x).abs() <= 2. * cell_size {
-                point.x = bounds.min.x;
-            } else if (bounds.max.x - point.x).abs() <= 2. * cell_size {
-                point.x = bounds.max.x;
+            if (dfm_bounds.min.x - point.x).abs() <= epsilon {
+                point.x = dfm_bounds.min.x;
+            } else if (dfm_bounds.max.x - point.x).abs() <= epsilon {
+                point.x = dfm_bounds.max.x;
             }
-            if (bounds.min.y - point.y).abs() <= 2. * cell_size {
-                point.y = bounds.min.y;
-            } else if (bounds.max.y - point.y).abs() <= 2. * cell_size {
-                point.y = bounds.max.y;
+            if (dfm_bounds.min.y - point.y).abs() <= epsilon {
+                point.y = dfm_bounds.min.y;
+            } else if (dfm_bounds.max.y - point.y).abs() <= epsilon {
+                point.y = dfm_bounds.max.y;
             }
 
             hull_contour.push(point.into())

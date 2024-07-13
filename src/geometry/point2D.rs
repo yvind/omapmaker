@@ -35,7 +35,7 @@ impl Point2D {
             }
         }
 
-        let range = Line::get_range_on_convex_hull(last_index, first_index, length);
+        let range = Line::get_range_on_hull(last_index, first_index, length);
 
         let mut dist = 0.;
 
@@ -69,12 +69,24 @@ impl Point2D {
         let len = hull.vertices.len();
         for i in 0..len {
             if self.dist_to_line_squared(&hull.vertices[i], &hull.vertices[(i + 1) % len])
-                < epsilon.powi(2)
+                < epsilon * epsilon
             {
                 return Ok(i);
             }
         }
         Err("The given point is not on the edge of the convex hull")
+    }
+
+    pub fn closest_point_on_line(&self, a: &Point2D, b: &Point2D) -> Point2D {
+        let v = (*b - *a).norm();
+        let s = *self - *a;
+
+        let image = s.dot(&v);
+
+        Point2D {
+            x: v.x * image + a.x,
+            y: v.y * image + a.y,
+        }
     }
 }
 
@@ -131,5 +143,21 @@ impl Point for Point2D {
         let diff = *b - *a;
 
         (self.cross_product(&diff) + b.cross_product(a)).powi(2) / b.squared_euclidean_distance(a)
+    }
+
+    fn dot(&self, other: &Point2D) -> f64 {
+        self.x * other.x + self.y * other.y
+    }
+
+    fn norm(self) -> Self {
+        let l = self.length();
+        Point2D {
+            x: self.x / l,
+            y: self.y / l,
+        }
+    }
+
+    fn length(&self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 }

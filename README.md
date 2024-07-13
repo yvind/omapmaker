@@ -20,25 +20,25 @@ Optional arguments:
 
     -simd, passing this flag enables intrinsics (unstable, but possible speed ups)
 
+    -simplify, passing this flag simplifies the geometries, makes smaller file sizes
+
 To do:
-
-    -c <contour_interval>, contour interval in meters of output map, default value 5.0
-
-    -f, passing this flag adds formlines to the output map
 
     add building detection
 
     add water detection
 
-    add road/path detection
-
     add stream detection
 
     add marsh detection
 
-    -sep, passing this flag seperates the basemap contours to its own omap file
+    add green detection
 
-    -simplify, passing this flag simplifies the geometries, makes smaller file sizes
+    -c <contour_interval>, contour interval in meters of output map, default value 5.0
+
+    -f, passing this flag adds formlines to the output map
+
+    add road/path detection
 
     -bezier, passing this flag converts all geometries to bezier curves, makes smaller file sizes
 

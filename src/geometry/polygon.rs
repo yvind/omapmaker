@@ -18,6 +18,13 @@ impl Polygon {
         }
     }
 
+    pub fn simplify(&mut self, epsilon: f64) {
+        self.boundary.simplify(epsilon);
+        for hole in self.holes.iter_mut() {
+            hole.simplify(epsilon);
+        }
+    }
+
     pub fn parts(&self) -> usize {
         self.holes.len() + 1
     }
@@ -111,8 +118,6 @@ impl Polygon {
                     best_boundary_dist = dist;
                 }
             }
-
-            println!("{best_neighbour}: {best_boundary_dist}");
 
             if best_neighbour == 0 {
                 let mut contour = unclosed_contours.swap_remove(0);

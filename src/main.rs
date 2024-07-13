@@ -41,17 +41,19 @@ fn main() {
 
     let _simd = args.simd;
 
+    let simplify_epsilon = 0.1 * args.simplify as u8 as f64;
+
     let dist_to_hull_epsilon = 2. * cell_size;
 
     assert!(contour_interval >= 1.);
 
     // create output folder and open laz file
 
-    if !(output_directory == "./".to_string()) {
+    if !(output_directory == "./".to_string()) && !Path::new(&output_directory).exists() {
         fs::create_dir_all(&output_directory).expect("Could not create output folder");
     }
 
-    let mut las_reader = Reader::from_path(&las_path).expect("Could not read givem laz/las file");
+    let mut las_reader = Reader::from_path(&las_path).expect("Could not read given laz/las file");
 
     let file_stem = Path::new(las_path.file_name().unwrap())
         .file_stem()
@@ -117,12 +119,12 @@ fn main() {
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };
-    let convex_hull: Line = xyzir.bounded_convex_hull(cell_size, &map_bounds);
+    let convex_hull: Line =
+        xyzir.bounded_convex_hull(cell_size, &map_bounds, dist_to_hull_epsilon * 2.);
     let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 
     // Compute DFMs using multiple threads
-
     println!("Computing DFMs...");
     let now = Instant::now();
 
@@ -169,12 +171,18 @@ fn main() {
             basemap_interval,
             &dem,
             &mut map,
+            simplify_epsilon,
         );
     }
 
     println!("Computing yellow...");
     let yellow_level = 1.2;
-    let yellow_contours = drm.marching_squares(yellow_level).unwrap();
+    let mut yellow_contours = drm.marching_squares(yellow_level).unwrap();
+
+    for yc in yellow_contours.iter_mut() {
+        yc.fix_to_hull(&convex_hull, dist_to_hull_epsilon);
+    }
+
     let yellow_hint = drm.field[drm.width / 2][drm.height / 2] > yellow_level;
     let yellow_polygons = Polygon::from_contours(
         yellow_contours,
@@ -185,8 +193,12 @@ fn main() {
         yellow_hint,
     );
 
-    for polygon in yellow_polygons {
-        let yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
+    for mut polygon in yellow_polygons {
+        if simplify_epsilon > 0. {
+            polygon.simplify(simplify_epsilon);
+        }
+        let mut yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
+        yellow_object.add_auto_tag();
         map.add_object(yellow_object);
     }
 
@@ -263,15 +275,11 @@ fn compute_dfms_multithread(
                     // slow due to matrix inversion
                     // gradients are almost for free
                     let (elev, grad_elev) =
-                        pc_ref.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.01);
+                        pc_ref.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.5);
                     let (intens, grad_intens) =
-                        pc_ref.interpolate_field(FieldType::Intensity, &neighbours, &coords, 0.1);
-                    let (rn, grad_rn) = pc_ref.interpolate_field(
-                        FieldType::ReturnNumber,
-                        &neighbours,
-                        &coords,
-                        0.1,
-                    );
+                        pc_ref.interpolate_field(FieldType::Intensity, &neighbours, &coords, 1.);
+                    let (rn, grad_rn) =
+                        pc_ref.interpolate_field(FieldType::ReturnNumber, &neighbours, &coords, 1.);
 
                     thread_sender.send((elev, y_index, x_index, 0)).unwrap();
                     thread_sender.send((intens, y_index, x_index, 1)).unwrap();
@@ -315,6 +323,7 @@ fn compute_basemap_contours_multithread(
     basemap_interval: f64,
     dem_arc: &Arc<Dfm>,
     map: &mut Omap,
+    simplify_epsilon: f64,
 ) {
     let bm_levels = ((max_z - min_z) / basemap_interval).ceil() as usize;
 
@@ -332,7 +341,13 @@ fn compute_basemap_contours_multithread(
             while c_index < bm_levels {
                 let bm_level = c_index as f64 * basemap_interval + min_z.floor();
 
-                let bm_contours = dem_ref.marching_squares(bm_level).unwrap();
+                let mut bm_contours = dem_ref.marching_squares(bm_level).unwrap();
+
+                if simplify_epsilon > 0. {
+                    for c in bm_contours.iter_mut() {
+                        c.simplify(simplify_epsilon)
+                    }
+                }
 
                 thread_sender.send((bm_contours, bm_level)).unwrap();
 

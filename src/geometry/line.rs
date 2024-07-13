@@ -34,8 +34,6 @@ impl Line {
         let first_vertex = self.first_vertex();
         let last_vertex = self.last_vertex();
 
-        let length = convex_hull.len();
-
         let last_index = last_vertex.on_edge_index(&convex_hull, epsilon)?;
         let first_index = first_vertex.on_edge_index(&convex_hull, epsilon)?;
 
@@ -50,7 +48,7 @@ impl Line {
             }
         }
 
-        for i in Line::get_range_on_convex_hull(last_index, first_index, length) {
+        for i in Line::get_range_on_hull(last_index, first_index, convex_hull.len()) {
             self.vertices.push(convex_hull.vertices[i]);
         }
         self.close();
@@ -58,16 +56,12 @@ impl Line {
         Ok(())
     }
 
-    pub fn get_range_on_convex_hull(
-        last_index: usize,
-        first_index: usize,
-        length: usize,
-    ) -> Vec<usize> {
+    pub fn get_range_on_hull(last_index: usize, first_index: usize, length: usize) -> Vec<usize> {
         if last_index < first_index {
             (last_index + 1..first_index + 1).collect()
         } else {
             let mut out = (last_index + 1..length).collect::<Vec<usize>>();
-            out.append(&mut (0..first_index + 1).collect::<Vec<usize>>());
+            out.extend((0..first_index + 1).collect::<Vec<usize>>());
             out
         }
     }
@@ -113,7 +107,7 @@ impl Line {
         let self_index = last_self.on_edge_index(convex_hull, epsilon).unwrap();
         let other_index = first_other.on_edge_index(convex_hull, epsilon).unwrap();
 
-        let range = Self::get_range_on_convex_hull(self_index, other_index, convex_hull.len());
+        let range = Self::get_range_on_hull(self_index, other_index, convex_hull.len());
 
         for i in range {
             self.push(convex_hull.vertices[i]);
@@ -170,6 +164,34 @@ impl Line {
                 self.close();
             }
         }
+    }
+
+    pub fn fix_to_hull(&mut self, hull: &Line, epsilon: f64) {
+        if self.is_closed() {
+            return;
+        } else if self
+            .last_vertex()
+            .squared_euclidean_distance(self.first_vertex())
+            < epsilon * epsilon
+        {
+            self.close();
+            return;
+        }
+
+        let first_index = self.first_vertex().on_edge_index(hull, epsilon).unwrap();
+        let last_index = self.first_vertex().on_edge_index(hull, epsilon).unwrap();
+
+        let first_add = self.first_vertex().closest_point_on_line(
+            &hull.vertices[first_index],
+            &hull.vertices[(first_index + 1) % hull.len()],
+        );
+        let last_add = self.last_vertex().closest_point_on_line(
+            &hull.vertices[last_index],
+            &hull.vertices[(last_index + 1) % hull.len()],
+        );
+
+        self.prepend(first_add);
+        self.push(last_add);
     }
 }
 

@@ -200,27 +200,27 @@ impl Dfm {
                     edge_indices = lut[index].to_vec();
                 }
 
-                let mut coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
+                let mut corner_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
                 for (i, e) in edge_indices.iter().enumerate() {
                     let a = dem[ys[*e]][xs[*e]];
                     let b = dem[ys[(*e + 1) % 4]][xs[(*e + 1) % 4]];
 
-                    let xy: Point2D = self.index2coord(xs[*e], ys[*e])?;
+                    let cell_center = self.index2coord(xs[*e], ys[*e])?;
 
-                    coordinates[i % 2].x = xy.x
+                    corner_coordinates[i % 2].x = cell_center.x
                         + self.cell_size
                             * (xs[(*e + 1) % 4] as i32 - xs[*e] as i32) as f64
                             * (level - a)
                             / (b - a);
-                    coordinates[i % 2].y = xy.y
+                    corner_coordinates[i % 2].y = cell_center.y
                         + self.cell_size
                             * (ys[*e] as i32 - ys[(*e + 1) % 4] as i32) as f64
                             * (level - a)
                             / (b - a);
 
                     if i % 2 == 1 {
-                        let vertex1 = coordinates[0];
-                        let vertex2 = coordinates[1];
+                        let vertex1 = corner_coordinates[0];
+                        let vertex2 = corner_coordinates[1];
 
                         let key1 = self.get_edge_index(&vertex1).unwrap();
                         let key2 = self.get_edge_index(&vertex2).unwrap();
