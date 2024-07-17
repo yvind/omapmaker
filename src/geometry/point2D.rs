@@ -14,19 +14,35 @@ impl Point2D {
         Point2D { x, y }
     }
 
-    pub fn get_distance_along_hull(
+    pub fn get_distance_along_line_square_sum(
         &self,
         other: &Point2D,
-        convex_hull: &Line,
+        line: &Line,
         epsilon: f64,
     ) -> Result<f64, &'static str> {
-        let length = convex_hull.len();
+        let length = line.len();
 
-        let last_index = self.on_edge_index(&convex_hull, epsilon)?;
-        let first_index = other.on_edge_index(&convex_hull, epsilon)?;
+        let last_index = self.on_edge_index(&line, epsilon)?;
+        let first_index = other.on_edge_index(&line, epsilon)?;
+
+        if !line.is_closed() {
+            if last_index > first_index {
+                return Err("The other point is before the first point on the line");
+            }
+
+            if last_index == first_index {
+                let prev_vertex = &line.vertices[first_index];
+
+                if self.squared_euclidean_distance(prev_vertex)
+                    > other.squared_euclidean_distance(prev_vertex)
+                {
+                    return Err("The other point is before the first point on the line");
+                }
+            }
+        }
 
         if last_index == first_index {
-            let prev_vertex = &convex_hull.vertices[first_index];
+            let prev_vertex = &line.vertices[first_index];
 
             if self.squared_euclidean_distance(prev_vertex)
                 <= other.squared_euclidean_distance(prev_vertex)
@@ -35,13 +51,13 @@ impl Point2D {
             }
         }
 
-        let range = Line::get_range_on_hull(last_index, first_index, length);
+        let range = Line::get_range_on_line(last_index, first_index, length);
 
         let mut dist = 0.;
 
         let mut prev_vertex = self;
         for i in range {
-            let next_vertex = &convex_hull.vertices[i];
+            let next_vertex = &line.vertices[i];
 
             dist += prev_vertex.squared_euclidean_distance(next_vertex);
             prev_vertex = next_vertex;
@@ -67,26 +83,14 @@ impl Point2D {
 
     pub fn on_edge_index(&self, hull: &Line, epsilon: f64) -> Result<usize, &'static str> {
         let len = hull.vertices.len();
-        for i in 0..len {
-            if self.dist_to_line_squared(&hull.vertices[i], &hull.vertices[(i + 1) % len])
+        for i in 0..len - 1 {
+            if self.dist_to_line_segment_squared(&hull.vertices[i], &hull.vertices[i + 1])
                 < epsilon * epsilon
             {
                 return Ok(i);
             }
         }
-        Err("The given point is not on the edge of the convex hull")
-    }
-
-    pub fn closest_point_on_line(&self, a: &Point2D, b: &Point2D) -> Point2D {
-        let v = (*b - *a).norm();
-        let s = *self - *a;
-
-        let image = s.dot(&v);
-
-        Point2D {
-            x: v.x * image + a.x,
-            y: v.y * image + a.y,
-        }
+        Err("The given point is not on the the line")
     }
 }
 
@@ -127,6 +131,21 @@ impl Sub for Point2D {
 }
 
 impl Point for Point2D {
+    fn closest_point_on_line_segment(&self, a: &Point2D, b: &Point2D) -> Point2D {
+        let diff = *b - *a;
+        let len = diff.length();
+
+        let v = diff.norm();
+        let s = *self - *a;
+
+        let image = s.dot(&v).max(0.).min(len);
+
+        Point2D {
+            x: a.x + v.x * image,
+            y: a.y + v.y * image,
+        }
+    }
+
     fn consecutive_orientation(&self, a: &Point2D, b: &Point2D) -> f64 {
         (*a - *self).cross_product(&(*b - *self))
     }
@@ -139,10 +158,8 @@ impl Point for Point2D {
         self.x * other.y - other.x * self.y
     }
 
-    fn dist_to_line_squared(&self, a: &Self, b: &Self) -> f64 {
-        let diff = *b - *a;
-
-        (self.cross_product(&diff) + b.cross_product(a)).powi(2) / b.squared_euclidean_distance(a)
+    fn dist_to_line_segment_squared(&self, a: &Self, b: &Self) -> f64 {
+        self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
     }
 
     fn dot(&self, other: &Point2D) -> f64 {
@@ -159,5 +176,126 @@ impl Point for Point2D {
 
     fn length(&self) -> f64 {
         (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn normal(self) -> Self {
+        Self {
+            x: self.y,
+            y: -self.x,
+        }
+    }
+
+    fn scale(self, l: f64) -> Self {
+        Point2D {
+            x: self.x * l,
+            y: self.y * l,
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn on_edge_index_middle() -> Result<(), &'static str> {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+
+        line.push(Point2D::new(0.1, 1.2));
+        line.push(Point2D::new(1.1, 2.2));
+        line.push(Point2D::new(0.1, 3.2));
+        line.push(Point2D::new(-1.1, 1.2));
+        line.push(line.vertices[0].clone());
+
+        let point = Point2D::new(0.7, 1.6);
+
+        assert_eq!(point.on_edge_index(&line, 0.2)?, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn on_edge_index_first() -> Result<(), &'static str> {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+
+        line.push(Point2D::new(0.1, 1.2));
+        line.push(Point2D::new(1.1, 2.2));
+        line.push(Point2D::new(0.1, 3.2));
+        line.push(Point2D::new(-1.1, 1.2));
+        line.push(line.vertices[0].clone());
+
+        let point = Point2D::new(-0.75, -1.1);
+
+        assert_eq!(point.on_edge_index(&line, 0.2)?, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn on_edge_index_last() -> Result<(), &'static str> {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+
+        line.push(Point2D::new(0.1, 1.2));
+        line.push(Point2D::new(1.1, 2.2));
+        line.push(Point2D::new(0.1, 3.2));
+        line.push(Point2D::new(-1.1, 1.2));
+        line.push(line.vertices[0].clone());
+
+        let point = Point2D::new(-1.05, 0.);
+
+        assert_eq!(point.on_edge_index(&line, 0.2)?, 5);
+        Ok(())
+    }
+
+    #[test]
+    fn distance_along_line_closed() -> Result<(), &'static str> {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+
+        line.push(Point2D::new(1., 1.));
+        line.push(Point2D::new(1., -1.));
+        line.push(line.vertices[0].clone());
+
+        let point = Point2D::new(-1., 0.);
+        let other = Point2D::new(-1., -0.1);
+
+        assert_eq!(
+            point.get_distance_along_line_square_sum(&other, &line, 0.1)?,
+            13.81
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn distance_along_line_open() -> Result<(), &'static str> {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+
+        line.push(Point2D::new(1., 1.));
+        line.push(Point2D::new(1., -1.));
+
+        let point = Point2D::new(-1., 0.);
+        let other = Point2D::new(1., 0.);
+
+        assert_eq!(
+            point.get_distance_along_line_square_sum(&other, &line, 0.1)?,
+            6.
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "The other point is before the first point on the line")]
+    fn distance_along_line_open_panic() {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+
+        line.push(Point2D::new(1., 1.));
+        line.push(Point2D::new(1., -1.));
+
+        let other = Point2D::new(-1., 0.);
+        let point = Point2D::new(1., 0.);
+
+        let a = point.get_distance_along_line_square_sum(&other, &line, 0.1);
+
+        match a {
+            Err(e) => panic!("{}", e),
+            Ok(t) => assert_eq!(t, 6.),
+        }
     }
 }

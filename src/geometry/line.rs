@@ -26,19 +26,19 @@ impl Line {
 
     pub fn close(&mut self) {
         if !self.is_closed() {
-            self.vertices.push(*self.first_vertex());
+            self.vertices.push(self.first_vertex().clone());
         }
     }
 
-    pub fn close_by_hull(&mut self, convex_hull: &Line, epsilon: f64) -> Result<(), &'static str> {
+    pub fn close_by_line(&mut self, line: &Line, epsilon: f64) -> Result<(), &'static str> {
         let first_vertex = self.first_vertex();
         let last_vertex = self.last_vertex();
 
-        let last_index = last_vertex.on_edge_index(&convex_hull, epsilon)?;
-        let first_index = first_vertex.on_edge_index(&convex_hull, epsilon)?;
+        let last_index = last_vertex.on_edge_index(&line, epsilon)?;
+        let first_index = first_vertex.on_edge_index(&line, epsilon)?;
 
         if last_index == first_index {
-            let prev_vertex = &convex_hull.vertices[first_index];
+            let prev_vertex = &line.vertices[first_index];
 
             if last_vertex.squared_euclidean_distance(prev_vertex)
                 <= first_vertex.squared_euclidean_distance(prev_vertex)
@@ -48,19 +48,23 @@ impl Line {
             }
         }
 
-        for i in Line::get_range_on_hull(last_index, first_index, convex_hull.len()) {
-            self.vertices.push(convex_hull.vertices[i]);
+        if !line.is_closed() && last_index >= first_index {
+            return Err("The other point is before the first point on the open line");
+        }
+
+        for i in Line::get_range_on_line(last_index, first_index, line.len()) {
+            self.vertices.push(line.vertices[i]);
         }
         self.close();
 
         Ok(())
     }
 
-    pub fn get_range_on_hull(last_index: usize, first_index: usize, length: usize) -> Vec<usize> {
+    pub fn get_range_on_line(last_index: usize, first_index: usize, length: usize) -> Vec<usize> {
         if last_index < first_index {
             (last_index + 1..first_index + 1).collect()
         } else {
-            let mut out = (last_index + 1..length).collect::<Vec<usize>>();
+            let mut out = (last_index + 1..length - 1).collect::<Vec<usize>>();
             out.extend((0..first_index + 1).collect::<Vec<usize>>());
             out
         }
@@ -100,19 +104,40 @@ impl Line {
         self.vertices.extend(other.vertices);
     }
 
-    pub fn append_by_hull(&mut self, other: Line, convex_hull: &Line, epsilon: f64) {
+    pub fn append_by_line(
+        &mut self,
+        other: Line,
+        line: &Line,
+        epsilon: f64,
+    ) -> Result<(), &'static str> {
         let last_self = self.last_vertex();
         let first_other = other.first_vertex();
 
-        let self_index = last_self.on_edge_index(convex_hull, epsilon).unwrap();
-        let other_index = first_other.on_edge_index(convex_hull, epsilon).unwrap();
+        let self_index = last_self.on_edge_index(line, epsilon)?;
+        let other_index = first_other.on_edge_index(line, epsilon)?;
 
-        let range = Self::get_range_on_hull(self_index, other_index, convex_hull.len());
+        if self_index == other_index {
+            let prev_vertex = &line.vertices[self_index];
+
+            if last_self.squared_euclidean_distance(prev_vertex)
+                <= first_other.squared_euclidean_distance(prev_vertex)
+            {
+                self.append(other);
+                return Ok(());
+            }
+        }
+
+        if !line.is_closed() && self_index >= other_index {
+            return Err("The other point is before the first point on the open line");
+        }
+
+        let range = Self::get_range_on_line(self_index, other_index, line.len());
 
         for i in range {
-            self.push(convex_hull.vertices[i]);
+            self.push(line.vertices[i]);
         }
         self.append(other);
+        Ok(())
     }
 
     pub fn last_vertex(&self) -> &Point2D {
@@ -145,7 +170,8 @@ impl Line {
     pub fn simplify(&mut self, epsilon: f64) {
         let mut i = 1;
         while i < self.len() - 1 {
-            if self.vertices[i].dist_to_line_squared(&self.vertices[i - 1], &self.vertices[i + 1])
+            if self.vertices[i]
+                .dist_to_line_segment_squared(&self.vertices[i - 1], &self.vertices[i + 1])
                 < epsilon.powi(2)
             {
                 self.vertices.remove(i);
@@ -155,9 +181,10 @@ impl Line {
         }
 
         if self.is_closed() {
-            if self.vertices[0]
-                .dist_to_line_squared(&self.vertices[self.vertices.len() - 2], &self.vertices[1])
-                < epsilon.powi(2)
+            if self.vertices[0].dist_to_line_segment_squared(
+                &self.vertices[self.vertices.len() - 2],
+                &self.vertices[1],
+            ) < epsilon.powi(2)
             {
                 self.vertices.remove(0);
                 self.vertices.remove(self.vertices.len() - 1);
@@ -166,7 +193,7 @@ impl Line {
         }
     }
 
-    pub fn fix_to_hull(&mut self, hull: &Line, epsilon: f64) {
+    pub fn fix_ends_to_line(&mut self, line: &Line, epsilon: f64) {
         if self.is_closed() {
             return;
         } else if self
@@ -178,20 +205,80 @@ impl Line {
             return;
         }
 
-        let first_index = self.first_vertex().on_edge_index(hull, epsilon).unwrap();
-        let last_index = self.first_vertex().on_edge_index(hull, epsilon).unwrap();
+        let first_index = self.first_vertex().on_edge_index(line, epsilon).unwrap();
+        let last_index = self.last_vertex().on_edge_index(line, epsilon).unwrap();
 
-        let first_add = self.first_vertex().closest_point_on_line(
-            &hull.vertices[first_index],
-            &hull.vertices[(first_index + 1) % hull.len()],
+        let first_add = self.first_vertex().closest_point_on_line_segment(
+            &line.vertices[first_index],
+            &line.vertices[(first_index + 1) % line.len()],
         );
-        let last_add = self.last_vertex().closest_point_on_line(
-            &hull.vertices[last_index],
-            &hull.vertices[(last_index + 1) % hull.len()],
+        let last_add = self.last_vertex().closest_point_on_line_segment(
+            &line.vertices[last_index],
+            &line.vertices[(last_index + 1) % line.len()],
         );
 
         self.prepend(first_add);
         self.push(last_add);
+    }
+
+    pub fn dilate(&mut self, epsilon: f64) {
+        if !self.is_closed() {
+            return;
+        }
+
+        let len = self.len();
+
+        let mut normals = Vec::with_capacity(len);
+
+        let mut prev_vertex = self.vertices[len - 2];
+        for i in 0..len - 1 {
+            let this_vertex = self.vertices[i];
+            let next_vertex = self.vertices[i + 1];
+
+            let n1 = (this_vertex - prev_vertex).normal();
+            let n2 = (next_vertex - this_vertex).normal();
+
+            let normal = (n1 + n2).norm();
+
+            normals.push(normal.scale(epsilon));
+            prev_vertex = this_vertex;
+        }
+        normals.push(normals[0]);
+
+        for (i, p) in self.vertices.iter_mut().enumerate() {
+            p.x += normals[i].x;
+            p.y += normals[i].y;
+        }
+    }
+
+    pub fn erode(&mut self, epsilon: f64) {
+        if !self.is_closed() {
+            return;
+        }
+
+        let len = self.len();
+
+        let mut normals = Vec::with_capacity(len);
+
+        let mut prev_vertex = self.vertices[len - 2];
+        for i in 0..len - 1 {
+            let this_vertex = self.vertices[i];
+            let next_vertex = self.vertices[i + 1];
+
+            let n1 = (this_vertex - prev_vertex).normal();
+            let n2 = (next_vertex - this_vertex).normal();
+
+            let normal = (n1 + n2).norm();
+
+            normals.push(normal.scale(epsilon));
+            prev_vertex = this_vertex;
+        }
+        normals.push(normals[0]);
+
+        for (i, p) in self.vertices.iter_mut().enumerate() {
+            p.x -= normals[i].x;
+            p.y -= normals[i].y;
+        }
     }
 }
 
@@ -200,5 +287,37 @@ impl Eq for Line {}
 impl PartialEq for Line {
     fn eq(&self, other: &Line) -> bool {
         self.first_vertex() == other.first_vertex() && self.last_vertex() == other.last_vertex()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_fix_to_line() {
+        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(1., -1.));
+
+        line.push(Point2D::new(1., 1.));
+        line.push(Point2D::new(-1., 1.));
+        line.push(Point2D::new(-1., -1.));
+
+        let mut contour = Line::new(Point2D::new(-0.95, 0.), Point2D::new(0., 0.));
+        contour.push(Point2D::new(0., 0.95));
+
+        contour.fix_ends_to_line(&line, 0.1);
+
+        assert!(
+            contour
+                .first_vertex()
+                .squared_euclidean_distance(&Point2D::new(-1., 0.))
+                < 0.05 * 0.05
+        );
+        assert!(
+            contour
+                .last_vertex()
+                .squared_euclidean_distance(&Point2D::new(0., 1.))
+                < 0.05 * 0.05
+        );
     }
 }

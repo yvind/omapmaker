@@ -28,6 +28,26 @@ impl PointLaz {
 }
 
 impl Point for PointLaz {
+    fn closest_point_on_line_segment(&self, a: &PointLaz, b: &PointLaz) -> PointLaz {
+        let diff = *b - *a;
+        let len = diff.length();
+
+        let v = diff.norm();
+        let s = *self - *a;
+
+        let image = s.dot(&v).max(0.).min(len);
+
+        PointLaz {
+            x: a.x + v.x * image,
+            y: a.y + v.y * image,
+            z: a.z,
+            r: a.r,
+            i: a.i,
+            c: a.c,
+            n: a.n,
+        }
+    }
+
     fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
         (self.x - b.x).powi(2) + (self.y - b.y).powi(2)
     }
@@ -40,13 +60,8 @@ impl Point for PointLaz {
         self.x * other.y - other.x * self.y
     }
 
-    fn dist_to_line_squared(&self, a: &Self, b: &Self) -> f64 {
-        let diff = *b - *a;
-
-        (self.cross_product(&diff) + b.cross_product(a))
-            .abs()
-            .powi(2)
-            / b.squared_euclidean_distance(a)
+    fn dist_to_line_segment_squared(&self, a: &Self, b: &Self) -> f64 {
+        self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
     }
 
     fn dot(&self, other: &PointLaz) -> f64 {
@@ -68,6 +83,30 @@ impl Point for PointLaz {
 
     fn length(&self) -> f64 {
         (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn normal(self) -> Self {
+        Self {
+            x: self.y,
+            y: -self.x,
+            z: self.z,
+            r: self.r,
+            i: self.i,
+            c: self.c,
+            n: self.n,
+        }
+    }
+
+    fn scale(self, l: f64) -> Self {
+        Self {
+            x: self.x * l,
+            y: self.y * l,
+            z: self.z,
+            r: self.r,
+            i: self.i,
+            c: self.c,
+            n: self.n,
+        }
     }
 }
 

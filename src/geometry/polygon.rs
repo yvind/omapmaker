@@ -71,23 +71,19 @@ impl Polygon {
         epsilon: f64,
         hint: bool,
     ) -> Vec<Polygon> {
-        let mut polygons: Vec<Polygon> = Vec::new();
-        let mut unclosed_contours: Vec<Line> = Vec::new();
-
-        let mut unclosed_hull = convex_hull.clone();
-        unclosed_hull.pop();
+        let mut polygons = vec![];
+        let mut unclosed_contours = vec![];
 
         if contours.is_empty() {
             // everywhere is either above or below the limit
             // needs to use the hint to classify everywhere correctly
             if polygon_type as i8 * (2 * hint as i8 - 1) > 0 {
-                let mut outer = unclosed_hull.clone();
-                outer.close();
-                polygons.push(Polygon::new(outer));
+                polygons.push(Polygon::new(convex_hull.clone()));
             }
             return polygons;
         }
 
+        // reverse all contours if we are interested in the polygons that the areas below the contours build, instead of the areas above
         if polygon_type == PolygonTrigger::Below {
             for c in contours.iter_mut() {
                 c.vertices.reverse();
@@ -111,7 +107,7 @@ impl Polygon {
             for (j, other) in unclosed_contours.iter().enumerate() {
                 let dist = unclosed_contours[0]
                     .last_vertex()
-                    .get_distance_along_hull(other.first_vertex(), &unclosed_hull, epsilon)
+                    .get_distance_along_line_square_sum(other.first_vertex(), convex_hull, epsilon)
                     .unwrap();
                 if dist < best_boundary_dist {
                     best_neighbour = j;
@@ -121,11 +117,13 @@ impl Polygon {
 
             if best_neighbour == 0 {
                 let mut contour = unclosed_contours.swap_remove(0);
-                contour.close_by_hull(&unclosed_hull, epsilon).unwrap();
+                contour.close_by_line(convex_hull, epsilon).unwrap();
                 contours.push(contour);
             } else {
                 let other = unclosed_contours.swap_remove(best_neighbour);
-                unclosed_contours[0].append_by_hull(other, &unclosed_hull, epsilon);
+                unclosed_contours[0]
+                    .append_by_line(other, convex_hull, epsilon)
+                    .unwrap();
             }
         }
 
@@ -146,9 +144,7 @@ impl Polygon {
 
         // a background polygon must to be added if only holes exist
         if polygons.len() == 0 {
-            let mut outer = unclosed_hull.clone();
-            outer.close();
-            polygons.push(Polygon::new(outer));
+            polygons.push(Polygon::new(convex_hull.clone()));
         }
 
         // add the holes to the polygons

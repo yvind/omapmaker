@@ -172,35 +172,20 @@ fn main() {
             &dem,
             &mut map,
             simplify_epsilon,
+            &ch_arc,
+            dist_to_hull_epsilon,
         );
     }
 
     println!("Computing yellow...");
-    let yellow_level = 1.2;
-    let mut yellow_contours = drm.marching_squares(yellow_level).unwrap();
-
-    for yc in yellow_contours.iter_mut() {
-        yc.fix_to_hull(&convex_hull, dist_to_hull_epsilon);
-    }
-
-    let yellow_hint = drm.field[drm.width / 2][drm.height / 2] > yellow_level;
-    let yellow_polygons = Polygon::from_contours(
-        yellow_contours,
-        &convex_hull,
-        PolygonTrigger::Below,
-        225.,
+    compute_open_land(
+        &drm,
+        1.2,
         dist_to_hull_epsilon,
-        yellow_hint,
+        &convex_hull,
+        simplify_epsilon,
+        &mut map,
     );
-
-    for mut polygon in yellow_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
-        let mut yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
-        yellow_object.add_auto_tag();
-        map.add_object(yellow_object);
-    }
 
     // write dfms to tiff
     if args.write_tiff {
@@ -324,6 +309,8 @@ fn compute_basemap_contours_multithread(
     dem_arc: &Arc<Dfm>,
     map: &mut Omap,
     simplify_epsilon: f64,
+    hull: &Arc<Line>,
+    hull_epsilon: f64,
 ) {
     let bm_levels = ((max_z - min_z) / basemap_interval).ceil() as usize;
 
@@ -332,6 +319,7 @@ fn compute_basemap_contours_multithread(
 
     for i in 0..(num_threads - 1) {
         let dem_ref = dem_arc.clone();
+        let hull_ref = hull.clone();
 
         let thread_sender = sender.clone();
 
@@ -347,6 +335,10 @@ fn compute_basemap_contours_multithread(
                     for c in bm_contours.iter_mut() {
                         c.simplify(simplify_epsilon)
                     }
+                }
+
+                for c in bm_contours.iter_mut() {
+                    c.fix_ends_to_line(&hull_ref, hull_epsilon)
                 }
 
                 thread_sender.send((bm_contours, bm_level)).unwrap();
@@ -371,5 +363,39 @@ fn compute_basemap_contours_multithread(
 
     for handle in thread_handles {
         handle.join().unwrap();
+    }
+}
+
+fn compute_open_land(
+    drm: &Dfm,
+    yellow_level: f64,
+    dist_to_hull_epsilon: f64,
+    convex_hull: &Line,
+    simplify_epsilon: f64,
+    map: &mut Omap,
+) {
+    let mut yellow_contours = drm.marching_squares(yellow_level).unwrap();
+
+    for yc in yellow_contours.iter_mut() {
+        yc.fix_ends_to_line(&convex_hull, dist_to_hull_epsilon);
+    }
+
+    let yellow_hint = drm.field[drm.width / 2][drm.height / 2] > yellow_level;
+    let yellow_polygons = Polygon::from_contours(
+        yellow_contours,
+        &convex_hull,
+        PolygonTrigger::Below,
+        225.,
+        dist_to_hull_epsilon,
+        yellow_hint,
+    );
+
+    for mut polygon in yellow_polygons {
+        if simplify_epsilon > 0. {
+            polygon.simplify(simplify_epsilon);
+        }
+        let mut yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
+        yellow_object.add_auto_tag();
+        map.add_object(yellow_object);
     }
 }

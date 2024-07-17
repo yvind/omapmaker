@@ -240,3 +240,86 @@ impl PointCloud {
         (value, gradient_size)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    fn setup() -> PointCloud {
+        let b = Bounds {
+            min: Vector {
+                x: -2.0,
+                y: -2.0,
+                z: -1.0,
+            },
+            max: Vector {
+                x: 1.99,
+                y: 1.99,
+                z: 0.99,
+            },
+        };
+
+        let v = vec![
+            PointLaz::new(-2.0, -1.23, 0., 1, 0, 2, 1),
+            PointLaz::new(-1.0, 1.6, 0., 1, 0, 2, 1),
+            PointLaz::new(-1.7, 0.2, 0., 1, 0, 2, 1),
+            PointLaz::new(-1.3, -2.0, 0., 1, 0, 2, 1),
+            PointLaz::new(0.6, 1.96, 0., 1, 0, 2, 1),
+            PointLaz::new(0.2, -0.5, 0., 1, 0, 2, 1),
+            PointLaz::new(0.8, -1.0, 0., 1, 0, 2, 1),
+            PointLaz::new(1.1, 1.23, 0., 1, 0, 2, 1),
+            PointLaz::new(1.6, -0.73, 0., 1, 0, 2, 1),
+            PointLaz::new(1.9, 1.9, 0., 1, 0, 2, 1),
+            PointLaz::new(1.91, -1.9, 0., 1, 0, 2, 1),
+            PointLaz::new(-1.1, -2.0, 0., 1, 0, 2, 1),
+        ];
+
+        PointCloud::new(v, b)
+    }
+
+    #[test]
+    fn dfm_dimensions() {
+        let pc = setup();
+
+        let (w, h, b) = pc.get_dfm_dimensions(0.1);
+
+        let true_b = Bounds {
+            min: Vector {
+                x: -2.005,
+                y: -2.005,
+                z: -1.,
+            },
+            max: Vector {
+                x: 1.994999,
+                y: 1.994999,
+                z: 0.99,
+            },
+        };
+
+        let diff_abs = (b.min.x - true_b.min.x).abs()
+            + (b.min.y - true_b.min.y).abs()
+            + (b.max.x - true_b.max.x).abs()
+            + (b.max.y - true_b.max.y).abs();
+
+        assert_eq!(w, 41);
+        assert_eq!(h, 41);
+        assert!(diff_abs < 0.1);
+    }
+
+    #[test]
+    fn create_convex_hull() {
+        let mut pc = setup();
+        let cs = 0.1;
+
+        let (_, _, b) = pc.get_dfm_dimensions(cs);
+
+        let hull = pc.bounded_convex_hull(cs, &b, 0.05);
+
+        assert_eq!(hull.vertices[0], Point2D::new(-1.3, -2.005));
+        assert_eq!(hull.vertices[0], hull.vertices[hull.len() - 1]);
+
+        assert_eq!(hull.vertices[1], Point2D::new(1.91, -1.9));
+
+        assert_eq!(hull.len(), 8);
+    }
+}
