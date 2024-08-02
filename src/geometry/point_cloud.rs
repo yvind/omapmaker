@@ -222,7 +222,7 @@ impl PointCloud {
 
         // slow matrix inversion
         let beta: Vector6 = (xy.tdot_self().add_to_diag(smoothing))
-            .inverse_spd()
+            .inverse_spd_simd2()
             .dot_vec(xy.tdot_vec(&z));
 
         let nx = (point.x - mean[0]) / std[0];
