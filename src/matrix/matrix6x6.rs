@@ -250,30 +250,35 @@ impl Matrix6x6 {
             - row0.rotate_elements_right::<2>() * row1.rotate_elements_right::<1>())
             * inv_det;
 
-        // Load m1 (upper-right 3x3 block)
-        let m1_row0 = f64x4::from_array([mat[0][3], mat[1][3], mat[2][3], 0.0]);
-        let m1_row1 = f64x4::from_array([mat[0][4], mat[1][4], mat[2][4], 0.0]);
-        let m1_row2 = f64x4::from_array([mat[0][5], mat[1][5], mat[2][5], 0.0]);
+        // Load m1_t (upper-right 3x3 block transposed)
+        let m1t_row0 = f64x4::from_array([mat[0][3], mat[1][3], mat[2][3], 0.0]);
+        let m1t_row1 = f64x4::from_array([mat[0][4], mat[1][4], mat[2][4], 0.0]);
+        let m1t_row2 = f64x4::from_array([mat[0][5], mat[1][5], mat[2][5], 0.0]);
 
         // Calculate a = m1' * m0_inv
         let a0 = f64x4::from_array([
-            (m1_row0 * m0_inv0).reduce_sum(),
-            (m1_row1 * m0_inv0).reduce_sum(),
-            (m1_row2 * m0_inv0).reduce_sum(),
+            (m1t_row0 * m0_inv0).reduce_sum(),
+            (m1t_row1 * m0_inv0).reduce_sum(),
+            (m1t_row2 * m0_inv0).reduce_sum(),
             0.0,
         ]);
         let a1 = f64x4::from_array([
-            (m1_row0 * m0_inv1).reduce_sum(),
-            (m1_row1 * m0_inv1).reduce_sum(),
-            (m1_row2 * m0_inv1).reduce_sum(),
+            (m1t_row0 * m0_inv1).reduce_sum(),
+            (m1t_row1 * m0_inv1).reduce_sum(),
+            (m1t_row2 * m0_inv1).reduce_sum(),
             0.0,
         ]);
         let a2 = f64x4::from_array([
-            (m1_row0 * m0_inv2).reduce_sum(),
-            (m1_row1 * m0_inv2).reduce_sum(),
-            (m1_row2 * m0_inv2).reduce_sum(),
+            (m1t_row0 * m0_inv2).reduce_sum(),
+            (m1t_row1 * m0_inv2).reduce_sum(),
+            (m1t_row2 * m0_inv2).reduce_sum(),
             0.0,
         ]);
+
+        // Load m1 (upper-right 3x3 block)
+        let m1_row0 = f64x4::from_array([mat[0][3], mat[0][4], mat[0][5], 0.0]);
+        let m1_row1 = f64x4::from_array([mat[1][3], mat[1][4], mat[1][5], 0.0]);
+        let m1_row2 = f64x4::from_array([mat[2][3], mat[2][4], mat[2][5], 0.0]);
 
         // Calculate b = m2 - a * m1
         let m2_row0 = f64x4::from_array([mat[3][3], mat[3][4], mat[3][5], 0.0]);
@@ -282,13 +287,13 @@ impl Matrix6x6 {
 
         let b0 = m2_row0 - (a0 * m1_row0 + a1 * m1_row1 + a2 * m1_row2);
         let b1 = m2_row1
-            - (a0.rotate_elements_right::<1>() * m1_row0
-                + a1.rotate_elements_right::<1>() * m1_row1
-                + a2.rotate_elements_right::<1>() * m1_row2);
+            - (a0.rotate_elements_right::<1>() * m1t_row0
+                + a1.rotate_elements_right::<1>() * m1t_row1
+                + a2.rotate_elements_right::<1>() * m1t_row2);
         let b2 = m2_row2
-            - (a0.rotate_elements_right::<2>() * m1_row0
-                + a1.rotate_elements_right::<2>() * m1_row1
-                + a2.rotate_elements_right::<2>() * m1_row2);
+            - (a0.rotate_elements_right::<2>() * m1t_row0
+                + a1.rotate_elements_right::<2>() * m1t_row1
+                + a2.rotate_elements_right::<2>() * m1t_row2);
 
         // Calculate b inverse
         let b_c0 = b1.rotate_elements_right::<1>() * b2.rotate_elements_right::<2>();
