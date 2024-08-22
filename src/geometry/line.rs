@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::{Point, Point2D};
 
 #[derive(Clone, Debug)]
@@ -26,7 +28,7 @@ impl Line {
 
     pub fn close(&mut self) {
         if !self.is_closed() {
-            self.vertices.push(self.first_vertex().clone());
+            self.vertices.push(*self.first_vertex());
         }
     }
 
@@ -34,8 +36,8 @@ impl Line {
         let first_vertex = self.first_vertex();
         let last_vertex = self.last_vertex();
 
-        let last_index = last_vertex.on_edge_index(&line, epsilon)?;
-        let first_index = first_vertex.on_edge_index(&line, epsilon)?;
+        let last_index = last_vertex.on_edge_index(line, epsilon)?;
+        let first_index = first_vertex.on_edge_index(line, epsilon)?;
 
         if last_index == first_index {
             let prev_vertex = &line.vertices[first_index];
@@ -70,9 +72,28 @@ impl Line {
         }
     }
 
+    pub fn almost_contains(&self, point: &Point2D, margin: f64) -> Result<bool, &'static str> {
+        if !self.is_closed() {
+            return Err("Containment undefined for unclosed line");
+        }
+
+        if self.contains(point).unwrap() {
+            return Ok(true);
+        }
+
+        for i in 0..self.len() - 2 {
+            if point.dist_to_line_segment_squared(&self.vertices[i], &self.vertices[i + 1])
+                < margin * margin
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     pub fn contains(&self, point: &Point2D) -> Result<bool, &'static str> {
         if !self.is_closed() {
-            return Err("Containment undefined for unclosed contour");
+            return Err("Containment undefined for unclosed line");
         }
 
         let mut intersection_count = 0;
@@ -93,7 +114,7 @@ impl Line {
                 }
             }
         }
-        return Ok(intersection_count % 2 != 0);
+        Ok(intersection_count % 2 != 0)
     }
 
     pub fn first_vertex(&self) -> &Point2D {
@@ -164,7 +185,7 @@ impl Line {
                 * (self.vertices[i].x * self.vertices[i + 1].y
                     - self.vertices[i].y * self.vertices[i + 1].x);
         }
-        return Ok(area);
+        Ok(area)
     }
 
     pub fn simplify(&mut self, epsilon: f64) {

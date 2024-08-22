@@ -8,7 +8,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub fn prepare_laz(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D, OsString) {
+pub fn prepare_laz(
+    input: PathBuf,
+    margin: f64,
+) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D, OsString) {
     let filestem = Path::new(input.file_name().unwrap())
         .file_stem()
         .unwrap()
@@ -16,7 +19,7 @@ pub fn prepare_laz(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D, O
 
     let md = fs::metadata(&input).unwrap();
     if md.is_dir() {
-        let (a, b, c) = multiple_files(&input);
+        let (a, b, c) = multiple_files(&input, margin);
         return (a, b, c, filestem);
     } else if md.is_file() {
         let (a, b, c) = single_file(input);
@@ -27,7 +30,13 @@ pub fn prepare_laz(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D, O
 }
 
 fn single_file(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
-    let las_reader = Reader::from_path(&input).expect("Could not read given lidar file...");
+    let las_reader = Reader::from_path(&input).expect(
+        format!(
+            "Could not read given laz/las file with path: {}",
+            input.to_string_lossy()
+        )
+        .as_str(),
+    );
     let bounds = las_reader.header().bounds();
 
     (
@@ -40,7 +49,7 @@ fn single_file(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
     )
 }
 
-fn multiple_files(input: &PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
+fn multiple_files(input: &PathBuf, margin: f64) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
     let mut tile_centers = Vec::new();
     let mut tile_bounds = Vec::new();
     let mut tile_names = Vec::new();
@@ -58,7 +67,7 @@ fn multiple_files(input: &PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
         }
     }
 
-    let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds);
+    let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds, margin);
 
     let mut ref_point = Point2D::new(0., 0.);
     for c in tile_centers.iter() {
@@ -71,7 +80,11 @@ fn multiple_files(input: &PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
     (neighbours, tile_names, ref_point)
 }
 
-fn neighbouring_tiles(tile_centers: &Vec<[f64; 2]>, tile_bounds: &Vec<Bounds>) -> Vec<Vec<usize>> {
+fn neighbouring_tiles(
+    tile_centers: &Vec<[f64; 2]>,
+    tile_bounds: &Vec<Bounds>,
+    margin: f64,
+) -> Vec<Vec<usize>> {
     let tree: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(&tile_centers);
 
     let mut tile_neighbours = vec![];
@@ -79,7 +92,7 @@ fn neighbouring_tiles(tile_centers: &Vec<[f64; 2]>, tile_bounds: &Vec<Bounds>) -
         let nn = tree.nearest_n::<SquaredEuclidean>(&point, 9);
         let mut neighbours: Vec<usize> = nn.iter().map(|n| n.item).collect();
 
-        neighbours.retain(|&e| boxes_touch(&tile_bounds[i], &tile_bounds[e], 20.0));
+        neighbours.retain(|&e| boxes_touch(&tile_bounds[i], &tile_bounds[e], margin));
         tile_neighbours.push(neighbours);
     }
     tile_neighbours

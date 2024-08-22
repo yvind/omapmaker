@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::{Line, Point, Point2D, PointLaz};
 use crate::dfm::FieldType;
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
@@ -17,6 +19,10 @@ impl PointCloud {
             points: v,
             bounds: b,
         }
+    }
+
+    pub fn add(&mut self, v: Vec<PointLaz>) {
+        self.points.extend(v);
     }
 
     pub fn to_2d_slice(&self) -> Vec<[f64; 2]> {
@@ -93,9 +99,9 @@ impl PointCloud {
         self.points.sort_by(point_compare_position);
 
         let mut most_south_west_point = PointLaz::new(0., 0., 0., 0, 0, 0, 0);
-        for point in self.points.iter() {
+        for &point in self.points.iter() {
             if point.c == 2 {
-                most_south_west_point = point.clone();
+                most_south_west_point = point;
                 break;
             }
         }
@@ -119,30 +125,30 @@ impl PointCloud {
 
         let mut convex_hull: Vec<PointLaz> = vec![];
 
-        convex_hull.push(most_south_west_point.clone());
+        convex_hull.push(most_south_west_point);
 
         let mut skip_to = 1;
-        for (i, point) in self.points.iter().skip(0).enumerate() {
+        for (i, &point) in self.points.iter().skip(1).enumerate() {
             if point.c == 2 {
-                convex_hull.push(point.clone());
+                convex_hull.push(point);
                 skip_to = i;
                 break;
             }
         }
 
         let mut hull_head = 1;
-        for point in self.points.iter().skip(skip_to) {
+        for &point in self.points.iter().skip(skip_to) {
             if point.c != 2 {
                 continue;
             }
-            if most_south_west_point.consecutive_orientation(point, &convex_hull[hull_head]) == 0.0
+            if most_south_west_point.consecutive_orientation(&point, &convex_hull[hull_head]) == 0.0
             {
                 continue;
             }
             while hull_head > 1 {
                 // If segment(i, i+1) turns right relative to segment(i-1, i), point(i) is not part of the convex hull.
                 let orientation = convex_hull[hull_head - 1]
-                    .consecutive_orientation(&convex_hull[hull_head], point);
+                    .consecutive_orientation(&convex_hull[hull_head], &point);
                 if orientation <= 0.0 {
                     hull_head -= 1;
                     convex_hull.pop();
@@ -150,7 +156,7 @@ impl PointCloud {
                     break;
                 }
             }
-            convex_hull.push(point.clone());
+            convex_hull.push(point);
             hull_head += 1;
         }
         convex_hull

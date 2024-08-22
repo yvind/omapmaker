@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::dfm::{Dfm, FieldType};
 use crate::geometry::{Line, Point2D, PointCloud};
 
@@ -10,15 +12,19 @@ pub fn compute_dfms(
     pc: Arc<PointCloud>,
     ch: Arc<Line>,
     num_threads: usize,
-    width: usize,
-    height: usize,
-    cell_size: f64,
-    tl: Point2D,
-) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
-    if num_threads > 1 {
-        compute_dfms_multithread(pt, pc, ch, num_threads, width, height, cell_size, tl)
+    dem_info: (usize, usize, f64, Point2D),
+    simd: bool,
+) -> (Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>) {
+    if simd {
+        if num_threads > 1 {
+            compute_dfms_multithread(pt, pc, ch, num_threads, dem_info)
+        } else {
+            compute_dfms_singlethread(pt, pc, ch, dem_info)
+        }
+    } else if num_threads > 1 {
+        compute_dfms_multithread(pt, pc, ch, num_threads, dem_info)
     } else {
-        compute_dfms_singlethread(pt, pc, ch, width, height, cell_size, tl)
+        compute_dfms_singlethread(pt, pc, ch, dem_info)
     }
 }
 
@@ -27,11 +33,10 @@ fn compute_dfms_multithread(
     pc: Arc<PointCloud>,
     ch: Arc<Line>,
     num_threads: usize,
-    width: usize,
-    height: usize,
-    cell_size: f64,
-    tl: Point2D,
-) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
+    dem_info: (usize, usize, f64, Point2D),
+) -> (Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>) {
+    let (width, height, cell_size, tl) = dem_info;
+
     let mut dem = Dfm::new(width, height, tl, cell_size);
     let mut grad_dem = dem.clone();
     let mut drm = dem.clone();
@@ -111,18 +116,23 @@ fn compute_dfms_multithread(
         t.join().unwrap();
     }
 
-    (dem, grad_dem, drm, grad_drm, dim, grad_dim)
+    (
+        Arc::new(dem),
+        Arc::new(grad_dem),
+        Arc::new(drm),
+        Arc::new(grad_drm),
+        Arc::new(dim),
+        Arc::new(grad_dim),
+    )
 }
 
 fn compute_dfms_singlethread(
     pt: Arc<ImmutableKdTree<f64, usize, 2, 32>>,
     pc: Arc<PointCloud>,
     ch: Arc<Line>,
-    width: usize,
-    height: usize,
-    cell_size: f64,
-    tl: Point2D,
-) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
+    dem_info: (usize, usize, f64, Point2D),
+) -> (Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>, Arc<Dfm>) {
+    let (width, height, cell_size, tl) = dem_info;
     let mut dem = Dfm::new(width, height, tl, cell_size);
     let mut grad_dem = dem.clone();
     let mut drm = dem.clone();
@@ -161,5 +171,12 @@ fn compute_dfms_singlethread(
         }
     }
 
-    (dem, grad_dem, drm, grad_drm, dim, grad_dim)
+    (
+        Arc::new(dem),
+        Arc::new(grad_dem),
+        Arc::new(drm),
+        Arc::new(grad_drm),
+        Arc::new(dim),
+        Arc::new(grad_dim),
+    )
 }

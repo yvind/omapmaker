@@ -6,11 +6,11 @@ use clap::Parser;
 pub struct Args {
     /// Path to input, accepts .las or .laz files
     #[arg(short, long)]
-    pub in_file: String,
+    pub in_file: PathBuf,
 
     /// Path to output directory, creates a new dir if given path doesn't exist, defaults to current working directory
     #[arg(short, long, default_value = "./")]
-    pub output_directory: String,
+    pub output_directory: PathBuf,
 
     /// Contour interval in meters of map output, default 5.0
     #[arg(short, long, default_value_t = 5.)]
@@ -40,8 +40,9 @@ pub struct Args {
     #[clap(long, action)]
     pub simd: bool,
 
+    /// Pass this flag to not simplify any geometries, makes enourmous file-sizes
     #[clap(long, action)]
-    pub simplify: bool,
+    pub not_simplify: bool,
 }
 
 impl Args {
@@ -53,13 +54,13 @@ impl Args {
         } else {
             args.contour_interval
         };
-        let simplify_epsilon = 0.1 * args.simplify as u8 as f64;
+        let simplify_epsilon = 0.1 * (1 - args.not_simplify as u8) as f64;
 
         assert!(contour_interval >= 1.);
 
         (
-            PathBuf::from(args.in_file),
-            PathBuf::from(args.output_directory),
+            args.in_file,
+            args.output_directory,
             contour_interval,
             args.grid_size,
             args.basemap_contours,

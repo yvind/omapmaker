@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::geometry::{Line, Point2D};
 
 use rustc_hash::FxHashMap as HashMap;
@@ -15,13 +17,13 @@ pub struct Dfm {
 
 impl Dfm {
     pub fn new(width: usize, height: usize, tl_coord: Point2D, cell_size: f64) -> Dfm {
-        return Dfm {
+        Dfm {
             field: vec![vec![f64::NAN; width]; height],
             height,
             width,
             tl_coord,
             cell_size,
-        };
+        }
     }
 
     pub fn difference(&self, other: &Dfm) -> Result<Dfm, &'static str> {
@@ -34,7 +36,7 @@ impl Dfm {
                 diff.field[y][x] = self.field[y][x] - other.field[y][x];
             }
         }
-        return Ok(diff);
+        Ok(diff)
     }
 
     pub fn index2coord(&self, xi: usize, yi: usize) -> Result<Point2D, &'static str> {
@@ -60,7 +62,7 @@ impl Dfm {
                 self.field[y][x] += diff.field[y][x] * weigth;
             }
         }
-        return Ok(());
+        Ok(())
     }
 
     fn get_edge_index(&self, point: &Point2D) -> Option<usize> {
@@ -118,10 +120,10 @@ impl Dfm {
         }
 
         match ei {
-            0 => return Some(yi * (2 * self.width + 1) + xi),
-            1 => return Some(yi * (2 * self.width + 1) + (xi + 1) + self.width),
-            2 => return Some((yi + 1) * (2 * self.width + 1) + xi),
-            3 => return Some(yi * (2 * self.width + 1) + xi + self.width),
+            0 => Some(yi * (2 * self.width + 1) + xi),
+            1 => Some(yi * (2 * self.width + 1) + (xi + 1) + self.width),
+            2 => Some((yi + 1) * (2 * self.width + 1) + xi),
+            3 => Some(yi * (2 * self.width + 1) + xi + self.width),
             _ => panic!("edge index out of bounds: {ei} not in [0, 3]"),
         }
     }
@@ -254,7 +256,7 @@ impl Dfm {
                             }
                         } else if let Some(mut contour) = contour_by_end.remove(&key1) {
                             // append to an existing contour
-                            contour.push(vertex2.clone());
+                            contour.push(vertex2);
 
                             let start_key = self.get_edge_index(contour.first_vertex()).unwrap();
                             contour_by_start.remove(&start_key).unwrap();
@@ -263,7 +265,7 @@ impl Dfm {
                             contour_by_start.insert(start_key, contour);
                         } else if let Some(mut contour) = contour_by_start.remove(&key2) {
                             // prepend to an existing contour
-                            contour.prepend(vertex1.clone());
+                            contour.prepend(vertex1);
 
                             let end_key = self.get_edge_index(contour.last_vertex()).unwrap();
                             contour_by_end.remove(&end_key).unwrap();
@@ -274,7 +276,7 @@ impl Dfm {
                             && !contour_by_start.contains_key(&key2)
                         {
                             // start a new contour
-                            let contour: Line = Line::new(vertex1.clone(), vertex2.clone());
+                            let contour: Line = Line::new(vertex1, vertex2);
 
                             contour_by_end.insert(key2, contour.clone());
                             contour_by_start.insert(key1, contour);
@@ -285,7 +287,7 @@ impl Dfm {
                 }
             }
         }
-        return Ok(contour_by_end.into_values().collect());
+        Ok(contour_by_end.into_values().collect())
     }
 
     pub fn write_to_tiff(&self, filename: String, output_directory: &str, ref_point: &Point2D) {
@@ -308,7 +310,7 @@ impl Dfm {
 
         let tfw = File::create(tfw_path).expect("Unable to create tfw-file");
         let mut tfw = BufWriter::new(tfw);
-        tfw.write(
+        tfw.write_all(
             format!(
                 "{}\n0\n0\n-{}\n{}\n{}",
                 self.cell_size,
