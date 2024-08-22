@@ -6,7 +6,7 @@
 
     - For every laz-file
 
-        - read all-non noise points and points in the boundary zone from the neighbours
+        - read all non-noise points and points in the boundary zone from the neighbours
 
         - build last return KD-tree
 
@@ -30,16 +30,16 @@
 
         - subtract dem from last return dem to get a ground roughness model
 
+        - compute basemap contours
+
+        - compute contours
+
+        - compute vegetation
+
         - compute streams using ditch net
 
         - compute water map
 
         - use dem and water map to compute wetness model
-
-        - compute basemap contours
-
-        - compute contours
-
-        - compute yellow
 
         - compute marshes

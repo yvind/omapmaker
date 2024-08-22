@@ -15,7 +15,7 @@ pub struct LineObject {
 impl LineObject {
     pub fn from_line(line: Line, symbol: Symbol) -> Self {
         Self {
-            symbol: symbol,
+            symbol,
             coordinates: line,
             tags: vec![],
         }

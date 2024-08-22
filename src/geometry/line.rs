@@ -180,16 +180,15 @@ impl Line {
             }
         }
 
-        if self.is_closed() {
-            if self.vertices[0].dist_to_line_segment_squared(
+        if self.is_closed()
+            && self.vertices[0].dist_to_line_segment_squared(
                 &self.vertices[self.vertices.len() - 2],
                 &self.vertices[1],
             ) < epsilon.powi(2)
-            {
-                self.vertices.remove(0);
-                self.vertices.remove(self.vertices.len() - 1);
-                self.close();
-            }
+        {
+            self.vertices.remove(0);
+            self.vertices.remove(self.vertices.len() - 1);
+            self.close();
         }
     }
 

@@ -14,7 +14,7 @@ pub struct AreaObject {
 impl AreaObject {
     pub fn from_polygon(polygon: Polygon, symbol: Symbol) -> Self {
         Self {
-            symbol: symbol,
+            symbol,
             coordinates: polygon,
             tags: vec![],
         }
