@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(clippy::needless_range_loop)]
 
 use std::simd::{f64x4, num::SimdFloat, simd_swizzle, Simd, StdFloat};
 
@@ -87,7 +88,7 @@ impl Matrix6x6 {
         diag.data[4][4] += d;
         diag.data[5][5] += d;
 
-        return diag;
+        diag
     }
 
     pub fn dot_vec(&self, other: Vector6) -> Vector6 {

@@ -1,4 +1,5 @@
 #![feature(portable_simd)]
+#![allow(clippy::needless_range_loop)]
 
 mod dfm;
 mod geometry;
@@ -7,18 +8,17 @@ mod matrix;
 mod parser;
 mod steps;
 
-use geometry::{Line, Point2D, Polygon, PolygonTrigger};
-use map::{AreaObject, LineObject, MapObject, Omap, Symbol};
+use map::Omap;
 use parser::Args;
 
-use std::{fs, path::PathBuf, time::Instant};
+use std::fs;
 
 fn main() {
     // step 0: read inputs from command line
     let (
         in_file,
         output_directory,
-        contour_interval,
+        _contour_interval,
         cell_size,
         basemap_interval,
         num_threads,
@@ -44,7 +44,7 @@ fn main() {
         steps::prepare_laz(in_file, neighbour_margin);
 
     // create map
-    let mut map = Omap::new(file_stem, output_directory, ref_point);
+    let mut map = Omap::new(&file_stem, &output_directory, ref_point);
 
     for fi in 0..las_paths.len() {
         println!("********");
@@ -63,8 +63,7 @@ fn main() {
 
         // step 3: compute the DFMs
         println!("Computing DFMs...");
-        let now = Instant::now();
-        let (dem, grad_dem, drm, grad_drm, dim, grad_dim) = steps::compute_dfms(
+        let (dem, grad_dem, drm, _, dim, _) = steps::compute_dfms(
             point_tree.clone(),
             xyzir.clone(),
             convex_hull.clone(),
@@ -72,7 +71,6 @@ fn main() {
             (width, height, cell_size, tl),
             simd,
         );
-        println!("Elapsed time in DFM generation: {:?}", now.elapsed());
 
         // step 4: contour generation
         if basemap_interval >= 0.1 {
@@ -88,19 +86,8 @@ fn main() {
                 &convex_hull,
                 dist_to_hull_epsilon,
                 simplify_epsilon,
-                &map,
+                &mut map,
             );
-
-            /*
-            for c in contours {
-                let mut bm_object = LineObject::from_line(c, Symbol::BasemapContour);
-
-                bm_object.add_auto_tag();
-                bm_object.add_tag("Elevation", format!("{:.2}", level).as_str());
-
-                map.add_object(bm_object);
-            }
-            */
         }
 
         // step 5: compute vegetation
@@ -111,34 +98,22 @@ fn main() {
             dist_to_hull_epsilon,
             &convex_hull,
             simplify_epsilon,
-            &map,
+            &mut map,
         );
 
-        // step 6: using
-        /*
+        // step 6: save dfms
         if write_tiff {
-            // serialize and save the tiff files in a tmp folder so they can be merged after all laz files are processed
-            println!("Writing gridded Las-fields and their gradients to Tiff files...");
-            dem.write_to_tiff(format!("dem_{}", &file_stem), &output_directory, &ref_point);
-            grad_dem.write_to_tiff(
-                format!("grad_dem_{}", &file_stem),
-                &output_directory,
+            println!("Writing gridded Las-fields to Tiff files...");
+            steps::save_tiffs(
+                dem,
+                grad_dem,
+                dim,
+                drm,
                 &ref_point,
-            );
-            dim.write_to_tiff(format!("dim_{}", &file_stem), &output_directory, &ref_point);
-            grad_dim.write_to_tiff(
-                format!("grad_dim_{}", &file_stem),
+                &file_stem,
                 &output_directory,
-                &ref_point,
-            );
-            drm.write_to_tiff(format!("drm_{}", &file_stem), &output_directory, &ref_point);
-            grad_drm.write_to_tiff(
-                format!("grad_drm_{}", &file_stem),
-                &output_directory,
-                &ref_point,
             );
         }
-        */
     }
 
     // save map to file

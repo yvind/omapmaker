@@ -17,7 +17,8 @@ pub struct Omap {
 }
 
 impl Omap {
-    pub fn new(filename: OsString, mut output: PathBuf, georef_point: Point2D) -> Self {
+    pub fn new(filename: &OsString, dir: &Path, georef_point: Point2D) -> Self {
+        let mut output = PathBuf::from(dir);
         output.push(filename);
         output.set_extension("omap");
 

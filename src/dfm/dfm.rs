@@ -3,7 +3,12 @@
 use crate::geometry::{Line, Point2D};
 
 use rustc_hash::FxHashMap as HashMap;
-use std::{fs::File, io::BufWriter, io::Write};
+use std::{
+    ffi::OsString,
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+};
 use tiff::encoder::{colortype::Gray64Float, TiffEncoder};
 
 #[derive(Clone, Debug)]
@@ -290,9 +295,14 @@ impl Dfm {
         Ok(contour_by_end.into_values().collect())
     }
 
-    pub fn write_to_tiff(&self, filename: String, output_directory: &str, ref_point: &Point2D) {
-        let tiff_path = format!("{}/{}.tiff", output_directory, filename);
-        let tfw_path = format!("{}/{}.tfw", output_directory, filename);
+    pub fn write_to_tiff(&self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
+        let mut tiff_path = PathBuf::from(output_directory);
+        tiff_path.push(filename);
+        tiff_path.set_extension(".tiff");
+
+        let mut tfw_path = PathBuf::from(output_directory);
+        tfw_path.push(filename);
+        tfw_path.set_extension(".tfw");
 
         let mut tiff = File::create(tiff_path).expect("Unable to create tiff-file");
         let mut tiff = TiffEncoder::new(&mut tiff).unwrap();

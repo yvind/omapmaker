@@ -3,7 +3,7 @@ use std::thread;
 
 use crate::dfm::Dfm;
 use crate::geometry::Line;
-use crate::omap::Omap;
+use crate::map::{LineObject, MapObject, Omap, Symbol};
 
 pub fn compute_basemap(
     num_threads: usize,
@@ -14,8 +14,8 @@ pub fn compute_basemap(
     hull: &Arc<Line>,
     hull_epsilon: f64,
     simplify_epsilon: f64,
-    map: &Omap,
-) -> Vec<(Vec<Line>, f64)> {
+    map: &mut Omap,
+) {
     if num_threads > 1 {
         compute_basemap_contours_multithread(
             num_threads,
@@ -26,6 +26,7 @@ pub fn compute_basemap(
             hull,
             hull_epsilon,
             simplify_epsilon,
+            map,
         )
     } else {
         compute_basemap_contours_singlethread(
@@ -36,6 +37,7 @@ pub fn compute_basemap(
             hull,
             hull_epsilon,
             simplify_epsilon,
+            map,
         )
     }
 }
@@ -49,7 +51,8 @@ fn compute_basemap_contours_multithread(
     hull: &Arc<Line>,
     hull_epsilon: f64,
     simplify_epsilon: f64,
-) -> Vec<(Vec<Line>, f64)> {
+    map: &mut Omap,
+) {
     let bm_levels = ((max_z - min_z) / basemap_interval).ceil() as usize;
 
     let (sender, receiver) = mpsc::channel();
@@ -88,15 +91,18 @@ fn compute_basemap_contours_multithread(
     }
     drop(sender);
 
-    let mut out = vec![];
     for (contours, level) in receiver.iter() {
-        out.push((contours, level));
+        for c in contours {
+            let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
+            c_object.add_auto_tag();
+            c_object.add_tag("Elevation", format!("{:2}", level).as_str());
+            map.add_object(c_object);
+        }
     }
 
     for handle in thread_handles {
         handle.join().unwrap();
     }
-    out
 }
 
 fn compute_basemap_contours_singlethread(
@@ -107,8 +113,8 @@ fn compute_basemap_contours_singlethread(
     hull: &Arc<Line>,
     hull_epsilon: f64,
     simplify_epsilon: f64,
-) -> Vec<(Vec<Line>, f64)> {
-    let mut out = vec![];
+    map: &mut Omap,
+) {
     let bm_levels = ((max_z - min_z) / basemap_interval).ceil() as usize;
 
     for c_index in 0..bm_levels {
@@ -125,7 +131,12 @@ fn compute_basemap_contours_singlethread(
         for c in bm_contours.iter_mut() {
             c.fix_ends_to_line(&hull, hull_epsilon)
         }
-        out.push((bm_contours, bm_level));
+
+        for c in bm_contours {
+            let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
+            c_object.add_auto_tag();
+            c_object.add_tag("Elevation", format!("{:2}", bm_level).as_str());
+            map.add_object(c_object);
+        }
     }
-    out
 }

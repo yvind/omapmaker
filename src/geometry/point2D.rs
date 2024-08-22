@@ -22,8 +22,8 @@ impl Point2D {
     ) -> Result<f64, &'static str> {
         let length = line.len();
 
-        let last_index = self.on_edge_index(&line, epsilon)?;
-        let first_index = other.on_edge_index(&line, epsilon)?;
+        let last_index = self.on_edge_index(line, epsilon)?;
+        let first_index = other.on_edge_index(line, epsilon)?;
 
         if !line.is_closed() {
             if last_index > first_index {
@@ -67,7 +67,7 @@ impl Point2D {
         Ok(dist)
     }
 
-    pub fn to_map_coordinates(&self) -> Result<(i32, i32), &'static str> {
+    pub fn to_map_coordinates(self) -> Result<(i32, i32), &'static str> {
         // 1_000 map units = 15m
         // 1_000 / 15 = 66.66...
 
@@ -205,7 +205,7 @@ mod test {
         line.push(Point2D::new(1.1, 2.2));
         line.push(Point2D::new(0.1, 3.2));
         line.push(Point2D::new(-1.1, 1.2));
-        line.push(line.vertices[0].clone());
+        line.push(line.vertices[0]);
 
         let point = Point2D::new(0.7, 1.6);
 
@@ -221,7 +221,7 @@ mod test {
         line.push(Point2D::new(1.1, 2.2));
         line.push(Point2D::new(0.1, 3.2));
         line.push(Point2D::new(-1.1, 1.2));
-        line.push(line.vertices[0].clone());
+        line.push(line.vertices[0]);
 
         let point = Point2D::new(-0.75, -1.1);
 
@@ -237,7 +237,7 @@ mod test {
         line.push(Point2D::new(1.1, 2.2));
         line.push(Point2D::new(0.1, 3.2));
         line.push(Point2D::new(-1.1, 1.2));
-        line.push(line.vertices[0].clone());
+        line.push(line.vertices[0]);
 
         let point = Point2D::new(-1.05, 0.);
 
@@ -251,7 +251,7 @@ mod test {
 
         line.push(Point2D::new(1., 1.));
         line.push(Point2D::new(1., -1.));
-        line.push(line.vertices[0].clone());
+        line.push(line.vertices[0]);
 
         let point = Point2D::new(-1., 0.);
         let other = Point2D::new(-1., -0.1);

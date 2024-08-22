@@ -1,7 +1,7 @@
 use crate::{
     dfm::Dfm,
     geometry::{Line, Polygon, PolygonTrigger},
-    omap::Omap,
+    map::{AreaObject, MapObject, Omap, Symbol},
 };
 
 pub fn compute_open_land(
@@ -10,32 +10,24 @@ pub fn compute_open_land(
     dist_to_hull_epsilon: f64,
     convex_hull: &Line,
     simplify_epsilon: f64,
-    map: &Omap,
-) -> Vec<Polygon> {
+    map: &mut Omap,
+) {
     let mut yellow_contours = drm.marching_squares(yellow_level).unwrap();
 
     for yc in yellow_contours.iter_mut() {
-        yc.fix_ends_to_line(&convex_hull, dist_to_hull_epsilon);
+        yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
     }
 
     let yellow_hint = drm.field[drm.height / 2][drm.width / 2] > yellow_level;
-    let mut yellow_polygons = Polygon::from_contours(
+    let yellow_polygons = Polygon::from_contours(
         yellow_contours,
-        &convex_hull,
+        convex_hull,
         PolygonTrigger::Below,
         0.,
         dist_to_hull_epsilon,
         yellow_hint,
     );
 
-    if simplify_epsilon > 0. {
-        for polygon in yellow_polygons.iter_mut() {
-            polygon.simplify(simplify_epsilon);
-        }
-    }
-    yellow_polygons
-
-    /*
     for mut polygon in yellow_polygons {
         if simplify_epsilon > 0. {
             polygon.simplify(simplify_epsilon);
@@ -44,7 +36,6 @@ pub fn compute_open_land(
         yellow_object.add_auto_tag();
         map.add_object(yellow_object);
     }
-    */
 }
 
 /*

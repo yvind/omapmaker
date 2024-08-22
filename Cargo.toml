@@ -11,4 +11,5 @@ kiddo = { version = "4.2.0", features = ["immutable"] }
 las = { version = "0.8.2", features = ["laz"] }
 rand = "0.8.5"
 rustc-hash = "2.0.0"
+serde = { version = "1.0.208", features = ["derive"]}
 tiff = "0.9.1"

@@ -11,17 +11,17 @@ impl Matrix3x3 {
         Matrix3x3 {
             data: [
                 [
-                    mat.data[0 + tl_index.0][0 + tl_index.1],
-                    mat.data[0 + tl_index.0][1 + tl_index.1],
-                    mat.data[0 + tl_index.0][2 + tl_index.1],
+                    mat.data[tl_index.0][tl_index.1],
+                    mat.data[tl_index.0][1 + tl_index.1],
+                    mat.data[tl_index.0][2 + tl_index.1],
                 ],
                 [
-                    mat.data[1 + tl_index.0][0 + tl_index.1],
+                    mat.data[1 + tl_index.0][tl_index.1],
                     mat.data[1 + tl_index.0][1 + tl_index.1],
                     mat.data[1 + tl_index.0][2 + tl_index.1],
                 ],
                 [
-                    mat.data[2 + tl_index.0][0 + tl_index.1],
+                    mat.data[2 + tl_index.0][tl_index.1],
                     mat.data[2 + tl_index.0][1 + tl_index.1],
                     mat.data[2 + tl_index.0][2 + tl_index.1],
                 ],
