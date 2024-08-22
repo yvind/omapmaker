@@ -38,7 +38,7 @@ impl Matrix32x6 {
             result.data[4] += self.data[i][4] * vec.data[i];
             result.data[5] += self.data[i][5] * vec.data[i];
         }
-        return result;
+        result
     }
 
     pub fn tdot_self(&self) -> Matrix6x6 {
@@ -53,6 +53,6 @@ impl Matrix32x6 {
                 result.data[j][i] = sum;
             }
         }
-        return result;
+        result
     }
 }

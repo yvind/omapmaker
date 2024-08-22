@@ -1,5 +1,7 @@
 /target
-/in
-/out
+/in*
+/out*
 /laz
 *.omap
+*.tfw
+*.tiff

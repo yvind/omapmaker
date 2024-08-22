@@ -31,7 +31,7 @@ impl MapObject for PointObject {
     }
 
     fn write_to_map(&self, f: &mut BufWriter<File>) {
-        f.write(
+        f.write_all(
             format!(
                 "<object type=\"0\" symbol=\"{}\" rotation=\"{}\">",
                 self.symbol, self.rotation
@@ -41,13 +41,13 @@ impl MapObject for PointObject {
         .expect("Could not write to map file");
         self.write_tags(f);
         self.write_coords(f);
-        f.write(b"</object>\n")
+        f.write_all(b"</object>\n")
             .expect("Could not write to map file");
     }
 
     fn write_coords(&self, f: &mut BufWriter<File>) {
         let c = self.coordinates.to_map_coordinates().unwrap();
-        f.write(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes())
+        f.write_all(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes())
             .expect("Could not write to map file");
     }
 
@@ -56,11 +56,12 @@ impl MapObject for PointObject {
             return;
         }
 
-        f.write(b"<tags>").expect("Could not write to map file");
+        f.write_all(b"<tags>").expect("Could not write to map file");
         for tag in self.tags.iter() {
-            f.write(tag.to_string().as_bytes())
+            f.write_all(tag.to_string().as_bytes())
                 .expect("Could not write to map file");
         }
-        f.write(b"</tags>").expect("Could not write to map file");
+        f.write_all(b"</tags>")
+            .expect("Could not write to map file");
     }
 }

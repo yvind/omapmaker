@@ -30,7 +30,7 @@ impl Polygon {
     }
 
     pub fn has_holes(&self) -> bool {
-        self.holes.len() > 0
+        !self.holes.is_empty()
     }
 
     pub fn add_hole(&mut self, mut hole: Line) {
@@ -46,7 +46,7 @@ impl Polygon {
         for hole in &self.holes {
             area += hole.signed_area().unwrap();
         }
-        return area.abs();
+        area.abs()
     }
 
     pub fn contains(&self, point: &Point2D) -> Result<bool, &'static str> {
@@ -101,7 +101,7 @@ impl Polygon {
         }
 
         // for each unclosed contour wander ccw along the convex hull and merge with the first encountered unclosed contour
-        while unclosed_contours.len() > 0 {
+        while !unclosed_contours.is_empty() {
             let mut best_neighbour = usize::MAX;
             let mut best_boundary_dist = f64::MAX;
             for (j, other) in unclosed_contours.iter().enumerate() {
@@ -143,7 +143,7 @@ impl Polygon {
         }
 
         // a background polygon must to be added if only holes exist
-        if polygons.len() == 0 {
+        if polygons.is_empty() {
             polygons.push(Polygon::new(convex_hull.clone()));
         }
 
@@ -156,7 +156,7 @@ impl Polygon {
                 }
             }
         }
-        return polygons;
+        polygons
     }
 }
 

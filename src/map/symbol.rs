@@ -10,7 +10,13 @@ pub enum Symbol {
     IndexContour = 3,
     Formline = 5,
     SlopelineFormline = 6,
+    SmallBoulder = 34,
+    LargeBoulder = 35,
+    GiganticBoulder = 37,
+    SandyGround = 48,
+    BareRock = 49,
     RoughOpenLand = 79,
+    Building = 140,
 }
 
 impl Display for Symbol {

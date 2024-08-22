@@ -1,3 +1,5 @@
+use std::fmt::{self, Display};
+
 pub struct Tag {
     key: String,
     value: String,
@@ -10,8 +12,10 @@ impl Tag {
             value: v.to_string(),
         }
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("<t k=\"{}\">{}</t>", self.key, self.value)
+impl Display for Tag {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<t k=\"{}\">{}</t>", self.key, self.value)
     }
 }

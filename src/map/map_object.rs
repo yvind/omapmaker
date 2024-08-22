@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::{fs::File, io::BufWriter};
 
 pub trait MapObject: 'static {
