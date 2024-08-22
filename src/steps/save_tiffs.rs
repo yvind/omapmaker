@@ -1,4 +1,4 @@
-use crate::{dfm::Dfm, geometry::Point2D};
+use crate::{geometry::Point2D, raster::Dfm};
 
 use std::{ffi::OsString, path::Path, sync::Arc};
 

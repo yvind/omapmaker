@@ -1,9 +1,9 @@
 use std::sync::{mpsc, Arc};
 use std::thread;
 
-use crate::dfm::Dfm;
 use crate::geometry::Line;
 use crate::map::{LineObject, MapObject, Omap, Symbol};
+use crate::raster::Dfm;
 
 pub fn compute_basemap(
     num_threads: usize,

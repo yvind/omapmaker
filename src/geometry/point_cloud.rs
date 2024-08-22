@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 use super::{Line, Point, Point2D, PointLaz};
-use crate::dfm::FieldType;
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
+use crate::raster::FieldType;
 
 use las::{Bounds, Vector};
 use std::cmp::Ordering;

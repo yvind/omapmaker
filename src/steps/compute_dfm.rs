@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use crate::dfm::{Dfm, FieldType};
 use crate::geometry::{Line, Point2D, PointCloud};
+use crate::raster::{Dfm, FieldType};
 
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use std::sync::{mpsc, Arc};

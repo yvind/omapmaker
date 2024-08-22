@@ -1,7 +1,7 @@
 use crate::{
-    dfm::Dfm,
     geometry::{Line, Polygon, PolygonTrigger},
     map::{AreaObject, MapObject, Omap, Symbol},
+    raster::Dfm,
 };
 
 pub fn compute_cliffs(

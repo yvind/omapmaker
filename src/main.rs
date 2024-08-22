@@ -1,11 +1,11 @@
 #![feature(portable_simd)]
 #![allow(clippy::needless_range_loop)]
 
-mod dfm;
 mod geometry;
 mod map;
 mod matrix;
 mod parser;
+mod raster;
 mod steps;
 
 use map::Omap;
