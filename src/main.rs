@@ -38,12 +38,6 @@ fn main() {
         fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
     }
 
-    if num_threads > 1 {
-        println!("Running on {num_threads} threads");
-    } else {
-        println!("Running single-threaded");
-    }
-
     println!("Preparing input lidar file(s) for processing...");
     // step 1: prepare for processing lidar-files
     let (laz_neighbour_map, laz_paths, ref_point, file_stem) =
@@ -53,10 +47,14 @@ fn main() {
     let mut map = Omap::new(&file_stem, &output_directory, ref_point);
 
     for fi in 0..laz_paths.len() {
-        println!("*************************************");
-        println!("Processing Lidar-file {} of {}...", fi + 1, laz_paths.len());
-        println!("{:?}", laz_paths[fi].file_name().unwrap());
-        println!("-------------------------------------");
+        println!("***********************************************");
+        println!(
+            "\t Processing Lidar-file {} of {}...",
+            fi + 1,
+            laz_paths.len()
+        );
+        println!("\t{:?}", laz_paths[fi].file_name().unwrap());
+        println!("-----------------------------------------------");
 
         let las_name = Path::new(&laz_paths[fi].file_name().unwrap())
             .file_stem()
