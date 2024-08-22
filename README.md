@@ -4,7 +4,7 @@ A command line application to generate an orienteering map (.omap file) directly
 
 Mandatory arguments:
 
-    -i <in_file>, path to input, accepts .las or .laz files
+    -i <in_file>, path to input, accepts .las or .laz files or folder containing .las or .laz files
 
 Optional arguments:
 
@@ -18,9 +18,9 @@ Optional arguments:
 
     -t <threads>, number of threads to run on, default value 4
 
-    -simd, passing this flag enables intrinsics (unstable, but possible speed ups)
+    --simd, passing this flag enables intrinsics (unstable, but possible speed ups)
 
-    -simplify, passing this flag simplifies the geometries, makes smaller file sizes
+    --not_simplify, passing this flag opts to not simplify the geometries, makes huge files
 
 To do:
 
@@ -34,12 +34,16 @@ To do:
 
     add green detection
 
+    add point cloud classification
+
+    add boulder detection
+
     -c <contour_interval>, contour interval in meters of output map, default value 5.0
 
     -f, passing this flag adds formlines to the output map
 
     add road/path detection
 
-    -bezier, passing this flag converts all geometries to bezier curves, makes smaller file sizes
+    -bezier, passing this flag converts geometries to bezier curves, makes smaller file sizes
 
-    -gpu
+    -gpu, runs the computational heavy dfm generations on the gpu
