@@ -12,6 +12,7 @@ pub enum Symbol {
     SlopelineFormline = 6,
     SmallBoulder = 34,
     LargeBoulder = 35,
+    GiganticBoulder = 37,
     SandyGround = 48,
     BareRock = 49,
     RoughOpenLand = 79,

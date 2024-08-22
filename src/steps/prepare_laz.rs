@@ -20,23 +20,22 @@ pub fn prepare_laz(
     let md = fs::metadata(&input).unwrap();
     if md.is_dir() {
         let (a, b, c) = multiple_files(&input, margin);
-        return (a, b, c, filestem);
+        (a, b, c, filestem)
     } else if md.is_file() {
         let (a, b, c) = single_file(input);
-        return (a, b, c, filestem);
+        (a, b, c, filestem)
     } else {
         panic!("Given input is not a recognizable file or directory")
     }
 }
 
 fn single_file(input: PathBuf) -> (Vec<Vec<usize>>, Vec<PathBuf>, Point2D) {
-    let las_reader = Reader::from_path(&input).expect(
-        format!(
+    let las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
+        panic!(
             "Could not read given laz/las file with path: {}",
             input.to_string_lossy()
         )
-        .as_str(),
-    );
+    });
     let bounds = las_reader.header().bounds();
 
     (
@@ -61,7 +60,7 @@ fn multiple_files(input: &PathBuf, margin: f64) -> (Vec<Vec<usize>>, Vec<PathBuf
 
         if let Ok(las_reader) = Reader::from_path(&las_path) {
             let b = las_reader.header().bounds();
-            tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.x + b.max.x) / 2.]);
+            tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
             tile_bounds.push(b);
             tile_names.push(las_path);
         }
@@ -81,18 +80,19 @@ fn multiple_files(input: &PathBuf, margin: f64) -> (Vec<Vec<usize>>, Vec<PathBuf
 }
 
 fn neighbouring_tiles(
-    tile_centers: &Vec<[f64; 2]>,
-    tile_bounds: &Vec<Bounds>,
+    tile_centers: &[[f64; 2]],
+    tile_bounds: &[Bounds],
     margin: f64,
 ) -> Vec<Vec<usize>> {
-    let tree: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(&tile_centers);
+    let tree: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(tile_centers);
 
     let mut tile_neighbours = vec![];
     for (i, point) in tile_centers.iter().enumerate() {
-        let nn = tree.nearest_n::<SquaredEuclidean>(&point, 9);
+        let nn = tree.nearest_n::<SquaredEuclidean>(point, 9);
         let mut neighbours: Vec<usize> = nn.iter().map(|n| n.item).collect();
 
         neighbours.retain(|&e| boxes_touch(&tile_bounds[i], &tile_bounds[e], margin));
+
         tile_neighbours.push(neighbours);
     }
     tile_neighbours

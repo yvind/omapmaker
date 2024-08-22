@@ -298,11 +298,11 @@ impl Dfm {
     pub fn write_to_tiff(&self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
         let mut tiff_path = PathBuf::from(output_directory);
         tiff_path.push(filename);
-        tiff_path.set_extension(".tiff");
+        tiff_path.set_extension("tiff");
 
         let mut tfw_path = PathBuf::from(output_directory);
         tfw_path.push(filename);
-        tfw_path.set_extension(".tfw");
+        tfw_path.set_extension("tfw");
 
         let mut tiff = File::create(tiff_path).expect("Unable to create tiff-file");
         let mut tiff = TiffEncoder::new(&mut tiff).unwrap();

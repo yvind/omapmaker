@@ -21,10 +21,10 @@ pub fn read_laz(
     Point2D,
 ) {
     // read first and main laz file
-    let mut las_reader = Reader::from_path(&las_paths[0]).unwrap_or_else(|_| {
+    let mut las_reader = Reader::from_path(&las_paths[neighbour_map[0]]).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
-            las_paths[0].to_string_lossy()
+            las_paths[neighbour_map[0]].to_string_lossy()
         )
     });
 

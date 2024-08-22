@@ -11,7 +11,7 @@ mod steps;
 use map::Omap;
 use parser::Args;
 
-use std::fs;
+use std::{fs, path::Path};
 
 fn main() {
     // step 0: read inputs from command line
@@ -29,8 +29,14 @@ fn main() {
     let dist_to_hull_epsilon = 2. * cell_size;
     let neighbour_margin = 20.;
 
-    // create output folder, nothing happens if directory already exists
+    // create output folders, nothing happens if directory already exists
     fs::create_dir_all(&output_directory).expect("Could not create output folder");
+
+    let mut tiff_directory = output_directory.clone();
+    tiff_directory.push("tiffs");
+    if write_tiff {
+        fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
+    }
 
     if num_threads > 1 {
         println!("Running on {num_threads} threads");
@@ -40,21 +46,27 @@ fn main() {
 
     println!("Preparing input lidar file(s) for processing...");
     // step 1: prepare for processing lidar-files
-    let (laz_neighbour_map, las_paths, ref_point, file_stem) =
+    let (laz_neighbour_map, laz_paths, ref_point, file_stem) =
         steps::prepare_laz(in_file, neighbour_margin);
 
     // create map
     let mut map = Omap::new(&file_stem, &output_directory, ref_point);
 
-    for fi in 0..las_paths.len() {
-        println!("********");
-        println!("Processing Lidar-file {} of {}...", fi + 1, las_paths.len());
-        println!("********");
+    for fi in 0..laz_paths.len() {
+        println!("*************************************");
+        println!("Processing Lidar-file {} of {}...", fi + 1, laz_paths.len());
+        println!("{:?}", laz_paths[fi].file_name().unwrap());
+        println!("-------------------------------------");
+
+        let las_name = Path::new(&laz_paths[fi].file_name().unwrap())
+            .file_stem()
+            .unwrap()
+            .to_owned();
 
         // step 2: read each laz file and its neighbours and build point-cloud
         let (xyzir, point_tree, convex_hull, width, height, tl) = steps::read_laz(
             &laz_neighbour_map[fi],
-            &las_paths,
+            &laz_paths,
             &ref_point,
             cell_size,
             neighbour_margin,
@@ -76,7 +88,6 @@ fn main() {
         if basemap_interval >= 0.1 {
             println!("Computing basemap contours...");
 
-            // TODO: make this a contour hierarchy object
             steps::compute_basemap(
                 num_threads,
                 xyzir.bounds.min.z,
@@ -90,6 +101,7 @@ fn main() {
             );
         }
 
+        // TODO: make thresholds adaptive to local terrain ( create a smoothed version of the dfm and use that value to adapt threshold)
         // step 5: compute vegetation
         println!("Computing yellow...");
         steps::compute_open_land(
@@ -101,7 +113,18 @@ fn main() {
             &mut map,
         );
 
-        // step 6: save dfms
+        // step 6: compute cliffs
+        println!("Computing cliffs...");
+        steps::compute_cliffs(
+            &grad_dem,
+            0.7,
+            dist_to_hull_epsilon,
+            &convex_hull,
+            simplify_epsilon,
+            &mut map,
+        );
+
+        // step 7: save dfms
         if write_tiff {
             println!("Writing gridded Las-fields to Tiff files...");
             steps::save_tiffs(
@@ -110,8 +133,8 @@ fn main() {
                 dim,
                 drm,
                 &ref_point,
-                &file_stem,
-                &output_directory,
+                &las_name,
+                &tiff_directory,
             );
         }
     }
