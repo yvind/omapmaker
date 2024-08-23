@@ -88,36 +88,24 @@ impl PointCloud {
     }
 
     fn convex_hull(&mut self) -> Vec<PointLaz> {
-        let point_compare_position = |a: &PointLaz, b: &PointLaz| -> Ordering {
-            if a.y == b.y {
-                a.x.partial_cmp(&b.x).unwrap_or(Ordering::Equal)
-            } else {
-                a.y.partial_cmp(&b.y).unwrap_or(Ordering::Equal)
-            }
-        };
+        let mut gp_iter = self.points.iter().filter(|p| p.c == 2);
 
-        self.points.sort_by(point_compare_position);
-
-        let mut most_south_west_point = PointLaz::new(0., 0., 0., 0, 0, 0, 0);
-        for &point in self.points.iter() {
-            if point.c == 2 {
-                most_south_west_point = point;
-                break;
+        let mut bottom_point = *gp_iter.next().expect("No ground points in Pointcloud!");
+        for &point in gp_iter {
+            if point.y < bottom_point.y || (point.y == bottom_point.y && point.x < bottom_point.x) {
+                bottom_point = point;
             }
-        }
-        if most_south_west_point.n == 0 {
-            panic!("No ground points in the pointcloud");
         }
 
         let point_compare_angle = |a: &PointLaz, b: &PointLaz| -> Ordering {
-            let orientation = most_south_west_point.consecutive_orientation(a, b);
+            let orientation = bottom_point.consecutive_orientation(a, b);
             if orientation < 0.0 {
                 Ordering::Greater
             } else if orientation > 0.0 {
                 Ordering::Less
             } else {
-                let a_dist = most_south_west_point.squared_euclidean_distance(a);
-                let b_dist = most_south_west_point.squared_euclidean_distance(b);
+                let a_dist = bottom_point.squared_euclidean_distance(a);
+                let b_dist = bottom_point.squared_euclidean_distance(b);
                 b_dist.partial_cmp(&a_dist).unwrap_or(Ordering::Equal)
             }
         };
@@ -125,7 +113,7 @@ impl PointCloud {
 
         let mut convex_hull: Vec<PointLaz> = vec![];
 
-        convex_hull.push(most_south_west_point);
+        convex_hull.push(bottom_point);
 
         let mut skip_to = 1;
         for (i, &point) in self.points.iter().skip(1).enumerate() {
@@ -141,8 +129,7 @@ impl PointCloud {
             if point.c != 2 {
                 continue;
             }
-            if most_south_west_point.consecutive_orientation(&point, &convex_hull[hull_head]) == 0.0
-            {
+            if bottom_point.consecutive_orientation(&point, &convex_hull[hull_head]) == 0.0 {
                 continue;
             }
             while hull_head > 1 {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::Point;
 
 use std::ops::{Add, Sub};
