@@ -1,12 +1,12 @@
 use crate::{geometry::Point2D, raster::Dfm};
 
-use std::{ffi::OsString, path::Path, sync::Arc};
+use std::{ffi::OsString, path::Path};
 
 pub fn save_tiffs(
-    dem: Arc<Dfm>,
-    grad_dem: Arc<Dfm>,
-    dim: Arc<Dfm>,
-    drm: Arc<Dfm>,
+    dem: Dfm,
+    grad_dem: Dfm,
+    dim: Dfm,
+    drm: Dfm,
     ref_point: &Point2D,
     file_stem: &OsString,
     output_directory: &Path,

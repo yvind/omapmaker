@@ -9,7 +9,7 @@ use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
-use tiff::encoder::{colortype::Gray64Float, TiffEncoder};
+use tiff::encoder::{colortype::Gray32Float, TiffEncoder};
 
 #[derive(Clone, Debug)]
 pub struct Dfm {
@@ -295,7 +295,7 @@ impl Dfm {
         Ok(contour_by_end.into_values().collect())
     }
 
-    pub fn write_to_tiff(&self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
+    pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
         let mut tiff_path = PathBuf::from(output_directory);
         tiff_path.push(filename);
         tiff_path.set_extension("tiff");
@@ -306,17 +306,16 @@ impl Dfm {
 
         let mut tiff = File::create(tiff_path).expect("Unable to create tiff-file");
         let mut tiff = TiffEncoder::new(&mut tiff).unwrap();
-        tiff.write_image::<Gray64Float>(
-            self.width as u32,
-            self.height as u32,
-            &self
-                .field
-                .clone()
-                .into_iter()
-                .flatten()
-                .collect::<Vec<f64>>(),
-        )
-        .expect("Cannot write tiff-file");
+
+        let data = self
+            .field
+            .into_iter()
+            .flatten()
+            .map(|d| d as f32)
+            .collect::<Vec<f32>>();
+
+        tiff.write_image::<Gray32Float>(self.width as u32, self.height as u32, &data)
+            .expect("Cannot write tiff-file");
 
         let tfw = File::create(tfw_path).expect("Unable to create tfw-file");
         let mut tfw = BufWriter::new(tfw);

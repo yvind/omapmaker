@@ -11,7 +11,7 @@ mod steps;
 use map::Omap;
 use parser::Args;
 
-use std::{fs, path::Path};
+use std::{fs, path::Path, sync::Arc};
 
 fn main() {
     // step 0: read inputs from command line
@@ -126,10 +126,10 @@ fn main() {
         if write_tiff {
             println!("Writing gridded Las-fields to Tiff files...");
             steps::save_tiffs(
-                dem,
-                grad_dem,
-                dim,
-                drm,
+                Arc::unwrap_or_clone(dem),
+                Arc::unwrap_or_clone(grad_dem),
+                Arc::unwrap_or_clone(dim),
+                Arc::unwrap_or_clone(drm),
                 &ref_point,
                 &las_name,
                 &tiff_directory,
