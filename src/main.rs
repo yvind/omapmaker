@@ -38,7 +38,7 @@ fn main() {
         fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
     }
 
-    println!("Preparing input lidar file(s) for processing...");
+    println!("\nPreparing input lidar file(s) for processing...");
     // step 1: prepare for processing lidar-files
     let (laz_neighbour_map, laz_paths, ref_point, file_stem) =
         steps::prepare_laz(in_file, neighbour_margin);
