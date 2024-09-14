@@ -1,5 +1,4 @@
 #![feature(portable_simd)]
-#![allow(clippy::needless_range_loop)]
 
 //mod cdt;
 mod geometry;
@@ -39,7 +38,7 @@ fn main() {
         fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
     }
 
-    println!("Running on {} threads\n", num_threads);
+    println!("Running on {} threads", num_threads);
     println!("\nPreparing input lidar file(s) for processing...");
     // step 1: prepare for processing lidar-files
     let (laz_neighbour_map, laz_paths, ref_point, file_stem) =

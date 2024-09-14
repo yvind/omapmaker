@@ -95,7 +95,7 @@ fn compute_basemap_contours_multithread(
         for c in contours {
             let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
             c_object.add_auto_tag();
-            c_object.add_tag("Elevation", format!("{:2}", level).as_str());
+            c_object.add_tag("Elevation", format!("{:.2}", level).as_str());
             map.add_object(c_object);
         }
     }
@@ -129,7 +129,7 @@ fn compute_basemap_contours_singlethread(
         }
 
         for c in bm_contours.iter_mut() {
-            c.fix_ends_to_line(&hull, hull_epsilon)
+            c.fix_ends_to_line(hull, hull_epsilon)
         }
 
         for c in bm_contours {

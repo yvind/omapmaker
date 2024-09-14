@@ -20,7 +20,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0.5)]
     pub grid_size: f64,
 
-    /// Contour interval in meters of basemap (analytic contours), default 0 ie no basemap
+    /// Contour interval in meters of basemap (analytic contours) min value 0.1, default no basemap
     #[arg(short, long, default_value_t = 0.)]
     pub basemap_contours: f64,
 
