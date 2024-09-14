@@ -32,7 +32,7 @@ pub struct Args {
     #[clap(short, long, action)]
     pub form_lines: bool,
 
-    /// Number of threads used in computation, defaults to all available
+    /// Number of threads used in computation, defaults to all available threads
     #[arg(short, long, default_value_t = 0)]
     pub threads: usize,
 
@@ -40,7 +40,7 @@ pub struct Args {
     #[clap(long, action)]
     pub simd: bool,
 
-    /// Pass this flag to not simplify any geometries, makes enourmous file-sizes
+    /// Pass this flag to not simplify any geometries, makes enormous file-sizes
     #[clap(long, action)]
     pub not_simplify: bool,
 }
