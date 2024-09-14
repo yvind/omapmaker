@@ -16,7 +16,7 @@ Optional arguments:
 
     -w, passing this flag saves the raster images produced from the laz-input to Tiff-files
 
-    -t <threads>, number of threads to run on, default value 4
+    -t <threads>, number of threads to run on, default value all available threads
 
     --simd, passing this flag enables intrinsics (unstable, but possible speed ups)
 

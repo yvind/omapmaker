@@ -32,8 +32,8 @@ pub struct Args {
     #[clap(short, long, action)]
     pub form_lines: bool,
 
-    /// Number of threads used in computation, defaults to 4
-    #[arg(short, long, default_value_t = 4)]
+    /// Number of threads used in computation, defaults to all available
+    #[arg(short, long, default_value_t = 0)]
     pub threads: usize,
 
     /// Use SIMD intrinsics, unstable but possible speed up
@@ -56,6 +56,12 @@ impl Args {
         };
         let simplify_epsilon = 0.1 * (1 - args.not_simplify as u8) as f64;
 
+        let threads = if args.threads > 0 {
+            args.threads
+        } else {
+            std::thread::available_parallelism().unwrap().get()
+        };
+
         assert!(contour_interval >= 1.);
 
         (
@@ -64,7 +70,7 @@ impl Args {
             contour_interval,
             args.grid_size,
             args.basemap_contours,
-            args.threads,
+            threads,
             args.simd,
             simplify_epsilon,
             args.write_tiff,
