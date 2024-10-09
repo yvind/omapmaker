@@ -156,38 +156,42 @@ impl Point for Point2D {
         self.y += dy;
     }
 
-    fn closest_point_on_line_segment(&self, a: &Self, b: &Self) -> Self {
-        let mut diff = b - a;
+    fn closest_point_on_line_segment(&self, a: &impl Point, b: &impl Point) -> Self {
+        let mut diff = self.clone();
+        diff.x = b.get_x() - a.get_x();
+        diff.y = b.get_y() - a.get_y();
         let len = diff.length();
         diff.norm();
-        let s = self - a;
+
+        let mut s = self.clone();
+        s.translate(-a.get_x(), -a.get_y(), 0.);
 
         let image = s.dot(&diff).max(0.).min(len);
 
         Point2D {
-            x: a.x + diff.x * image,
-            y: a.y + diff.y * image,
+            x: a.get_x() + diff.x * image,
+            y: a.get_y() + diff.y * image,
         }
     }
 
-    fn consecutive_orientation(&self, a: &Self, b: &Self) -> f64 {
-        (a - self).cross_product(&(b - self))
+    fn consecutive_orientation(&self, a: &impl Point, b: &impl Point) -> f64 {
+        (a.get_x() - self.x) * (b.get_y() - self.y) - (a.get_y() - self.y) * (b.get_x() - self.x)
     }
 
-    fn squared_euclidean_distance(&self, other: &Self) -> f64 {
-        (self.x - other.x).powi(2) + (self.y - other.y).powi(2)
+    fn squared_euclidean_distance(&self, other: &impl Point) -> f64 {
+        (self.x - other.get_x()).powi(2) + (self.y - other.get_y()).powi(2)
     }
 
-    fn cross_product(&self, other: &Self) -> f64 {
-        self.x * other.y - other.x * self.y
+    fn cross_product(&self, other: &impl Point) -> f64 {
+        self.x * other.get_y() - other.get_x() * self.y
     }
 
-    fn dist_to_line_segment_squared(&self, a: &Self, b: &Self) -> f64 {
+    fn dist_to_line_segment_squared(&self, a: &impl Point, b: &impl Point) -> f64 {
         self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
     }
 
-    fn dot(&self, other: &Self) -> f64 {
-        self.x * other.x + self.y * other.y
+    fn dot(&self, other: &impl Point) -> f64 {
+        self.x * other.get_x() + self.y * other.get_y()
     }
 
     fn norm(&mut self) {

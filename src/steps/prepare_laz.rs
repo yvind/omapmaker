@@ -129,10 +129,10 @@ fn single_file(
             let new_bounds = &bb[yi * num_x_tiles + xi];
 
             let mut new_header = header.clone();
-            new_header.max_x = new_bounds.max_x;
-            new_header.max_y = new_bounds.max_y;
-            new_header.min_x = new_bounds.min_x;
-            new_header.min_y = new_bounds.min_y;
+            new_header.max_x = new_bounds.max.x;
+            new_header.max_y = new_bounds.max.y;
+            new_header.min_x = new_bounds.min.x;
+            new_header.min_y = new_bounds.min.y;
 
             new_header.version.minor = 4;
             new_header.number_of_point_records = points.len() as u32;
@@ -176,7 +176,7 @@ fn single_file(
         for xi in 0..num_x_tiles {
             tiled_file.set_file_name(format!("{}_{}.laz", xi, yi));
 
-            let mut new_header = las_reader.header().clone();
+            let new_header = las_reader.header().clone();
             let mut new_bounds = new_header.bounds();
 
             if yi == 0 {

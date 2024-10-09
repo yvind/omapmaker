@@ -142,7 +142,7 @@ impl PointCloud {
             while hull_head > 1 {
                 // If segment(i, i+1) turns right relative to segment(i-1, i), point(i) is not part of the convex hull.
                 let orientation = convex_hull[hull_head - 1]
-                    .consecutive_orientation(&convex_hull[hull_head], &point);
+                    .consecutive_orientation(&convex_hull[hull_head], point);
                 if orientation <= 0.0 {
                     hull_head -= 1;
                     convex_hull.pop();

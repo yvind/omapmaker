@@ -50,40 +50,42 @@ impl Point for PointLaz {
         self.z += dz;
     }
 
-    fn closest_point_on_line_segment(&self, a: &PointLaz, b: &PointLaz) -> PointLaz {
-        let mut diff = b.clone();
-        diff.translate(-a.x, -a.y, 0.);
+    fn closest_point_on_line_segment(&self, a: &impl Point, b: &impl Point) -> PointLaz {
+        let mut diff = self.clone();
+        diff.x = b.get_x() - a.get_x();
+        diff.y = b.get_y() - a.get_y();
         let len = diff.length();
         diff.norm();
 
         let mut s = self.clone();
-        s.translate(-a.x, -a.y, 0.);
+        s.translate(-a.get_x(), -a.get_y(), 0.);
 
         let image = s.dot(&diff).max(0.).min(len);
 
-        let mut out = a.clone();
-        out.translate(diff.x * image, diff.y * image, 0.);
+        let mut out = self.clone();
+        out.x = a.get_x() + diff.get_x() * image;
+        out.y = a.get_y() + diff.get_y() * image;
         out
     }
 
-    fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
-        (self.x - b.x).powi(2) + (self.y - b.y).powi(2)
+    fn squared_euclidean_distance(&self, b: &impl Point) -> f64 {
+        (self.x - b.get_x()).powi(2) + (self.y - b.get_y()).powi(2)
     }
 
-    fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64 {
-        (a.x - self.x) * (b.y - self.y) - (a.y - self.y) * (b.x - self.x)
+    fn consecutive_orientation(&self, a: &impl Point, b: &impl Point) -> f64 {
+        (a.get_x() - self.x) * (b.get_y() - self.y) - (a.get_y() - self.y) * (b.get_x() - self.x)
     }
 
-    fn cross_product(&self, other: &Self) -> f64 {
-        self.x * other.y - other.x * self.y
+    fn cross_product(&self, other: &impl Point) -> f64 {
+        self.x * other.get_y() - other.get_x() * self.y
     }
 
-    fn dist_to_line_segment_squared(&self, a: &Self, b: &Self) -> f64 {
+    fn dist_to_line_segment_squared(&self, a: &impl Point, b: &impl Point) -> f64 {
         self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
     }
 
-    fn dot(&self, other: &PointLaz) -> f64 {
-        self.x * other.x + self.y * other.y
+    fn dot(&self, other: &impl Point) -> f64 {
+        self.x * other.get_x() + self.y * other.get_y()
     }
 
     fn norm(&mut self) {
