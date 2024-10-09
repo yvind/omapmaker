@@ -1,8 +1,8 @@
-use crate::geometry::{Line, Point2D, PointCloud, PointLaz};
+use crate::geometry::{Line, Point2D, PointCloud};
 
+use fastrand::f64 as random;
 use kiddo::immutable::float::kdtree::ImmutableKdTree;
-use las::{point::Classification, Read, Reader};
-use rand::random;
+use las::{point::Classification, Reader};
 use std::{path::PathBuf, sync::Arc};
 
 pub fn read_laz(
@@ -48,18 +48,11 @@ pub fn read_laz(
                 ((p.classification == Classification::Ground
                     || p.classification == Classification::Water)
                     && !p.is_withheld)
-                    .then(|| PointLaz {
-                        x: p.x + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.x,
-                        y: p.y + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.y,
-                        z: p.z,
-                        i: p.intensity as u32,
-                        r: p.return_number,
-                        c: if p.classification == Classification::Ground {
-                            2
-                        } else {
-                            9
-                        },
-                        n: p.number_of_returns,
+                    .then(|| {
+                        let mut clone = p.clone();
+                        clone.x += 2. * (random() - 0.5) / 1000. - ref_point.x;
+                        clone.y += 2. * (random() - 0.5) / 1000. - ref_point.y;
+                        clone
                     })
             }) // add noise on the order of mm for KD-tree stability
             .collect(),
@@ -92,18 +85,11 @@ pub fn read_laz(
                         && convex_hull
                             .almost_contains(&Point2D::new(p.x, p.y), margin)
                             .unwrap())
-                    .then(|| PointLaz {
-                        x: p.x + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.x,
-                        y: p.y + 2. * (random::<f64>() - 0.5) / 1000. - ref_point.y,
-                        z: p.z,
-                        i: p.intensity as u32,
-                        r: p.return_number,
-                        c: if p.classification == Classification::Ground {
-                            2
-                        } else {
-                            9
-                        },
-                        n: p.number_of_returns,
+                    .then(|| {
+                        let mut clone = p.clone();
+                        clone.x += 2. * (random() - 0.5) / 1000. - ref_point.x;
+                        clone.y += 2. * (random() - 0.5) / 1000. - ref_point.y;
+                        clone
                     })
                 }) // add noise on the order of mm for KD-tree stability
                 .collect(),

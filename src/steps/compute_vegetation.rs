@@ -4,75 +4,70 @@ use crate::{
     raster::Dfm,
 };
 
-pub fn compute_open_land(
-    drm: &Dfm,
-    yellow_level: f64,
-    dist_to_hull_epsilon: f64,
+pub fn compute_vegetation(
+    dsm: &Dfm,
+    opt_lower_threshold: Option<f64>,
+    opt_upper_threshold: Option<f64>,
     convex_hull: &Line,
-    simplify_epsilon: f64,
-    map: &mut Omap,
-) {
-    let mut yellow_contours = drm.marching_squares(yellow_level).unwrap();
-
-    for yc in yellow_contours.iter_mut() {
-        yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
-    }
-
-    let yellow_hint = drm.field[drm.height / 2][drm.width / 2] > yellow_level;
-    let yellow_polygons = Polygon::from_contours(
-        yellow_contours,
-        convex_hull,
-        PolygonTrigger::Below,
-        0.,
-        dist_to_hull_epsilon,
-        yellow_hint,
-    );
-
-    for mut polygon in yellow_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
-        let mut yellow_object = AreaObject::from_polygon(polygon, Symbol::RoughOpenLand);
-        yellow_object.add_auto_tag();
-        map.add_object(yellow_object);
-    }
-}
-
-/*
-fn compute_intensity_polygon(
-    dim: &Dfm,
-    intensity_threshold: f64,
     dist_to_hull_epsilon: f64,
-    convex_hull: &Line,
     simplify_epsilon: f64,
     symbol: Symbol,
-    trigger: PolygonTrigger,
     min_size: f64,
     map: &mut Omap,
 ) {
-    let mut int_contours = dim.marching_squares(intensity_threshold).unwrap();
+    let mut contours;
+    let veg_hint;
+    let polygon_trigger;
+    if let (Some(lower_threshold), Some(upper_threshold)) =
+        (opt_lower_threshold, opt_upper_threshold)
+    {
+        // Interested in a band of values
+        contours = dsm.marching_squares(lower_threshold).unwrap();
+        let mut upper_contours = dsm.marching_squares(upper_threshold).unwrap();
 
-    for yc in int_contours.iter_mut() {
-        yc.fix_ends_to_line(&convex_hull, dist_to_hull_epsilon);
+        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] < upper_threshold
+            && dsm.field[dsm.height / 2][dsm.width / 2] > lower_threshold;
+
+        for c in upper_contours.iter_mut() {
+            c.vertices.reverse();
+        }
+        polygon_trigger = PolygonTrigger::Above;
+
+        contours.extend(upper_contours);
+    } else if let Some(lower_threshold) = opt_lower_threshold {
+        // Only interested in area above lower threshold
+        contours = dsm.marching_squares(lower_threshold).unwrap();
+        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] > lower_threshold;
+        polygon_trigger = PolygonTrigger::Above;
+    } else if let Some(upper_threshold) = opt_upper_threshold {
+        // Only interested in area below upper threshold
+        contours = dsm.marching_squares(upper_threshold).unwrap();
+        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] < upper_threshold;
+        polygon_trigger = PolygonTrigger::Below;
+    } else {
+        // Both thresholds are None so we want nothing and just returns
+        return;
     }
 
-    let int_hint = dim.field[dim.height / 2][dim.width / 2] > intensity_threshold;
-    let int_polygons = Polygon::from_contours(
-        int_contours,
-        &convex_hull,
-        trigger,
+    for vc in contours.iter_mut() {
+        vc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
+    }
+
+    let veg_polygons = Polygon::from_contours(
+        contours,
+        convex_hull,
+        polygon_trigger,
         min_size,
         dist_to_hull_epsilon,
-        int_hint,
+        veg_hint,
     );
 
-    for mut polygon in int_polygons {
+    for mut polygon in veg_polygons {
         if simplify_epsilon > 0. {
             polygon.simplify(simplify_epsilon);
         }
-        let mut int_object = AreaObject::from_polygon(polygon, symbol);
-        int_object.add_auto_tag();
-        map.add_object(int_object);
+        let mut veg_object = AreaObject::from_polygon(polygon, symbol);
+        veg_object.add_auto_tag();
+        map.add_object(veg_object);
     }
 }
-*/

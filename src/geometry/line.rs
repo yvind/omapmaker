@@ -255,12 +255,14 @@ impl Line {
             let this_vertex = self.vertices[i];
             let next_vertex = self.vertices[i + 1];
 
-            let n1 = (this_vertex - prev_vertex).normal();
-            let n2 = (next_vertex - this_vertex).normal();
+            let n1 = (&this_vertex - &prev_vertex).normal();
+            let n2 = (&next_vertex - &this_vertex).normal();
 
-            let normal = (n1 + n2).norm();
+            let mut normal = &n1 + &n2;
+            normal.norm();
+            normal.scale(epsilon);
 
-            normals.push(normal.scale(epsilon));
+            normals.push(normal);
             prev_vertex = this_vertex;
         }
         normals.push(normals[0]);
@@ -285,12 +287,14 @@ impl Line {
             let this_vertex = self.vertices[i];
             let next_vertex = self.vertices[i + 1];
 
-            let n1 = (this_vertex - prev_vertex).normal();
-            let n2 = (next_vertex - this_vertex).normal();
+            let n1 = (&this_vertex - &prev_vertex).normal();
+            let n2 = (&next_vertex - &this_vertex).normal();
 
-            let normal = (n1 + n2).norm();
+            let mut normal = &n1 + &n2;
+            normal.norm();
+            normal.scale(epsilon);
 
-            normals.push(normal.scale(epsilon));
+            normals.push(normal);
             prev_vertex = this_vertex;
         }
         normals.push(normals[0]);

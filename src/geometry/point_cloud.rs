@@ -4,6 +4,7 @@ use super::{Line, Point, Point2D, PointLaz};
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 use crate::raster::FieldType;
 
+use las::point::Classification;
 use las::{Bounds, Vector};
 use std::cmp::Ordering;
 
@@ -88,12 +89,18 @@ impl PointCloud {
     }
 
     fn convex_hull(&mut self) -> Vec<PointLaz> {
-        let mut gp_iter = self.points.iter().filter(|p| p.c == 2);
+        let mut gp_iter = self
+            .points
+            .iter()
+            .filter(|p| p.classification == Classification::Ground);
 
-        let mut bottom_point = *gp_iter.next().expect("No ground points in Pointcloud!");
-        for &point in gp_iter {
+        let mut bottom_point = gp_iter
+            .next()
+            .expect("No ground points in Pointcloud!")
+            .clone();
+        for point in gp_iter {
             if point.y < bottom_point.y || (point.y == bottom_point.y && point.x < bottom_point.x) {
-                bottom_point = point;
+                bottom_point = point.clone();
             }
         }
 
@@ -113,23 +120,23 @@ impl PointCloud {
 
         let mut convex_hull: Vec<PointLaz> = vec![];
 
-        convex_hull.push(bottom_point);
+        convex_hull.push(bottom_point.clone());
 
         let mut skip_to = 1;
-        for (i, &point) in self.points.iter().skip(1).enumerate() {
-            if point.c == 2 {
-                convex_hull.push(point);
+        for (i, point) in self.points.iter().skip(1).enumerate() {
+            if point.classification == Classification::Ground {
+                convex_hull.push(point.clone());
                 skip_to = i;
                 break;
             }
         }
 
         let mut hull_head = 1;
-        for &point in self.points.iter().skip(skip_to) {
-            if point.c != 2 {
+        for point in self.points.iter().skip(skip_to) {
+            if point.classification != Classification::Ground {
                 continue;
             }
-            if bottom_point.consecutive_orientation(&point, &convex_hull[hull_head]) == 0.0 {
+            if bottom_point.consecutive_orientation(point, &convex_hull[hull_head]) == 0.0 {
                 continue;
             }
             while hull_head > 1 {
@@ -143,7 +150,7 @@ impl PointCloud {
                     break;
                 }
             }
-            convex_hull.push(point);
+            convex_hull.push(point.clone());
             hull_head += 1;
         }
         convex_hull
@@ -165,8 +172,8 @@ impl PointCloud {
 
             match field {
                 FieldType::Elevation => mean[2] += self.points[*n].z,
-                FieldType::ReturnNumber => mean[2] += self.points[*n].r as f64,
-                FieldType::Intensity => mean[2] += self.points[*n].i as f64,
+                FieldType::ReturnNumber => mean[2] += self.points[*n].return_number as f64,
+                FieldType::Intensity => mean[2] += self.points[*n].intensity as f64,
             }
         }
         mean = [
@@ -182,8 +189,12 @@ impl PointCloud {
 
             match field {
                 FieldType::Elevation => std[2] += (self.points[*n].z - mean[2]).powi(2),
-                FieldType::ReturnNumber => std[2] += (self.points[*n].r as f64 - mean[2]).powi(2),
-                FieldType::Intensity => std[2] += (self.points[*n].i as f64 - mean[2]).powi(2),
+                FieldType::ReturnNumber => {
+                    std[2] += (self.points[*n].return_number as f64 - mean[2]).powi(2)
+                }
+                FieldType::Intensity => {
+                    std[2] += (self.points[*n].intensity as f64 - mean[2]).powi(2)
+                }
             }
         }
         std = [
@@ -207,9 +218,11 @@ impl PointCloud {
             match field {
                 FieldType::Elevation => z.data[i] = (self.points[*n].z - mean[2]) / std[2],
                 FieldType::ReturnNumber => {
-                    z.data[i] = (self.points[*n].r as f64 - mean[2]) / std[2]
+                    z.data[i] = (self.points[*n].return_number as f64 - mean[2]) / std[2]
                 }
-                FieldType::Intensity => z.data[i] = (self.points[*n].i as f64 - mean[2]) / std[2],
+                FieldType::Intensity => {
+                    z.data[i] = (self.points[*n].intensity as f64 - mean[2]) / std[2]
+                }
             }
         }
 
@@ -253,18 +266,18 @@ mod test {
         };
 
         let v = vec![
-            PointLaz::new(-2.0, -1.23, 0., 1, 0, 2, 1),
-            PointLaz::new(-1.0, 1.6, 0., 1, 0, 2, 1),
-            PointLaz::new(-1.7, 0.2, 0., 1, 0, 2, 1),
-            PointLaz::new(-1.3, -2.0, 0., 1, 0, 2, 1),
-            PointLaz::new(0.6, 1.96, 0., 1, 0, 2, 1),
-            PointLaz::new(0.2, -0.5, 0., 1, 0, 2, 1),
-            PointLaz::new(0.8, -1.0, 0., 1, 0, 2, 1),
-            PointLaz::new(1.1, 1.23, 0., 1, 0, 2, 1),
-            PointLaz::new(1.6, -0.73, 0., 1, 0, 2, 1),
-            PointLaz::new(1.9, 1.9, 0., 1, 0, 2, 1),
-            PointLaz::new(1.91, -1.9, 0., 1, 0, 2, 1),
-            PointLaz::new(-1.1, -2.0, 0., 1, 0, 2, 1),
+            <PointLaz as Point>::new(-2.0, -1.23, 0.),
+            <PointLaz as Point>::new(-1.0, 1.6, 0.),
+            <PointLaz as Point>::new(-1.7, 0.2, 0.),
+            <PointLaz as Point>::new(-1.3, -2.0, 0.),
+            <PointLaz as Point>::new(0.6, 1.96, 0.),
+            <PointLaz as Point>::new(0.2, -0.5, 0.),
+            <PointLaz as Point>::new(0.8, -1.0, 0.),
+            <PointLaz as Point>::new(1.1, 1.23, 0.),
+            <PointLaz as Point>::new(1.6, -0.73, 0.),
+            <PointLaz as Point>::new(1.9, 1.9, 0.),
+            <PointLaz as Point>::new(1.91, -1.9, 0.),
+            <PointLaz as Point>::new(-1.1, -2.0, 0.),
         ];
 
         PointCloud::new(v, b)

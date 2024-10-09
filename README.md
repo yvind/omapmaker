@@ -4,7 +4,7 @@ A command line application to generate an orienteering map (.omap file) directly
 
 Mandatory arguments:
 
-    -i <in_file>, path to input, accepts .las or .laz files or folder containing .las or .laz files
+    -i <in_file>, path to input, accepts .las or .laz files or folder containing .las and/or .laz files
 
 Optional arguments:
 
@@ -12,7 +12,7 @@ Optional arguments:
 
     -g <grid_size>, side length in meters of cells in raster generation, default value 0.5
 
-    -b <basemap_contours>, contour interval in meters of basemap (analytic contours), default 0 ie no basemap
+    -b <basemap_contours>, contour interval in meters of basemap (analytic contours), default 0 ie no basemap, min value 0.1
 
     -w, passing this flag saves the raster images produced from the laz-input to Tiff-files
 
@@ -32,18 +32,12 @@ To do:
 
     add marsh detection
 
-    add green detection
-
-    add point cloud classification
-
     add boulder detection
 
     -c <contour_interval>, contour interval in meters of output map, default value 5.0
 
-    -f, passing this flag adds formlines to the output map
+    --no_formlines, passing this flag makes the map without formlines
 
     add road/path detection
 
     -bezier, passing this flag converts geometries to bezier curves, makes smaller file sizes
-
-    -gpu, runs the computational heavy dfm generations on the gpu

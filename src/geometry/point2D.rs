@@ -10,6 +10,10 @@ pub struct Point2D {
 }
 
 impl Point2D {
+    pub fn default() -> Point2D {
+        Point2D { x: 0., y: 0. }
+    }
+
     pub fn new(x: f64, y: f64) -> Point2D {
         Point2D { x, y }
     }
@@ -108,10 +112,10 @@ impl PartialEq for Point2D {
     }
 }
 
-impl Add for Point2D {
+impl Add for &Point2D {
     type Output = Point2D;
 
-    fn add(self, rhs: Point2D) -> Point2D {
+    fn add(self, rhs: Self) -> Self::Output {
         Point2D {
             x: self.x + rhs.x,
             y: self.y + rhs.y,
@@ -119,11 +123,11 @@ impl Add for Point2D {
     }
 }
 
-impl Sub for Point2D {
-    type Output = Self;
+impl Sub for &Point2D {
+    type Output = Point2D;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self {
+        Point2D {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
@@ -131,30 +135,50 @@ impl Sub for Point2D {
 }
 
 impl Point for Point2D {
-    fn closest_point_on_line_segment(&self, a: &Point2D, b: &Point2D) -> Point2D {
-        let diff = *b - *a;
+    fn new(x: f64, y: f64, _z: f64) -> Point2D {
+        Point2D { x, y }
+    }
+
+    fn get_x(&self) -> f64 {
+        self.x
+    }
+
+    fn get_y(&self) -> f64 {
+        self.y
+    }
+
+    fn get_z(&self) -> f64 {
+        0.
+    }
+
+    fn translate(&mut self, dx: f64, dy: f64, _dz: f64) {
+        self.x += dx;
+        self.y += dy;
+    }
+
+    fn closest_point_on_line_segment(&self, a: &Self, b: &Self) -> Self {
+        let mut diff = b - a;
         let len = diff.length();
+        diff.norm();
+        let s = self - a;
 
-        let v = diff.norm();
-        let s = *self - *a;
-
-        let image = s.dot(&v).max(0.).min(len);
+        let image = s.dot(&diff).max(0.).min(len);
 
         Point2D {
-            x: a.x + v.x * image,
-            y: a.y + v.y * image,
+            x: a.x + diff.x * image,
+            y: a.y + diff.y * image,
         }
     }
 
-    fn consecutive_orientation(&self, a: &Point2D, b: &Point2D) -> f64 {
-        (*a - *self).cross_product(&(*b - *self))
+    fn consecutive_orientation(&self, a: &Self, b: &Self) -> f64 {
+        (a - self).cross_product(&(b - self))
     }
 
-    fn squared_euclidean_distance(&self, other: &Point2D) -> f64 {
+    fn squared_euclidean_distance(&self, other: &Self) -> f64 {
         (self.x - other.x).powi(2) + (self.y - other.y).powi(2)
     }
 
-    fn cross_product(&self, other: &Point2D) -> f64 {
+    fn cross_product(&self, other: &Self) -> f64 {
         self.x * other.y - other.x * self.y
     }
 
@@ -162,34 +186,29 @@ impl Point for Point2D {
         self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
     }
 
-    fn dot(&self, other: &Point2D) -> f64 {
+    fn dot(&self, other: &Self) -> f64 {
         self.x * other.x + self.y * other.y
     }
 
-    fn norm(self) -> Self {
+    fn norm(&mut self) {
         let l = self.length();
-        Point2D {
-            x: self.x / l,
-            y: self.y / l,
-        }
+        self.scale(1. / l);
     }
 
     fn length(&self) -> f64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    fn normal(self) -> Self {
+    fn normal(&self) -> Self {
         Self {
             x: self.y,
             y: -self.x,
         }
     }
 
-    fn scale(self, l: f64) -> Self {
-        Point2D {
-            x: self.x * l,
-            y: self.y * l,
-        }
+    fn scale(&mut self, l: f64) {
+        self.x *= l;
+        self.y *= l;
     }
 }
 

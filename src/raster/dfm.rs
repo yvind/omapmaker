@@ -2,7 +2,9 @@
 
 use crate::geometry::{Line, Point2D};
 
-use rustc_hash::FxHashMap as HashMap;
+use nohash_hasher::BuildNoHashHasher;
+use std::collections::HashMap;
+
 use std::{
     ffi::OsString,
     fs::File,
@@ -70,7 +72,7 @@ impl Dfm {
         Ok(())
     }
 
-    fn get_edge_index(&self, point: &Point2D) -> Option<usize> {
+    fn get_edge_index(&self, point: &Point2D) -> Result<usize, ()> {
         let p0 = Point2D::new(point.x - self.tl_coord.x, self.tl_coord.y - point.y);
 
         if p0.x < 0.
@@ -78,7 +80,7 @@ impl Dfm {
             || p0.y < 0.
             || p0.y > self.height as f64 * self.cell_size
         {
-            return None;
+            return Err(());
         }
 
         let mut dx = p0.x / self.cell_size;
@@ -125,11 +127,11 @@ impl Dfm {
         }
 
         match ei {
-            0 => Some(yi * (2 * self.width + 1) + xi),
-            1 => Some(yi * (2 * self.width + 1) + (xi + 1) + self.width),
-            2 => Some((yi + 1) * (2 * self.width + 1) + xi),
-            3 => Some(yi * (2 * self.width + 1) + xi + self.width),
-            _ => panic!("edge index out of bounds: {ei} not in [0, 3]"),
+            0 => Ok(yi * (2 * self.width + 1) + xi),
+            1 => Ok(yi * (2 * self.width + 1) + (xi + 1) + self.width),
+            2 => Ok((yi + 1) * (2 * self.width + 1) + xi),
+            3 => Ok(yi * (2 * self.width + 1) + xi + self.width),
+            _ => Err(()),
         }
     }
 
@@ -139,12 +141,17 @@ impl Dfm {
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
             |       |   the lut gives which directed edge that should be crossed by the contour as corner indecies of the start and end corner
             |       |   performs linear interpolation based on the corner values of the crossed edges
-            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handeled seperately)
+            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handled seperately)
             3       2
         */
         let dem = &self.field;
-        let mut contour_by_end: HashMap<usize, Line> = HashMap::default();
-        let mut contour_by_start: HashMap<usize, Line> = HashMap::default();
+        //let num_edges = self.height * (2 * self.width + 1) + self.width - 1;
+
+        let mut contour_by_end: HashMap<usize, Line, BuildNoHashHasher<usize>> =
+            HashMap::with_hasher(BuildNoHashHasher::default());
+        let mut contour_by_start: HashMap<usize, Line, BuildNoHashHasher<usize>> =
+            HashMap::with_hasher(BuildNoHashHasher::default());
+
         let lut: [[usize; 2]; 16] = [
             [0, 0],
             [3, 0],
@@ -207,27 +214,27 @@ impl Dfm {
                     edge_indices = lut[index].to_vec();
                 }
 
-                let mut corner_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
+                let mut vertex_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
                 for (i, e) in edge_indices.iter().enumerate() {
                     let a = dem[ys[*e]][xs[*e]];
                     let b = dem[ys[(*e + 1) % 4]][xs[(*e + 1) % 4]];
 
-                    let cell_center = self.index2coord(xs[*e], ys[*e])?;
+                    let cell_tl = self.index2coord(xs[*e], ys[*e])?;
 
-                    corner_coordinates[i % 2].x = cell_center.x
+                    vertex_coordinates[i % 2].x = cell_tl.x
                         + self.cell_size
                             * (xs[(*e + 1) % 4] as i32 - xs[*e] as i32) as f64
                             * (level - a)
                             / (b - a);
-                    corner_coordinates[i % 2].y = cell_center.y
+                    vertex_coordinates[i % 2].y = cell_tl.y
                         + self.cell_size
                             * (ys[*e] as i32 - ys[(*e + 1) % 4] as i32) as f64
                             * (level - a)
                             / (b - a);
 
                     if i % 2 == 1 {
-                        let vertex1 = corner_coordinates[0];
-                        let vertex2 = corner_coordinates[1];
+                        let vertex1 = vertex_coordinates[0];
+                        let vertex2 = vertex_coordinates[1];
 
                         let key1 = self.get_edge_index(&vertex1).unwrap();
                         let key2 = self.get_edge_index(&vertex2).unwrap();

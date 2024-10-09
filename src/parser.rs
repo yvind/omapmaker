@@ -9,7 +9,7 @@ pub struct Args {
     pub in_file: PathBuf,
 
     /// Path to output directory, creates a new dir if given path doesn't exist, defaults to current working directory
-    #[arg(short, long, default_value = "./")]
+    #[arg(short, long, default_value = ".")]
     pub output_directory: PathBuf,
 
     /// Contour interval in meters of map output, default 5.0
@@ -64,9 +64,12 @@ impl Args {
 
         assert!(contour_interval >= 1.);
 
+        let mut out_dir = args.output_directory;
+        out_dir.push("");
+
         (
             args.in_file,
-            args.output_directory,
+            out_dir,
             contour_interval,
             args.grid_size,
             args.basemap_contours,

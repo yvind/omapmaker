@@ -4,6 +4,7 @@ use crate::geometry::Line;
 pub struct ContourHierarchy {
     pub contours: Vec<Line>,
     closed_contours: Vec<Line>, // just the same as the original contours just all closed
+    open_closed_map: Vec<usize>, // maps contours to closed contours
     pub hierarchy: Vec<ContourInfo>,
 }
 
@@ -21,12 +22,13 @@ impl ContourHierarchy {
         ContourHierarchy {
             contours: vec![],
             closed_contours: vec![],
+            open_closed_map: vec![],
             hierarchy: vec![],
         }
     }
 
     pub fn from_lines(lines: Vec<Vec<Line>>, levels: Vec<f64>) -> Result<ContourHierarchy, ()> {
-        if !(lines.len() == levels.len()) {
+        if lines.len() != levels.len() {
             return Err(());
         }
 
@@ -38,14 +40,24 @@ impl ContourHierarchy {
         Ok(ch)
     }
 
-    pub fn add_level(&mut self, mut lines: Vec<Line>, level: f64) {
+    pub fn add_level(&mut self, mut contours: Vec<Line>, level: f64) {
+        if contours.is_empty() {
+            return;
+        }
+
+        let mut unclosed_contours
+
+
+
         lines.sort_by(|a, b| {
             b.signed_area()
                 .unwrap()
                 .partial_cmp(&a.signed_area().unwrap())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
-        for contour in lines.into_iter() {}
+        for contour in lines.into_iter() {
+
+        }
     }
 }
 

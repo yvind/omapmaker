@@ -1,6 +1,6 @@
 #![feature(portable_simd)]
 
-//mod cdt;
+//mod c2hm;
 mod geometry;
 mod map;
 mod matrix;
@@ -8,7 +8,7 @@ mod parser;
 mod raster;
 mod steps;
 
-use map::Omap;
+use map::{Omap, Symbol};
 use parser::Args;
 
 use std::{fs, path::Path, sync::Arc};
@@ -27,7 +27,8 @@ fn main() {
         write_tiff,
     ) = Args::parse_cli();
     let dist_to_hull_epsilon = 2. * cell_size;
-    let neighbour_margin = 20.;
+    let neighbour_margin = 14.;
+    let tile_size = 128.;
 
     // create output folders, nothing happens if directory already exists
     fs::create_dir_all(&output_directory).expect("Could not create output folder");
@@ -40,9 +41,9 @@ fn main() {
 
     println!("Running on {} threads", num_threads);
     println!("\nPreparing input lidar file(s) for processing...");
-    // step 1: prepare for processing lidar-files
+    // step 1: preprocess lidar-files, retile into 128mx128m tiles with 14m overlap on all sides (28m opposite to an edge)
     let (laz_neighbour_map, laz_paths, ref_point, file_stem) =
-        steps::prepare_laz(in_file, neighbour_margin);
+        steps::prepare_laz(in_file, tile_size, neighbour_margin);
 
     // create map
     let mut map = Omap::new(&file_stem, &output_directory, ref_point);
@@ -102,13 +103,52 @@ fn main() {
 
         // TODO: make thresholds adaptive to local terrain ( create a smoothed version of the dfm and use that value to adapt threshold)
         // step 5: compute vegetation
-        println!("Computing yellow...");
-        steps::compute_open_land(
+        println!("Computing vegetation...");
+        steps::compute_vegetation(
             &drm,
-            1.2,
-            dist_to_hull_epsilon,
+            None,
+            Some(1.2),
             &convex_hull,
+            dist_to_hull_epsilon,
             simplify_epsilon,
+            Symbol::RoughOpenLand,
+            225.,
+            &mut map,
+        );
+
+        steps::compute_vegetation(
+            &drm,
+            Some(2.1),
+            None, //Some(3.0),
+            &convex_hull,
+            dist_to_hull_epsilon,
+            simplify_epsilon,
+            Symbol::LightGreen,
+            225.,
+            &mut map,
+        );
+
+        steps::compute_vegetation(
+            &drm,
+            Some(3.0),
+            None, //Some(4.0),
+            &convex_hull,
+            dist_to_hull_epsilon,
+            simplify_epsilon,
+            Symbol::MediumGreen,
+            110.,
+            &mut map,
+        );
+
+        steps::compute_vegetation(
+            &drm,
+            Some(4.0),
+            None,
+            &convex_hull,
+            dist_to_hull_epsilon,
+            simplify_epsilon,
+            Symbol::DarkGreen,
+            64.,
             &mut map,
         );
 

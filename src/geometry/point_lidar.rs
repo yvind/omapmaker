@@ -2,52 +2,68 @@
 
 use super::Point;
 
-use std::ops::{Add, Sub};
+pub use las::Point as PointLaz;
 
-#[derive(Copy, Clone, Debug)]
-pub struct PointLaz {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-    pub r: u8,
-    pub i: u32,
-    pub c: u8,
-    pub n: u8,
-}
-
-impl PointLaz {
-    pub fn new(x: f64, y: f64, z: f64, r: u8, i: u32, c: u8, n: u8) -> Self {
-        PointLaz {
+impl Point for PointLaz {
+    fn new(x: f64, y: f64, z: f64) -> Self {
+        Self {
             x,
             y,
             z,
-            r,
-            i,
-            c,
-            n,
+            intensity: 0,
+            return_number: 1,
+            number_of_returns: 1,
+            scan_direction: las::point::ScanDirection::LeftToRight,
+            is_edge_of_flight_line: false,
+            classification: las::point::Classification::Ground,
+            is_synthetic: true,
+            is_key_point: false,
+            is_withheld: false,
+            is_overlap: false,
+            scanner_channel: 0,
+            scan_angle: 0.,
+            user_data: 0,
+            point_source_id: 0,
+            gps_time: None,
+            color: None,
+            waveform: None,
+            nir: None,
+            extra_bytes: vec![],
         }
     }
-}
 
-impl Point for PointLaz {
+    fn get_x(&self) -> f64 {
+        self.x
+    }
+
+    fn get_y(&self) -> f64 {
+        self.y
+    }
+
+    fn get_z(&self) -> f64 {
+        self.z
+    }
+
+    fn translate(&mut self, dx: f64, dy: f64, dz: f64) {
+        self.x += dx;
+        self.y += dy;
+        self.z += dz;
+    }
+
     fn closest_point_on_line_segment(&self, a: &PointLaz, b: &PointLaz) -> PointLaz {
-        let diff = *b - *a;
+        let mut diff = b.clone();
+        diff.translate(-a.x, -a.y, 0.);
         let len = diff.length();
+        diff.norm();
 
-        let v = diff.norm();
-        let s = *self - *a;
+        let mut s = self.clone();
+        s.translate(-a.x, -a.y, 0.);
 
-        let image = s.dot(&v).max(0.).min(len);
+        let image = s.dot(&diff).max(0.).min(len);
 
-        PointLaz {
-            x: a.x + v.x * image,
-            y: a.y + v.y * image,
-            z: a.z,
-            r: a.r,
-            i: a.i,
-            c: a.c,
-            n: a.n,
-        }
+        let mut out = a.clone();
+        out.translate(diff.x * image, diff.y * image, 0.);
+        out
     }
 
     fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
@@ -70,76 +86,27 @@ impl Point for PointLaz {
         self.x * other.x + self.y * other.y
     }
 
-    fn norm(self) -> Self {
+    fn norm(&mut self) {
         let l = self.length();
-        Self {
-            x: self.x / l,
-            y: self.y / l,
-            z: self.z,
-            r: self.r,
-            i: self.i,
-            c: self.c,
-            n: self.n,
-        }
+
+        self.scale(1. / l);
     }
 
     fn length(&self) -> f64 {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
-    fn normal(self) -> Self {
-        Self {
-            x: self.y,
-            y: -self.x,
-            z: self.z,
-            r: self.r,
-            i: self.i,
-            c: self.c,
-            n: self.n,
-        }
+    fn normal(&self) -> Self {
+        let mut out = self.clone();
+
+        out.x = self.y;
+        out.y = -self.x;
+
+        out
     }
 
-    fn scale(self, l: f64) -> Self {
-        Self {
-            x: self.x * l,
-            y: self.y * l,
-            z: self.z,
-            r: self.r,
-            i: self.i,
-            c: self.c,
-            n: self.n,
-        }
-    }
-}
-
-impl Add for PointLaz {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
-            r: self.r,
-            i: self.i,
-            c: self.c,
-            n: self.n,
-        }
-    }
-}
-
-impl Sub for PointLaz {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self {
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
-            r: self.r,
-            i: self.i,
-            c: self.c,
-            n: self.n,
-        }
+    fn scale(&mut self, l: f64) {
+        self.x *= l;
+        self.y *= l;
     }
 }

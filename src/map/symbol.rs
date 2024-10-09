@@ -16,6 +16,9 @@ pub enum Symbol {
     SandyGround = 48,
     BareRock = 49,
     RoughOpenLand = 79,
+    LightGreen = 83,
+    MediumGreen = 86,
+    DarkGreen = 90,
     Building = 140,
 }
 
