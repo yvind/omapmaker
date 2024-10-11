@@ -5,7 +5,7 @@ use crate::geometry::Point2D;
 
 use std::io::{BufWriter, Write};
 use std::{
-    ffi::OsString,
+    ffi::OsStr,
     fs::File,
     path::{Path, PathBuf},
 };
@@ -17,7 +17,7 @@ pub struct Omap {
 }
 
 impl Omap {
-    pub fn new(filename: &OsString, dir: &Path, georef_point: Point2D) -> Self {
+    pub fn new(filename: &OsStr, dir: &Path, georef_point: Point2D) -> Self {
         let mut output = PathBuf::from(dir);
         output.push(filename);
         output.set_extension("omap");

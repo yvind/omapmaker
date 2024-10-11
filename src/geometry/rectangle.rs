@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 use super::{Point, Point2D};
+use las::Bounds;
 
 pub struct Rectangle {
     pub min: Point2D,
@@ -33,5 +34,20 @@ impl Rectangle {
             || self.min.x > other.max.x + margin
             || self.max.y < other.min.y - margin
             || self.min.y > other.max.y + margin)
+    }
+}
+
+impl From<Bounds> for Rectangle {
+    fn from(value: Bounds) -> Self {
+        Rectangle {
+            min: Point2D {
+                x: value.min.x,
+                y: value.min.y,
+            },
+            max: Point2D {
+                x: value.max.x,
+                y: value.max.y,
+            },
+        }
     }
 }

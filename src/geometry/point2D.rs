@@ -99,8 +99,14 @@ impl Point2D {
 }
 
 impl From<PointLaz> for Point2D {
-    fn from(p5: PointLaz) -> Point2D {
+    fn from(p5: PointLaz) -> Self {
         Point2D::new(p5.x, p5.y)
+    }
+}
+
+impl From<[f64; 2]> for Point2D {
+    fn from(v: [f64; 2]) -> Self {
+        Point2D::new(v[0], v[1])
     }
 }
 
