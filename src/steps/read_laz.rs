@@ -6,11 +6,9 @@ use las::{point::Classification, Reader};
 use std::{path::PathBuf, sync::Arc};
 
 pub fn read_laz(
-    neighbour_map: &[usize],
-    las_paths: &[PathBuf],
+    las_path: &PathBuf,
     ref_point: &Point2D,
     cell_size: f64,
-    margin: f64,
     dist_to_hull_epsilon: f64,
 ) -> (
     Arc<PointCloud>,
@@ -21,10 +19,10 @@ pub fn read_laz(
     Point2D,
 ) {
     // read first and main laz file
-    let mut las_reader = Reader::from_path(&las_paths[neighbour_map[0]]).unwrap_or_else(|_| {
+    let mut las_reader = Reader::from_path(las_path).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
-            las_paths[neighbour_map[0]].to_string_lossy()
+            las_path.to_string_lossy()
         )
     });
 
@@ -65,36 +63,6 @@ pub fn read_laz(
         y: map_bounds.max.y,
     };
     let convex_hull = xyzir.bounded_convex_hull(cell_size, &map_bounds, dist_to_hull_epsilon * 2.);
-
-    for &fi in neighbour_map.iter().skip(1) {
-        let mut las_reader = Reader::from_path(&las_paths[fi]).unwrap_or_else(|_| {
-            panic!(
-                "Could not read given laz/las file with path: {}",
-                las_paths[fi].to_string_lossy()
-            )
-        });
-
-        xyzir.add(
-            las_reader
-                .points()
-                .map(|r| r.unwrap())
-                .filter_map(|p| {
-                    (((p.classification == Classification::Ground
-                        || p.classification == Classification::Water)
-                        && !p.is_withheld)
-                        && convex_hull
-                            .almost_contains(&Point2D::new(p.x, p.y), margin)
-                            .unwrap())
-                    .then(|| {
-                        let mut clone = p.clone();
-                        clone.x += 2. * (random() - 0.5) / 1000. - ref_point.x;
-                        clone.y += 2. * (random() - 0.5) / 1000. - ref_point.y;
-                        clone
-                    })
-                }) // add noise on the order of mm for KD-tree stability
-                .collect(),
-        )
-    }
 
     println!("Building Kd-tree...");
     let point_tree: ImmutableKdTree<f64, usize, 2, 32> =

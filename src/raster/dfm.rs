@@ -6,7 +6,7 @@ use nohash_hasher::BuildNoHashHasher;
 use std::collections::HashMap;
 
 use std::{
-    ffi::OsString,
+    ffi::OsStr,
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
@@ -302,7 +302,7 @@ impl Dfm {
         Ok(contour_by_end.into_values().collect())
     }
 
-    pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
+    pub fn write_to_tiff(self, filename: &OsStr, output_directory: &Path, ref_point: &Point2D) {
         let mut tiff_path = PathBuf::from(output_directory);
         tiff_path.push(filename);
         tiff_path.set_extension("tiff");

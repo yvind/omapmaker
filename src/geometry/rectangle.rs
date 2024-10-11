@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 #[allow(dead_code)]
 use super::{Point, Point2D};
 use las::Bounds;
@@ -47,6 +49,23 @@ impl From<Bounds> for Rectangle {
             max: Point2D {
                 x: value.max.x,
                 y: value.max.y,
+            },
+        }
+    }
+}
+
+impl Add for Rectangle {
+    type Output = Rectangle;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Rectangle {
+            min: Point2D {
+                x: self.min.x + rhs.min.x,
+                y: self.min.y + rhs.min.y,
+            },
+            max: Point2D {
+                x: self.max.x + rhs.max.x,
+                y: self.max.y + rhs.max.y,
             },
         }
     }

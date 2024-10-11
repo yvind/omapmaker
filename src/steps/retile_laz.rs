@@ -4,19 +4,19 @@ use las::{raw, Builder, Point, Reader, Writer};
 use std::{fs, path::PathBuf};
 
 pub fn retile_laz(
-    neighbour_map: &Vec<usize>,
+    neighbour_map: &[Option<usize>; 9],
     paths: &Vec<PathBuf>,
     tile_size: f64,
     margin: f64,
 ) -> Vec<PathBuf> {
-    if neighbour_map.len() == 1 {
-        single_file(paths[neighbour_map[0]], tile_size, margin)
+    if paths.len() == 1 {
+        single_file(&(paths[0]), tile_size, margin)
     } else {
         multiple_files(neighbour_map, paths, tile_size, margin)
     }
 }
 
-fn single_file(input: PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
+fn single_file(input: &PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
     let mut las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
@@ -44,7 +44,12 @@ fn single_file(input: PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
 
     let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, tile_size, margin);
 
-    let mut point_buckets: Vec<Vec<Point>> = vec![vec![]; num_x_tiles * num_y_tiles];
+    let mut point_buckets: Vec<Vec<Point>> = vec![
+        Vec::with_capacity(
+            header.number_of_point_records as usize / (num_x_tiles * num_y_tiles)
+        );
+        num_x_tiles * num_y_tiles
+    ];
 
     for point in las_reader.points().map(|p| p.unwrap()) {
         for (i, b) in bb.iter().enumerate() {
@@ -63,6 +68,111 @@ fn single_file(input: PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
         &header,
     );
     paths
+}
+
+fn multiple_files(
+    neighbour_map: &[Option<usize>; 9],
+    paths: &Vec<PathBuf>,
+    tile_size: f64,
+    margin: f64,
+) -> Vec<PathBuf> {
+    // read the laz to be re-tiled, must be readable by now
+    let ci = neighbour_map[0].unwrap();
+    let mut las_reader = Reader::from_path(&paths[ci]).unwrap();
+
+    let header = las_reader.header().clone().into_raw().unwrap();
+    let mut bounds = Rectangle {
+        min: Point2D {
+            x: header.min_x,
+            y: header.min_y,
+        },
+        max: Point2D {
+            x: header.max_x,
+            y: header.max_y,
+        },
+    };
+
+    let mut push_bounds = Rectangle::default();
+    for (i, v) in neighbour_map.iter().enumerate() {
+        match v {
+            None => continue,
+            Some(_) => match i {
+                0 => continue,
+                1 => {
+                    push_bounds.min.x = -margin;
+                    push_bounds.max.y = margin;
+                }
+                2 => push_bounds.max.y = margin,
+                3 => {
+                    push_bounds.max.x = margin;
+                    push_bounds.max.y = margin;
+                }
+                4 => push_bounds.max.x = margin,
+                5 => {
+                    push_bounds.max.x = margin;
+                    push_bounds.min.y = -margin;
+                }
+                6 => push_bounds.min.y = -margin,
+                7 => {
+                    push_bounds.min.x = -margin;
+                    push_bounds.min.y = -margin;
+                }
+                8 => push_bounds.min.x = -margin,
+                _ => panic!("logic fail in laz neighbour calculation"),
+            },
+        }
+    }
+    bounds = bounds + push_bounds;
+
+    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, tile_size, margin);
+
+    let mut point_buckets: Vec<Vec<Point>> = vec![
+        Vec::with_capacity(
+            header.number_of_point_records as usize / (num_x_tiles * num_y_tiles)
+        );
+        num_x_tiles * num_y_tiles
+    ];
+
+    // read points from main file into buckets
+    for point in las_reader.points().map(|p| p.unwrap()) {
+        for (i, b) in bb.iter().enumerate() {
+            if b.contains(&point) {
+                point_buckets[i].push(point.clone());
+            }
+        }
+    }
+    drop(las_reader);
+
+    // read points from neighbour files into buckets
+    for w_ni in neighbour_map.iter().skip(1) {
+        match w_ni {
+            None => continue,
+            Some(ni) => {
+                let mut las_reader = Reader::from_path(&paths[*ni]).unwrap();
+
+                for point in las_reader.points().map(|p| p.unwrap()) {
+                    for (i, b) in bb.iter().enumerate() {
+                        if b.contains(&point) {
+                            point_buckets[i].push(point.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let ct = neighbour_map[0].unwrap();
+    let tiled_file = paths[ct].with_extension(""); // new PathBuf wo the extension from input path
+
+    let tile_paths = write_tiles_to_file(
+        tiled_file,
+        point_buckets,
+        bb,
+        num_x_tiles,
+        num_y_tiles,
+        &header,
+    );
+    tile_paths
 }
 
 fn write_tiles_to_file(

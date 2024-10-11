@@ -11,10 +11,9 @@ mod steps;
 use map::{Omap, Symbol};
 use parser::Args;
 
-use std::{fs, path::Path, sync::Arc};
+use std::{fs, sync::Arc};
 
 fn main() {
-    // step 0: read inputs from command line
     let (
         in_file,
         output_directory,
@@ -27,8 +26,8 @@ fn main() {
         write_tiff,
     ) = Args::parse_cli();
     let dist_to_hull_epsilon = 2. * cell_size;
-    let neighbour_margin = 14.;
-    let tile_size = 128.;
+    const NEIGHBOUR_MARGIN: f64 = 14.;
+    const TILE_SIZE: f64 = 128.;
 
     // create output folders, nothing happens if directory already exists
     fs::create_dir_all(&output_directory).expect("Could not create output folder");
@@ -42,6 +41,7 @@ fn main() {
 
     println!("Running on {} threads", num_threads);
     println!("\nMapping input lidar file(s) relations...");
+    // step 0: figure out lidar file relationships
     let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(in_file);
 
     // create map
@@ -57,12 +57,12 @@ fn main() {
         println!("\t{:?}", laz_paths[fi].file_name().unwrap());
         println!("-----------------------------------------------");
 
-        // step 1: preprocess lidar-files, retile into 128mx128m tiles with 14m overlap on all sides
+        // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
         let tile_paths = steps::retile_laz(
             &laz_neighbour_map[fi],
             &laz_paths,
-            tile_size,
-            neighbour_margin,
+            TILE_SIZE,
+            NEIGHBOUR_MARGIN,
         );
 
         if write_tiff {
@@ -71,14 +71,8 @@ fn main() {
 
         for tile_path in tile_paths {
             // step 2: read each laz file and its neighbours and build point-cloud
-            let (xyzir, point_tree, convex_hull, width, height, tl) = steps::read_laz(
-                &laz_neighbour_map[fi],
-                &laz_paths,
-                &ref_point,
-                cell_size,
-                neighbour_margin,
-                dist_to_hull_epsilon,
-            );
+            let (xyzir, point_tree, convex_hull, width, height, tl) =
+                steps::read_laz(&tile_path, &ref_point, cell_size, dist_to_hull_epsilon);
 
             // step 3: compute the DFMs
             println!("Computing DFMs...");
@@ -179,7 +173,7 @@ fn main() {
                     Arc::unwrap_or_clone(dim),
                     Arc::unwrap_or_clone(drm),
                     &ref_point,
-                    &tile_path.file_stem(),
+                    tile_path.file_stem().unwrap(),
                     &tiff_directory,
                 );
             }

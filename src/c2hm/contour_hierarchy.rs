@@ -64,29 +64,10 @@ impl ContourHierarchy {
 pub fn from_contours(
     mut contours: Vec<Line>,
     convex_hull: &Line,
-    polygon_type: PolygonTrigger,
-    min_size: f64,
     epsilon: f64,
-    hint: bool,
 ) -> Vec<Polygon> {
     let mut polygons = vec![];
     let mut unclosed_contours = vec![];
-
-    if contours.is_empty() {
-        // everywhere is either above or below the limit
-        // needs to use the hint to classify everywhere correctly
-        if polygon_type as i8 * (2 * hint as i8 - 1) > 0 {
-            polygons.push(Polygon::new(convex_hull.clone()));
-        }
-        return polygons;
-    }
-
-    // reverse all contours if we are interested in the polygons that the areas below the contours build, instead of the areas above
-    if polygon_type == PolygonTrigger::Below {
-        for c in contours.iter_mut() {
-            c.vertices.reverse();
-        }
-    }
 
     // filter out all unclosed contours
     let mut i: usize = 0;
