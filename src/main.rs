@@ -42,7 +42,7 @@ fn main() {
     println!("Running on {} threads", num_threads);
     println!("\nMapping input lidar file(s) relations...");
     // step 0: figure out lidar file relationships
-    let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(in_file);
+    let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(in_file.clone());
 
     // create map
     let mut map = Omap::new(file_stem, &output_directory, ref_point);
