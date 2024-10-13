@@ -30,14 +30,12 @@ pub fn read_laz(
 
     let header = las_reader.header();
     let mut las_bounds = header.bounds();
-    println!("Number of points: {:?}", header.number_of_points());
 
     las_bounds.max.x -= ref_point.x;
     las_bounds.min.x -= ref_point.x;
     las_bounds.max.y -= ref_point.y;
     las_bounds.min.y -= ref_point.y;
 
-    println!("Filtering points...");
     let mut xyzir = PointCloud::new(
         las_reader
             .points()
@@ -64,7 +62,6 @@ pub fn read_laz(
     };
     let convex_hull = xyzir.bounded_convex_hull(cell_size, &map_bounds, dist_to_hull_epsilon * 2.);
 
-    println!("Building Kd-tree...");
     let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 

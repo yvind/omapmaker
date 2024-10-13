@@ -11,6 +11,7 @@ mod steps;
 use map::{Omap, Symbol};
 use parser::Args;
 
+use indicatif::{ProgressBar, ProgressStyle};
 use std::{fs, sync::Arc};
 
 fn main() {
@@ -49,13 +50,10 @@ fn main() {
 
     for fi in 0..laz_paths.len() {
         println!("***********************************************");
-        println!(
-            "\t Processing Lidar-file {} of {}...",
-            fi + 1,
-            laz_paths.len()
-        );
+        println!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len());
         println!("\t{:?}", laz_paths[fi].file_name().unwrap());
         println!("-----------------------------------------------");
+        println!("Subtiling file...");
 
         // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
         let tile_paths = steps::retile_laz(
@@ -69,12 +67,14 @@ fn main() {
             tiff_directory.push(laz_paths[fi].file_stem().unwrap())
         }
 
-        let pb = ProgressBar::new(tile_paths.len());
+        println!("Computing map features...");
+
+        let pb = ProgressBar::new(tile_paths.len() as u64);
         pb.set_style(
             ProgressStyle::default_bar()
                 .template("[{elapsed_precise}] [{bar:40.white/green}] ({eta})")
                 .unwrap()
-                .progress_chars("=>-"),
+                .progress_chars("=>."),
         );
 
         for tile_path in tile_paths {
@@ -179,8 +179,13 @@ fn main() {
                     &tiff_directory,
                 );
             }
+
+            // delete all sub-tiles
+            fs::remove_dir_all(laz_paths[fi].with_extension(""))
+                .expect("Could not remove dir with sub-tiled las-file");
             pb.inc(1);
         }
+        pb.finish();
     }
 
     // save map to file
