@@ -13,3 +13,4 @@ las = { version = "0.9.1", features = ["laz"] }
 nohash-hasher = "0.2.0"
 spade = "2.12.1"
 tiff = "0.9.1"
+indicatif = "0.17.8"

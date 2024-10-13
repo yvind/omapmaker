@@ -69,13 +69,20 @@ fn main() {
             tiff_directory.push(laz_paths[fi].file_stem().unwrap())
         }
 
+        let pb = ProgressBar::new(tile_paths.len());
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] [{bar:40.white/green}] ({eta})")
+                .unwrap()
+                .progress_chars("=>-"),
+        );
+
         for tile_path in tile_paths {
             // step 2: read each laz file and its neighbours and build point-cloud
             let (xyzir, point_tree, convex_hull, width, height, tl) =
                 steps::read_laz(&tile_path, &ref_point, cell_size, dist_to_hull_epsilon);
 
             // step 3: compute the DFMs
-            println!("Computing DFMs...");
             let (dem, grad_dem, drm, _, dim, _) = steps::compute_dfms(
                 point_tree.clone(),
                 xyzir.clone(),
@@ -87,8 +94,6 @@ fn main() {
 
             // step 4: contour generation
             if basemap_interval >= 0.1 {
-                println!("Computing basemap contours...");
-
                 steps::compute_basemap(
                     num_threads,
                     xyzir.bounds.min.z,
@@ -104,7 +109,6 @@ fn main() {
 
             // TODO: make thresholds adaptive to local terrain ( create a smoothed version of the dfm and use that value to adapt threshold)
             // step 5: compute vegetation
-            println!("Computing vegetation...");
             steps::compute_vegetation(
                 &drm,
                 None,
@@ -154,7 +158,6 @@ fn main() {
             );
 
             // step 6: compute cliffs
-            println!("Computing cliffs...");
             steps::compute_cliffs(
                 &grad_dem,
                 0.7,
@@ -166,7 +169,6 @@ fn main() {
 
             // step 7: save dfms
             if write_tiff {
-                println!("Writing gridded Las-fields to Tiff files...");
                 steps::save_tiffs(
                     Arc::unwrap_or_clone(dem),
                     Arc::unwrap_or_clone(grad_dem),
@@ -177,6 +179,7 @@ fn main() {
                     &tiff_directory,
                 );
             }
+            pb.inc(1);
         }
     }
 
