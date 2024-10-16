@@ -206,7 +206,6 @@ impl Matrix6x6 {
         let atbinv22 = (atb2 * b_r2).reduce_sum();
 
         // build the result
-        // build the result
         let tl00 = r0[0] + (atbinv00 * a0 + atbinv01 * a3 + atbinv02 * a6);
         let tl01 = r0[1] + atbinv00 * a1 + atbinv01 * a4 + atbinv02 * a7;
         let tl02 = r0[2] + atbinv00 * a2 + atbinv01 * a5 + atbinv02 * a8;

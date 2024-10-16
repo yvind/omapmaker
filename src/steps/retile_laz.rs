@@ -1,23 +1,24 @@
 use crate::geometry::{Point2D, Rectangle};
 
-use las::{raw, Builder, Point, Reader, Writer};
+use las::{point::Classification, raw, Builder, Point, Reader, Writer};
 use std::{fs, path::PathBuf};
 
+use crate::{NEIGHBOUR_MARGIN, TILE_SIZE};
+
 pub fn retile_laz(
+    num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
-    paths: &Vec<PathBuf>,
-    tile_size: f64,
-    margin: f64,
+    paths: &[PathBuf],
 ) -> Vec<PathBuf> {
     if paths.len() == 1 {
-        single_file(&(paths[0]), tile_size, margin)
+        single_file(num_threads, &(paths[0]))
     } else {
-        multiple_files(neighbour_map, paths, tile_size, margin)
+        multiple_files(num_threads, neighbour_map, paths)
     }
 }
 
-fn single_file(input: &PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
-    let mut las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
+fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
+    let mut las_reader = Reader::from_path(input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
             input.to_string_lossy()
@@ -36,13 +37,13 @@ fn single_file(input: &PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
         },
     };
 
-    let mut tiled_file = input.with_extension(""); // new PathBuf wo the extension from input path
+    let tiled_file = input.with_extension(""); // new PathBuf wo the extension from input path
 
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
-    tiled_file.push("temp.txt"); // just beacause PathBuf::set_file_name() otherwise removes the dir name
 
-    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, tile_size, margin);
+    // possible area for multithreading
+    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
 
     let mut point_buckets: Vec<Vec<Point>> = vec![
         Vec::with_capacity(
@@ -51,6 +52,7 @@ fn single_file(input: &PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
         num_x_tiles * num_y_tiles
     ];
 
+    // possible area for multithreading
     for point in las_reader.points().map(|p| p.unwrap()) {
         for (i, b) in bb.iter().enumerate() {
             if b.contains(&point) {
@@ -59,22 +61,21 @@ fn single_file(input: &PathBuf, tile_size: f64, margin: f64) -> Vec<PathBuf> {
         }
     }
 
-    let paths = write_tiles_to_file(
+    // possible area for multithreading
+    write_tiles_to_file(
         tiled_file,
         point_buckets,
         bb,
         num_x_tiles,
         num_y_tiles,
         &header,
-    );
-    paths
+    )
 }
 
 fn multiple_files(
+    num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
-    paths: &Vec<PathBuf>,
-    tile_size: f64,
-    margin: f64,
+    paths: &[PathBuf],
 ) -> Vec<PathBuf> {
     // read the laz to be re-tiled, must be readable by now
     let ci = neighbour_map[0].unwrap();
@@ -99,32 +100,33 @@ fn multiple_files(
             Some(_) => match i {
                 0 => continue,
                 1 => {
-                    push_bounds.min.x = -margin;
-                    push_bounds.max.y = margin;
+                    push_bounds.min.x = -NEIGHBOUR_MARGIN;
+                    push_bounds.max.y = NEIGHBOUR_MARGIN;
                 }
-                2 => push_bounds.max.y = margin,
+                2 => push_bounds.max.y = NEIGHBOUR_MARGIN,
                 3 => {
-                    push_bounds.max.x = margin;
-                    push_bounds.max.y = margin;
+                    push_bounds.max.x = NEIGHBOUR_MARGIN;
+                    push_bounds.max.y = NEIGHBOUR_MARGIN;
                 }
-                4 => push_bounds.max.x = margin,
+                4 => push_bounds.max.x = NEIGHBOUR_MARGIN,
                 5 => {
-                    push_bounds.max.x = margin;
-                    push_bounds.min.y = -margin;
+                    push_bounds.max.x = NEIGHBOUR_MARGIN;
+                    push_bounds.min.y = -NEIGHBOUR_MARGIN;
                 }
-                6 => push_bounds.min.y = -margin,
+                6 => push_bounds.min.y = -NEIGHBOUR_MARGIN,
                 7 => {
-                    push_bounds.min.x = -margin;
-                    push_bounds.min.y = -margin;
+                    push_bounds.min.x = -NEIGHBOUR_MARGIN;
+                    push_bounds.min.y = -NEIGHBOUR_MARGIN;
                 }
-                8 => push_bounds.min.x = -margin,
+                8 => push_bounds.min.x = -NEIGHBOUR_MARGIN,
                 _ => panic!("logic fail in laz neighbour calculation"),
             },
         }
     }
     bounds = bounds + push_bounds;
 
-    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, tile_size, margin);
+    // possible area for multithreading
+    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
 
     let mut point_buckets: Vec<Vec<Point>> = vec![
         Vec::with_capacity(
@@ -133,6 +135,7 @@ fn multiple_files(
         num_x_tiles * num_y_tiles
     ];
 
+    // possible area for multithreading
     // read points from main file into buckets
     for point in las_reader.points().map(|p| p.unwrap()) {
         for (i, b) in bb.iter().enumerate() {
@@ -161,18 +164,20 @@ fn multiple_files(
         }
     }
 
-    let ct = neighbour_map[0].unwrap();
-    let tiled_file = paths[ct].with_extension(""); // new PathBuf wo the extension from input path
+    let tiled_file = paths[ci].with_extension(""); // new PathBuf wo the extension from input path
 
-    let tile_paths = write_tiles_to_file(
+    fs::create_dir_all(&tiled_file)
+        .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
+
+    // possible area for multithreading
+    write_tiles_to_file(
         tiled_file,
         point_buckets,
         bb,
         num_x_tiles,
         num_y_tiles,
         &header,
-    );
-    tile_paths
+    )
 }
 
 fn write_tiles_to_file(
@@ -184,14 +189,23 @@ fn write_tiles_to_file(
     header: &raw::Header,
 ) -> Vec<PathBuf> {
     let mut paths = Vec::with_capacity(num_x_tiles * num_y_tiles);
+
+    tile_path.push("temp.txt"); // just beacause PathBuf::set_file_name() otherwise removes the dir name
     for yi in 0..num_y_tiles {
         for xi in 0..num_x_tiles {
-            tile_path.set_file_name(format!("{}_{}.laz", xi, yi));
+            tile_path.set_file_name(format!("{}_{}.las", xi, yi));
 
             let points = &point_buckets[yi * num_x_tiles + xi];
-            if points.len() < 10 {
+            // iterate through and check the number of ground points
+            if points
+                .iter()
+                .filter(|p| p.classification == Classification::Ground)
+                .count()
+                < 10
+            {
                 continue;
             }
+
             paths.push(tile_path.clone());
 
             let new_bounds = &bb[yi * num_x_tiles + xi];
@@ -221,12 +235,8 @@ fn write_tiles_to_file(
     paths
 }
 
-fn retile_bounds(
-    bounds: &Rectangle,
-    tile_size: f64,
-    margin: f64,
-) -> (Vec<Rectangle>, usize, usize) {
-    let unique_tile_size = tile_size - 2. * margin;
+fn retile_bounds(bounds: &Rectangle) -> (Vec<Rectangle>, usize, usize) {
+    let unique_tile_size = TILE_SIZE - 2. * NEIGHBOUR_MARGIN;
 
     let x_range = bounds.max.x - bounds.min.x;
     let y_range = bounds.max.y - bounds.min.y;
@@ -243,26 +253,26 @@ fn retile_bounds(
             if yi == 0 {
                 // no neighbour above
                 new_bounds.max.y = bounds.max.y;
-                new_bounds.min.y = new_bounds.max.y - tile_size;
+                new_bounds.min.y = new_bounds.max.y - TILE_SIZE;
             } else if yi == num_y_tiles - 1 {
                 // no neigbour below
                 new_bounds.min.y = bounds.min.y;
-                new_bounds.max.y = new_bounds.min.y + tile_size;
+                new_bounds.max.y = new_bounds.min.y + TILE_SIZE;
             } else {
-                new_bounds.max.y = bounds.max.y - (tile_size - 2. * margin) * yi as f64 + margin;
-                new_bounds.min.y = new_bounds.max.y - tile_size;
+                new_bounds.max.y = bounds.max.y - unique_tile_size * yi as f64 + NEIGHBOUR_MARGIN;
+                new_bounds.min.y = new_bounds.max.y - TILE_SIZE;
             }
             if xi == 0 {
                 // no neighbour to the left
                 new_bounds.min.x = bounds.min.x;
-                new_bounds.max.x = new_bounds.min.x + tile_size;
+                new_bounds.max.x = new_bounds.min.x + TILE_SIZE;
             } else if xi == num_x_tiles - 1 {
                 // no neigbour to the right
                 new_bounds.max.x = bounds.max.x;
-                new_bounds.min.x = new_bounds.max.x - tile_size;
+                new_bounds.min.x = new_bounds.max.x - TILE_SIZE;
             } else {
-                new_bounds.min.x = bounds.min.x + (tile_size - 2. * margin) * xi as f64 - margin;
-                new_bounds.max.x = new_bounds.min.x + tile_size;
+                new_bounds.min.x = bounds.min.x + unique_tile_size * xi as f64 - NEIGHBOUR_MARGIN;
+                new_bounds.max.x = new_bounds.min.x + TILE_SIZE;
             }
 
             bb.push(new_bounds);

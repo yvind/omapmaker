@@ -24,6 +24,10 @@ impl Rectangle {
             && point.get_y() <= self.max.y
     }
 
+    pub fn contains_rectangle(&self, other: &Rectangle) -> bool {
+        self.contains(&other.min) && self.contains(&other.max)
+    }
+
     pub fn touch(&self, other: &Rectangle) -> bool {
         !(self.max.x <= other.min.x
             || self.min.x >= other.max.x

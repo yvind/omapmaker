@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::Line;
+use crate::geometry::{Line, Rectangle};
 
 use std::{
     fs::File,
@@ -27,6 +27,10 @@ impl LineObject {
 impl MapObject for LineObject {
     fn add_tag(&mut self, k: &str, v: &str) {
         self.tags.push(Tag::new(k, v));
+    }
+
+    fn bounding_box(&self) -> Rectangle {
+        self.coordinates.bounding_box()
     }
 
     fn write_to_map(&self, f: &mut BufWriter<File>) {

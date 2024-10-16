@@ -4,13 +4,15 @@ use crate::{
     raster::Dfm,
 };
 
+use std::sync::{Arc, Mutex};
+
 pub fn compute_cliffs(
     slope: &Dfm,
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
     convex_hull: &Line,
     simplify_epsilon: f64,
-    map: &mut Omap,
+    map: &Arc<Mutex<Omap>>,
 ) {
     let mut cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
 
@@ -34,6 +36,7 @@ pub fn compute_cliffs(
         }
         let mut cliff_object = AreaObject::from_polygon(polygon, Symbol::GiganticBoulder);
         cliff_object.add_auto_tag();
-        map.add_object(cliff_object);
+
+        map.lock().unwrap().add_object(cliff_object);
     }
 }

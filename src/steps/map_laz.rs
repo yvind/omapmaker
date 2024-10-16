@@ -11,7 +11,7 @@ pub fn map_laz(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2
     } else {
         // check if dir contains more than 1 las/laz file
         let mut paths = lidar_in_directory(input);
-        if paths.len() == 0 {
+        if paths.is_empty() {
             panic!("No laz/las files were found in the given directory");
         } else if paths.len() == 1 {
             single_file(paths.swap_remove(0))
@@ -38,22 +38,22 @@ fn lidar_in_directory(input: PathBuf) -> Vec<PathBuf> {
 }
 
 fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
-    let las_reader = Reader::from_path(input.clone()).unwrap_or_else(|_| {
+    let las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
-            input.to_string_lossy()
+            &input.to_string_lossy()
         )
     });
     let bounds = las_reader.header().bounds();
 
     let ref_point = Point2D::new(
-        (bounds.max.x + bounds.min.x) / 2.,
-        (bounds.max.y + bounds.min.y) / 2.,
+        ((bounds.max.x + bounds.min.x) / 20.).round() * 10.,
+        ((bounds.max.y + bounds.min.y) / 20.).round() * 10.,
     );
 
     (
         vec![[Some(0), None, None, None, None, None, None, None, None]],
-        vec![input.clone()],
+        vec![input],
         ref_point,
     )
 }
@@ -72,7 +72,7 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
         }
     }
 
-    if tile_names.len() == 0 {
+    if tile_names.is_empty() {
         panic!("Unable to read the las/laz-files found in the input directory");
     } else if tile_names.len() == 1 {
         let mut center_point = tile_centers.swap_remove(0); // round ref_point to nearest 10m

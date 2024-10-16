@@ -4,8 +4,10 @@ use crate::{
     raster::Dfm,
 };
 
+use std::sync::{Arc, Mutex};
+
 pub fn compute_vegetation(
-    dsm: &Dfm,
+    dfm: &Dfm,
     opt_lower_threshold: Option<f64>,
     opt_upper_threshold: Option<f64>,
     convex_hull: &Line,
@@ -13,7 +15,7 @@ pub fn compute_vegetation(
     simplify_epsilon: f64,
     symbol: Symbol,
     min_size: f64,
-    map: &mut Omap,
+    map: &Arc<Mutex<Omap>>,
 ) {
     let mut contours;
     let veg_hint;
@@ -22,11 +24,11 @@ pub fn compute_vegetation(
         (opt_lower_threshold, opt_upper_threshold)
     {
         // Interested in a band of values
-        contours = dsm.marching_squares(lower_threshold).unwrap();
-        let mut upper_contours = dsm.marching_squares(upper_threshold).unwrap();
+        contours = dfm.marching_squares(lower_threshold).unwrap();
+        let mut upper_contours = dfm.marching_squares(upper_threshold).unwrap();
 
-        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] < upper_threshold
-            && dsm.field[dsm.height / 2][dsm.width / 2] > lower_threshold;
+        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] < upper_threshold
+            && dfm.field[dfm.height / 2][dfm.width / 2] > lower_threshold;
 
         for c in upper_contours.iter_mut() {
             c.vertices.reverse();
@@ -36,13 +38,13 @@ pub fn compute_vegetation(
         contours.extend(upper_contours);
     } else if let Some(lower_threshold) = opt_lower_threshold {
         // Only interested in area above lower threshold
-        contours = dsm.marching_squares(lower_threshold).unwrap();
-        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] > lower_threshold;
+        contours = dfm.marching_squares(lower_threshold).unwrap();
+        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] > lower_threshold;
         polygon_trigger = PolygonTrigger::Above;
     } else if let Some(upper_threshold) = opt_upper_threshold {
         // Only interested in area below upper threshold
-        contours = dsm.marching_squares(upper_threshold).unwrap();
-        veg_hint = dsm.field[dsm.height / 2][dsm.width / 2] < upper_threshold;
+        contours = dfm.marching_squares(upper_threshold).unwrap();
+        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] < upper_threshold;
         polygon_trigger = PolygonTrigger::Below;
     } else {
         // Both thresholds are None so we want nothing and just returns
@@ -68,6 +70,7 @@ pub fn compute_vegetation(
         }
         let mut veg_object = AreaObject::from_polygon(polygon, symbol);
         veg_object.add_auto_tag();
-        map.add_object(veg_object);
+
+        map.lock().unwrap().add_object(veg_object);
     }
 }

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::{Point, Point2D};
+use super::{Point, Point2D, Rectangle};
 
 #[derive(Clone, Debug)]
 pub struct Line {
@@ -11,6 +11,30 @@ impl Line {
     pub fn new(vert1: Point2D, vert2: Point2D) -> Line {
         Line {
             vertices: vec![vert1, vert2],
+        }
+    }
+
+    pub fn bounding_box(&self) -> Rectangle {
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
+
+        self.vertices.iter().for_each(|p| {
+            if p.x > max_x {
+                max_x = p.x
+            } else if p.x < min_x {
+                min_x = p.x
+            }
+            if p.y > max_y {
+                max_y = p.y
+            } else if p.y < min_y {
+                min_y = p.y
+            }
+        });
+        Rectangle {
+            min: Point2D::new(min_x, min_y),
+            max: Point2D::new(max_x, max_y),
         }
     }
 

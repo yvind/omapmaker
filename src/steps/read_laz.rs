@@ -3,17 +3,17 @@ use crate::geometry::{Line, Point2D, PointCloud};
 use fastrand::f64 as random;
 use kiddo::immutable::float::kdtree::ImmutableKdTree;
 use las::{point::Classification, Reader};
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 pub fn read_laz(
     las_path: &PathBuf,
-    ref_point: &Point2D,
     cell_size: f64,
     dist_to_hull_epsilon: f64,
+    ref_point: Point2D,
 ) -> (
-    Arc<PointCloud>,
-    Arc<ImmutableKdTree<f64, usize, 2, 32>>,
-    Arc<Line>,
+    PointCloud,
+    ImmutableKdTree<f64, usize, 2, 32>,
+    Line,
     usize,
     usize,
     Point2D,
@@ -25,8 +25,6 @@ pub fn read_laz(
             las_path.to_string_lossy()
         )
     });
-
-    // read laz file and build pointcloud and KD-tree
 
     let header = las_reader.header();
     let mut las_bounds = header.bounds();
@@ -65,12 +63,5 @@ pub fn read_laz(
     let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 
-    (
-        Arc::new(xyzir),
-        Arc::new(point_tree),
-        Arc::new(convex_hull),
-        width,
-        height,
-        tl,
-    )
+    (xyzir, point_tree, convex_hull, width, height, tl)
 }
