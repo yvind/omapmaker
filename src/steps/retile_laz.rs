@@ -1,7 +1,12 @@
 use crate::geometry::{Point2D, Rectangle};
 
 use las::{point::Classification, raw, Builder, Point, Reader, Writer};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use crate::{NEIGHBOUR_MARGIN, TILE_SIZE};
 
@@ -52,7 +57,7 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
         num_x_tiles * num_y_tiles
     ];
 
-    // possible area for multithreading
+    // possible area for multithreading, only worth using rayon's into_par_iter when more than approx 1/2 million points
     for point in las_reader.points().map(|p| p.unwrap()) {
         for (i, b) in bb.iter().enumerate() {
             if b.contains(&point) {
@@ -63,12 +68,13 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
 
     // possible area for multithreading
     write_tiles_to_file(
+        num_threads,
         tiled_file,
         point_buckets,
         bb,
         num_x_tiles,
         num_y_tiles,
-        &header,
+        header,
     )
 }
 
@@ -171,68 +177,96 @@ fn multiple_files(
 
     // possible area for multithreading
     write_tiles_to_file(
+        num_threads,
         tiled_file,
         point_buckets,
         bb,
         num_x_tiles,
         num_y_tiles,
-        &header,
+        header,
     )
 }
 
 fn write_tiles_to_file(
+    num_threads: usize,
     mut tile_path: PathBuf,
     point_buckets: Vec<Vec<Point>>,
     bb: Vec<Rectangle>,
     num_x_tiles: usize,
     num_y_tiles: usize,
-    header: &raw::Header,
+    header: raw::Header,
 ) -> Vec<PathBuf> {
-    let mut paths = Vec::with_capacity(num_x_tiles * num_y_tiles);
+    let paths = Arc::new(Mutex::new(Vec::with_capacity(num_x_tiles * num_y_tiles)));
 
     tile_path.push("temp.txt"); // just beacause PathBuf::set_file_name() otherwise removes the dir name
-    for yi in 0..num_y_tiles {
-        for xi in 0..num_x_tiles {
-            tile_path.set_file_name(format!("{}_{}.las", xi, yi));
 
-            let points = &point_buckets[yi * num_x_tiles + xi];
-            // iterate through and check the number of ground points
-            if points
-                .iter()
-                .filter(|p| p.classification == Classification::Ground)
-                .count()
-                < 10
-            {
-                continue;
+    let point_buckets = Arc::new(point_buckets);
+    let bb = Arc::new(bb);
+
+    let mut thread_handles = Vec::with_capacity(num_threads);
+    for ti in 0..num_threads {
+        let mut tile_path = tile_path.clone();
+        let point_buckets = point_buckets.clone();
+        let bb = bb.clone();
+        let header = header.clone();
+        let paths = paths.clone();
+
+        thread_handles.push(thread::spawn(move || {
+            let mut yi = ti;
+
+            while yi < num_y_tiles {
+                for xi in 0..num_x_tiles {
+                    tile_path.set_file_name(format!("{}_{}.las", xi, yi));
+
+                    let points = &point_buckets[yi * num_x_tiles + xi];
+                    // iterate through and check the number of ground points
+                    if points
+                        .iter()
+                        .filter(|p| p.classification == Classification::Ground)
+                        .count()
+                        < 10
+                    {
+                        continue;
+                    }
+
+                    {
+                        paths.lock().unwrap().push(tile_path.clone());
+                    }
+
+                    let new_bounds = &bb[yi * num_x_tiles + xi];
+
+                    let mut new_header = header.clone();
+                    new_header.max_x = new_bounds.max.x;
+                    new_header.max_y = new_bounds.max.y;
+                    new_header.min_x = new_bounds.min.x;
+                    new_header.min_y = new_bounds.min.y;
+
+                    new_header.version.minor = 4;
+                    new_header.number_of_point_records = points.len() as u32;
+
+                    let builder = Builder::new(new_header).unwrap();
+
+                    let mut las_writer =
+                        Writer::from_path(tile_path.clone(), builder.into_header().unwrap())
+                            .expect("Could not tile las file");
+
+                    points.iter().for_each(|p| {
+                        las_writer
+                            .write_point(p.clone())
+                            .expect("Could not write point to laz")
+                    });
+                }
+                yi += num_threads;
             }
-
-            paths.push(tile_path.clone());
-
-            let new_bounds = &bb[yi * num_x_tiles + xi];
-
-            let mut new_header = header.clone();
-            new_header.max_x = new_bounds.max.x;
-            new_header.max_y = new_bounds.max.y;
-            new_header.min_x = new_bounds.min.x;
-            new_header.min_y = new_bounds.min.y;
-
-            new_header.version.minor = 4;
-            new_header.number_of_point_records = points.len() as u32;
-
-            let builder = Builder::new(new_header).unwrap();
-
-            let mut las_writer =
-                Writer::from_path(tile_path.clone(), builder.into_header().unwrap())
-                    .expect("Could not tile las file");
-
-            points.iter().for_each(|p| {
-                las_writer
-                    .write_point(p.clone())
-                    .expect("Could not write point to laz")
-            });
-        }
+        }))
     }
-    paths
+    for t in thread_handles {
+        t.join().unwrap();
+    }
+    Arc::<Mutex<Vec<PathBuf>>>::into_inner(paths)
+        .unwrap()
+        .into_inner()
+        .unwrap()
 }
 
 fn retile_bounds(bounds: &Rectangle) -> (Vec<Rectangle>, usize, usize) {

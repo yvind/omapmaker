@@ -163,13 +163,13 @@ impl Point for Point2D {
     }
 
     fn closest_point_on_line_segment(&self, a: &impl Point, b: &impl Point) -> Self {
-        let mut diff = self.clone();
+        let mut diff = *self;
         diff.x = b.get_x() - a.get_x();
         diff.y = b.get_y() - a.get_y();
         let len = diff.length();
         diff.norm();
 
-        let mut s = self.clone();
+        let mut s = *self;
         s.translate(-a.get_x(), -a.get_y(), 0.);
 
         let image = s.dot(&diff).max(0.).min(len);
