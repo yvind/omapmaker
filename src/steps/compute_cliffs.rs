@@ -4,6 +4,9 @@ use crate::{
     raster::Dfm,
 };
 
+use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
+const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+
 use std::sync::{Arc, Mutex};
 
 pub fn compute_cliffs(
@@ -20,12 +23,12 @@ pub fn compute_cliffs(
         yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
     }
 
-    let cliff_hint = slope.field[slope.height / 2][slope.width / 2] > cliff_threshold;
+    let cliff_hint = slope[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)] > cliff_threshold;
     let cliff_polygons = Polygon::from_contours(
         cliff_contours,
         convex_hull,
         PolygonTrigger::Above,
-        0.,
+        10.,
         dist_to_hull_epsilon,
         cliff_hint,
     );

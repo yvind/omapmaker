@@ -8,6 +8,8 @@ use std::{
     thread,
 };
 
+use std::time::Instant;
+
 use crate::{NEIGHBOUR_MARGIN, TILE_SIZE};
 
 pub fn retile_laz(
@@ -23,6 +25,8 @@ pub fn retile_laz(
 }
 
 fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
+    let now = Instant::now();
+
     let mut las_reader = Reader::from_path(input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
@@ -47,8 +51,13 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
 
-    // possible area for multithreading
     let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
+
+    println!(
+        "Bounds retiled, time including opening file etc: {:?}",
+        now.elapsed()
+    );
+    let now = Instant::now();
 
     let mut point_buckets: Vec<Vec<Point>> = vec![
         Vec::with_capacity(
@@ -66,8 +75,10 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
         }
     }
 
-    // possible area for multithreading
-    write_tiles_to_file(
+    println!("points divided into tiles, time: {:?}", now.elapsed());
+    let now = Instant::now();
+
+    let p = write_tiles_to_file(
         num_threads,
         tiled_file,
         point_buckets,
@@ -75,7 +86,9 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
         num_x_tiles,
         num_y_tiles,
         header,
-    )
+    );
+    println!("written, time: {:?}", now.elapsed());
+    p
 }
 
 fn multiple_files(
@@ -131,7 +144,6 @@ fn multiple_files(
     }
     bounds = bounds + push_bounds;
 
-    // possible area for multithreading
     let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
 
     let mut point_buckets: Vec<Vec<Point>> = vec![
@@ -175,7 +187,6 @@ fn multiple_files(
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
 
-    // possible area for multithreading
     write_tiles_to_file(
         num_threads,
         tiled_file,

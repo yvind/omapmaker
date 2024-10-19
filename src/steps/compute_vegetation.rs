@@ -4,6 +4,9 @@ use crate::{
     raster::Dfm,
 };
 
+use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
+const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+
 use std::sync::{Arc, Mutex};
 
 pub fn compute_vegetation(
@@ -18,6 +21,7 @@ pub fn compute_vegetation(
     map: &Arc<Mutex<Omap>>,
 ) {
     let mut contours;
+    let hint_val = dfm[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)];
     let veg_hint;
     let polygon_trigger;
     if let (Some(lower_threshold), Some(upper_threshold)) =
@@ -27,8 +31,7 @@ pub fn compute_vegetation(
         contours = dfm.marching_squares(lower_threshold).unwrap();
         let mut upper_contours = dfm.marching_squares(upper_threshold).unwrap();
 
-        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] < upper_threshold
-            && dfm.field[dfm.height / 2][dfm.width / 2] > lower_threshold;
+        veg_hint = hint_val < upper_threshold && hint_val > lower_threshold;
 
         for c in upper_contours.iter_mut() {
             c.vertices.reverse();
@@ -39,12 +42,12 @@ pub fn compute_vegetation(
     } else if let Some(lower_threshold) = opt_lower_threshold {
         // Only interested in area above lower threshold
         contours = dfm.marching_squares(lower_threshold).unwrap();
-        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] > lower_threshold;
+        veg_hint = hint_val > lower_threshold;
         polygon_trigger = PolygonTrigger::Above;
     } else if let Some(upper_threshold) = opt_upper_threshold {
         // Only interested in area below upper threshold
         contours = dfm.marching_squares(upper_threshold).unwrap();
-        veg_hint = dfm.field[dfm.height / 2][dfm.width / 2] < upper_threshold;
+        veg_hint = hint_val < upper_threshold;
         polygon_trigger = PolygonTrigger::Below;
     } else {
         // Both thresholds are None so we want nothing and just returns

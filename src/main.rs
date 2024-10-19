@@ -17,8 +17,13 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+// must be constant across training and inference if AI is to be applied
+const TILE_SIZE_USIZE: usize = 128;
+const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
+
+const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
+const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;
 const NEIGHBOUR_MARGIN: f64 = 14.;
-const TILE_SIZE: f64 = 128.;
 
 fn main() {
     let args = Args::parse_cli();
@@ -64,6 +69,10 @@ fn main() {
         );
         let pb = Arc::new(Mutex::new(pb));
 
+        // refactor so that it returns a laz-file map where all tiles are cut, merged and
+        // filtered for too small objects except those that touch the bounds of the laz
+        // only merge polygons across tile boundaries if they are too small to be
+        // on their own
         steps::compute_map_objects(
             map.clone(),
             &args,
@@ -81,11 +90,17 @@ fn main() {
 
         tiff_directory.pop();
     }
+    // refactor:
+    // merge all laz-file maps and filter out everything that's too small
+    // only merge polygons across boundaries if they are too small to be
+    // on their own
 
     // save map to file
     println!("\nWriting omap file...");
-    map.lock()
-        .unwrap()
+    Arc::<Mutex<Omap>>::into_inner(map)
+        .expect("Could not get inner value of arc, stray refrence somewhere")
+        .into_inner()
+        .expect("Map mutex poisoned, a thread paniced while holding mutex")
         .write_to_file(file_stem, &args.output_directory);
     println!("Done!");
 }

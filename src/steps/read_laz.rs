@@ -7,15 +7,12 @@ use std::path::PathBuf;
 
 pub fn read_laz(
     las_path: &PathBuf,
-    cell_size: f64,
     dist_to_hull_epsilon: f64,
     ref_point: Point2D,
 ) -> (
     PointCloud,
     ImmutableKdTree<f64, usize, 2, 32>,
     Line,
-    usize,
-    usize,
     Point2D,
 ) {
     // read first and main laz file
@@ -53,15 +50,15 @@ pub fn read_laz(
         las_bounds,
     );
 
-    let (width, height, map_bounds) = xyzir.get_dfm_dimensions(cell_size);
+    let map_bounds = xyzir.get_dfm_dimensions();
     let tl = Point2D {
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };
-    let convex_hull = xyzir.bounded_convex_hull(cell_size, &map_bounds, dist_to_hull_epsilon * 2.);
+    let convex_hull = xyzir.bounded_convex_hull(&map_bounds, dist_to_hull_epsilon * 2.);
 
     let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
 
-    (xyzir, point_tree, convex_hull, width, height, tl)
+    (xyzir, point_tree, convex_hull, tl)
 }

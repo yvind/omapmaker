@@ -9,8 +9,7 @@ edition = "2021"
 clap = { version = "4.5.0", features = ["derive"] }
 fastrand = "2.1.1"
 kiddo = { version = "4.2.0", features = ["immutable"] }
-las = { version = "0.9.1", features = ["laz-parallel"] }
-nohash-hasher = "0.2.0"
+las = { version = "0.9.1", features = ["laz"] }
 spade = "2.12.1"
 tiff = "0.9.1"
 indicatif = "0.17.8"
