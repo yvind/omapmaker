@@ -19,11 +19,12 @@ use std::{
 
 // must be constant across training and inference if AI is to be applied
 const TILE_SIZE_USIZE: usize = 128;
+const NEIGHBOUR_MARGIN_USIZE: usize = 14;
 const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
 
 const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
 const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;
-const NEIGHBOUR_MARGIN: f64 = 14.;
+const NEIGHBOUR_MARGIN: f64 = NEIGHBOUR_MARGIN_USIZE as f64;
 
 fn main() {
     let args = Args::parse_cli();
@@ -41,7 +42,8 @@ fn main() {
     println!("Running on {} threads", args.threads);
 
     // step 0: figure out lidar files spatial relationships, assuming they are divided from a big lidar-project by a square-ish grid
-    let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(args.in_file.clone());
+    let (laz_neighbour_map, laz_paths, ref_point, _file_cut_bounds) =
+        steps::map_laz(args.in_file.clone());
 
     // create map
     let map = Arc::new(Mutex::new(Omap::new(ref_point)));
@@ -56,7 +58,8 @@ fn main() {
         tiff_directory.push(laz_paths[fi].file_stem().unwrap());
 
         // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
-        let tile_paths = steps::retile_laz(args.threads, &laz_neighbour_map[fi], &laz_paths);
+        let (tile_paths, tile_cut_bounds) =
+            steps::retile_laz(args.threads, &laz_neighbour_map[fi], &laz_paths);
 
         println!("Computing map features...");
 
@@ -78,6 +81,7 @@ fn main() {
             &args,
             tile_paths,
             ref_point,
+            tile_cut_bounds,
             &tiff_directory,
             pb.clone(),
         );

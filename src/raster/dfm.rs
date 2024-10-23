@@ -51,8 +51,8 @@ impl Dfm {
         assert!(yi < SIDE_LENGTH);
 
         Ok(Point2D {
-            x: xi as f64 * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - yi as f64 * CELL_SIZE,
+            x: (xi as f64 + 0.5) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64 + 0.5) * CELL_SIZE,
         })
     }
 
@@ -140,11 +140,11 @@ impl Dfm {
             3       2
         */
 
-        // should preallocate some memory, but how much?
+        // should preallocate some memory, but how much? How many contours can be expected to be created?
         let mut contours: Vec<Line> = Vec::new(); //with_capacity(32);
 
         // maps from edges to contour passing that edge in contours-vec, avoids hashmap overhead
-        // is on the order of Mi
+        // is 1 MiB for SIDE_LENGTH = 256, needs to increase thread stack size
         let mut contour_map = [usize::MAX; NUM_EDGES];
 
         let lut: [[usize; 2]; 16] = [
@@ -248,6 +248,8 @@ impl Dfm {
                                 // append the contour to the contour at end_contour_index
                                 let contour = contours.swap_remove(start_contour_index);
 
+                                // if end_contour_index was the last element it's new position
+                                // is now start_contour_index after the swap_remove
                                 if contours.len() == end_contour_index {
                                     end_contour_index = start_contour_index;
                                 }

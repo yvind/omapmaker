@@ -1,4 +1,4 @@
-use crate::geometry::Point2D;
+use crate::geometry::{Line, Point2D, Rectangle};
 use crate::map::{Omap, Symbol};
 use crate::parser::Args;
 use crate::steps;
@@ -16,6 +16,7 @@ pub fn compute_map_objects(
     args: &Args,
     tile_paths: Vec<PathBuf>,
     ref_point: Point2D,
+    cut_bounds: Vec<Rectangle>,
     tiff_directory: &Path,
     pb: Arc<Mutex<ProgressBar>>,
 ) {
@@ -26,6 +27,7 @@ pub fn compute_map_objects(
     let tile_paths = Arc::new(tile_paths);
     let tiff_directory = Arc::new(tiff_directory.to_owned());
     let args = Arc::new(args.clone());
+    let cut_bounds = Arc::new(cut_bounds);
 
     for thread_i in 0..args.threads {
         let map_ref = map.clone();
@@ -33,10 +35,11 @@ pub fn compute_map_objects(
         let tiff_directory = tiff_directory.clone();
         let pb = pb.clone();
         let args = args.clone();
+        let cut_bounds = cut_bounds.clone();
 
         thread_handles.push(
             thread::Builder::new()
-                .stack_size(10 * 1024 * 1024) // needs to increase thread stack size to accomodate the marching squares wo hashmaps
+                .stack_size(20 * 1024 * 1024) // needs to increase thread stack size to accomodate the marching squares wo hashmaps
                 .spawn(move || {
                     let mut current_index = thread_i;
 
@@ -44,28 +47,28 @@ pub fn compute_map_objects(
                         let tile_path = &tile_paths_ref[current_index];
 
                         // step 2: read each laz file and its neighbours and build point-cloud
-                        let (xyzir, point_tree, convex_hull, tl) =
+                        let (ground_cloud, ground_tree, convex_hull, tl) =
                             steps::read_laz(tile_path, dist_to_hull_epsilon, ref_point);
 
                         // step 3: compute the DFMs
                         let (dem, grad_dem, drm, _, dim, _) =
-                            steps::compute_dfms(&point_tree, &xyzir, &convex_hull, tl);
+                            steps::compute_dfms(&ground_tree, &ground_cloud, &convex_hull, tl);
 
                         // step 4: contour generation
                         if args.basemap_contours >= 0.1 {
                             steps::compute_basemap(
-                                xyzir.bounds.min.z,
-                                xyzir.bounds.max.z,
+                                ground_cloud.bounds.min.z,
+                                ground_cloud.bounds.max.z,
                                 args.basemap_contours,
                                 &dem,
-                                &convex_hull,
-                                dist_to_hull_epsilon,
+                                &cut_bounds[current_index],
                                 args.simplification_distance,
                                 &map_ref,
                             );
                         }
 
-                        // TODO: make thresholds adaptive to local terrain ( create a smoothed version of the dfm and use that value to adapt threshold)
+                        /*
+                        // TODO: make thresholds adaptive to local terrain (create a smoothed version of the dfm and use that value to adapt threshold)
                         // step 5: compute vegetation
                         steps::compute_vegetation(
                             &drm,
@@ -124,6 +127,7 @@ pub fn compute_map_objects(
                             args.simplification_distance,
                             &map_ref,
                         );
+                        */
 
                         // step 7: save dfms
                         if args.write_tiff {

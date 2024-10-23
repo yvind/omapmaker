@@ -1,4 +1,7 @@
-use crate::geometry::{Point2D, Rectangle};
+use crate::{
+    geometry::{Point2D, Rectangle},
+    TILE_SIZE_USIZE,
+};
 
 use las::{point::Classification, raw, Builder, Point, Reader, Writer};
 use std::{
@@ -10,13 +13,14 @@ use std::{
 
 use std::time::Instant;
 
-use crate::{NEIGHBOUR_MARGIN, TILE_SIZE};
+use crate::{NEIGHBOUR_MARGIN, NEIGHBOUR_MARGIN_USIZE, TILE_SIZE};
 
 pub fn retile_laz(
     num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
     paths: &[PathBuf],
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, Vec<Rectangle>) {
+    assert!(paths.len() > 0);
     if paths.len() == 1 {
         single_file(num_threads, &(paths[0]))
     } else {
@@ -24,7 +28,7 @@ pub fn retile_laz(
     }
 }
 
-fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
+fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectangle>) {
     let now = Instant::now();
 
     let mut las_reader = Reader::from_path(input).unwrap_or_else(|_| {
@@ -51,7 +55,7 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
 
-    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
+    let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &Rectangle::default());
 
     println!(
         "Bounds retiled, time including opening file etc: {:?}",
@@ -88,14 +92,14 @@ fn single_file(num_threads: usize, input: &PathBuf) -> Vec<PathBuf> {
         header,
     );
     println!("written, time: {:?}", now.elapsed());
-    p
+    (p, cb)
 }
 
 fn multiple_files(
     num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
     paths: &[PathBuf],
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, Vec<Rectangle>) {
     // read the laz to be re-tiled, must be readable by now
     let ci = neighbour_map[0].unwrap();
     let mut las_reader = Reader::from_path(&paths[ci]).unwrap();
@@ -142,9 +146,9 @@ fn multiple_files(
             },
         }
     }
-    bounds = bounds + push_bounds;
+    bounds = &bounds + &push_bounds;
 
-    let (bb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds);
+    let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &push_bounds);
 
     let mut point_buckets: Vec<Vec<Point>> = vec![
         Vec::with_capacity(
@@ -155,7 +159,7 @@ fn multiple_files(
 
     // possible area for multithreading
     // read points from main file into buckets
-    for point in las_reader.points().map(|p| p.unwrap()) {
+    for point in las_reader.points().filter_map(Result::ok) {
         for (i, b) in bb.iter().enumerate() {
             if b.contains(&point) {
                 point_buckets[i].push(point.clone());
@@ -171,7 +175,8 @@ fn multiple_files(
             Some(ni) => {
                 let mut las_reader = Reader::from_path(&paths[*ni]).unwrap();
 
-                for point in las_reader.points().map(|p| p.unwrap()) {
+                for point in las_reader.points().filter_map(Result::ok) {
+                    // only edge boxes should be considered
                     for (i, b) in bb.iter().enumerate() {
                         if b.contains(&point) {
                             point_buckets[i].push(point.clone());
@@ -187,7 +192,7 @@ fn multiple_files(
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
 
-    write_tiles_to_file(
+    let p = write_tiles_to_file(
         num_threads,
         tiled_file,
         point_buckets,
@@ -195,7 +200,9 @@ fn multiple_files(
         num_x_tiles,
         num_y_tiles,
         header,
-    )
+    );
+
+    (p, cb)
 }
 
 fn write_tiles_to_file(
@@ -230,12 +237,12 @@ fn write_tiles_to_file(
                     tile_path.set_file_name(format!("{}_{}.las", xi, yi));
 
                     let points = &point_buckets[yi * num_x_tiles + xi];
-                    // iterate through and check the number of ground points
+                    // skip tiles with too few ground points
                     if points
                         .iter()
                         .filter(|p| p.classification == Classification::Ground)
                         .count()
-                        < 10
+                        < TILE_SIZE_USIZE
                     {
                         continue;
                     }
@@ -244,27 +251,27 @@ fn write_tiles_to_file(
                         paths.lock().unwrap().push(tile_path.clone());
                     }
 
-                    let new_bounds = &bb[yi * num_x_tiles + xi];
+                    let tile_bounds = &bb[yi * num_x_tiles + xi];
 
-                    let mut new_header = header.clone();
-                    new_header.max_x = new_bounds.max.x;
-                    new_header.max_y = new_bounds.max.y;
-                    new_header.min_x = new_bounds.min.x;
-                    new_header.min_y = new_bounds.min.y;
+                    let mut tile_header = header.clone();
+                    tile_header.max_x = tile_bounds.max.x;
+                    tile_header.max_y = tile_bounds.max.y;
+                    tile_header.min_x = tile_bounds.min.x;
+                    tile_header.min_y = tile_bounds.min.y;
 
-                    new_header.version.minor = 4;
-                    new_header.number_of_point_records = points.len() as u32;
+                    tile_header.version.minor = 4;
+                    tile_header.number_of_point_records = points.len() as u32;
 
-                    let builder = Builder::new(new_header).unwrap();
+                    let builder = Builder::new(tile_header).unwrap();
 
                     let mut las_writer =
                         Writer::from_path(tile_path.clone(), builder.into_header().unwrap())
-                            .expect("Could not tile las file");
+                            .expect("Could not write the retiled las/laz");
 
                     points.iter().for_each(|p| {
                         las_writer
                             .write_point(p.clone())
-                            .expect("Could not write point to laz")
+                            .expect("Could not write point to retiled las/laz")
                     });
                 }
                 yi += num_threads;
@@ -280,48 +287,85 @@ fn write_tiles_to_file(
         .unwrap()
 }
 
-fn retile_bounds(bounds: &Rectangle) -> (Vec<Rectangle>, usize, usize) {
-    let unique_tile_size = TILE_SIZE - 2. * NEIGHBOUR_MARGIN;
-
+fn retile_bounds(
+    bounds: &Rectangle,
+    neighbour_bounds: &Rectangle,
+) -> (Vec<Rectangle>, Vec<Rectangle>, usize, usize) {
     let x_range = bounds.max.x - bounds.min.x;
     let y_range = bounds.max.y - bounds.min.y;
 
-    let num_x_tiles = (x_range / unique_tile_size).ceil() as usize;
-    let num_y_tiles = (y_range / unique_tile_size).ceil() as usize;
+    let num_x_tiles =
+        ((x_range - NEIGHBOUR_MARGIN) / (TILE_SIZE - NEIGHBOUR_MARGIN)).ceil() as usize;
+    let num_y_tiles =
+        ((y_range - NEIGHBOUR_MARGIN) / (TILE_SIZE - NEIGHBOUR_MARGIN)).ceil() as usize;
+
+    let first_last_margin_x =
+        (-x_range + 2. * TILE_SIZE + ((num_x_tiles - 2) * TILE_SIZE_USIZE) as f64
+            - ((num_x_tiles - 3) * NEIGHBOUR_MARGIN_USIZE) as f64)
+            / 2.;
+    let first_last_margin_y =
+        (-y_range + 2. * TILE_SIZE + ((num_x_tiles - 2) * TILE_SIZE_USIZE) as f64
+            - ((num_x_tiles - 3) * NEIGHBOUR_MARGIN_USIZE) as f64)
+            / 2.;
 
     let mut bb: Vec<Rectangle> = Vec::with_capacity(num_x_tiles * num_y_tiles);
+    let mut cut_bounds: Vec<Rectangle> = Vec::with_capacity(num_x_tiles * num_y_tiles);
 
     for yi in 0..num_y_tiles {
         for xi in 0..num_x_tiles {
-            let mut new_bounds = Rectangle::default();
+            let mut tile_bounds = Rectangle::default();
+            let mut inner_bounds = Rectangle::default();
 
             if yi == 0 {
                 // no neighbour above
-                new_bounds.max.y = bounds.max.y;
-                new_bounds.min.y = new_bounds.max.y - TILE_SIZE;
+                tile_bounds.max.y = bounds.max.y;
+                tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
+
+                inner_bounds.max.y = bounds.max.y - neighbour_bounds.max.y;
+                inner_bounds.min.y = tile_bounds.min.y + first_last_margin_y / 2.;
             } else if yi == num_y_tiles - 1 {
                 // no neigbour below
-                new_bounds.min.y = bounds.min.y;
-                new_bounds.max.y = new_bounds.min.y + TILE_SIZE;
+                tile_bounds.min.y = bounds.min.y;
+                tile_bounds.max.y = tile_bounds.min.y + TILE_SIZE;
+
+                inner_bounds.min.y = bounds.min.y - neighbour_bounds.min.y;
+                inner_bounds.max.y = tile_bounds.max.y - first_last_margin_y / 2.;
             } else {
-                new_bounds.max.y = bounds.max.y - unique_tile_size * yi as f64 + NEIGHBOUR_MARGIN;
-                new_bounds.min.y = new_bounds.max.y - TILE_SIZE;
+                tile_bounds.max.y = bounds.max.y - (TILE_SIZE_USIZE * yi) as f64
+                    + first_last_margin_y
+                    + (NEIGHBOUR_MARGIN_USIZE * (yi - 1)) as f64;
+                tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
+
+                inner_bounds.max.y = tile_bounds.max.y - NEIGHBOUR_MARGIN / 2.;
+                inner_bounds.max.y = tile_bounds.min.y + NEIGHBOUR_MARGIN / 2.;
             }
             if xi == 0 {
                 // no neighbour to the left
-                new_bounds.min.x = bounds.min.x;
-                new_bounds.max.x = new_bounds.min.x + TILE_SIZE;
+                tile_bounds.min.x = bounds.min.x;
+                tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
+
+                inner_bounds.min.x = bounds.min.x - neighbour_bounds.min.x;
+                inner_bounds.max.x = tile_bounds.max.x - first_last_margin_x / 2.;
             } else if xi == num_x_tiles - 1 {
                 // no neigbour to the right
-                new_bounds.max.x = bounds.max.x;
-                new_bounds.min.x = new_bounds.max.x - TILE_SIZE;
+                tile_bounds.max.x = bounds.max.x;
+                tile_bounds.min.x = tile_bounds.max.x - TILE_SIZE;
+
+                inner_bounds.max.x = bounds.max.x - neighbour_bounds.max.x;
+                inner_bounds.min.x = tile_bounds.min.x + first_last_margin_x / 2.;
             } else {
-                new_bounds.min.x = bounds.min.x + unique_tile_size * xi as f64 - NEIGHBOUR_MARGIN;
-                new_bounds.max.x = new_bounds.min.x + TILE_SIZE;
+                tile_bounds.min.x =
+                    bounds.max.x + (TILE_SIZE_USIZE * xi) as f64 + first_last_margin_x
+                        - (NEIGHBOUR_MARGIN_USIZE * (xi - 1)) as f64;
+                tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
+
+                inner_bounds.min.x = tile_bounds.min.x + NEIGHBOUR_MARGIN / 2.;
+                inner_bounds.max.x = tile_bounds.max.x - NEIGHBOUR_MARGIN / 2.;
             }
 
-            bb.push(new_bounds);
+            bb.push(tile_bounds);
+            cut_bounds.push(inner_bounds);
         }
     }
-    (bb, num_x_tiles, num_y_tiles)
+    (bb, cut_bounds, num_x_tiles, num_y_tiles)
 }

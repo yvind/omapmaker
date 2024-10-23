@@ -50,6 +50,81 @@ impl Line {
         self.vertices.pop();
     }
 
+    pub fn keep_inside(self, rect: &Rectangle) -> Vec<Line> {
+        let mut result = Vec::new();
+        let mut current_line = Vec::new();
+
+        // Handle empty or single-point lines
+        if self.vertices.len() <= 1 {
+            return vec![];
+        }
+
+        // Iterate through line segments
+        for window in self.vertices.windows(2) {
+            let p1 = &window[0];
+            let p2 = &window[1];
+
+            let p1_inside = rect.contains(p1);
+            let p2_inside = rect.contains(p2);
+
+            match (p1_inside, p2_inside) {
+                // Both points inside - add segment to current line
+                (true, true) => {
+                    if current_line.is_empty() {
+                        current_line.push(p1.clone());
+                    }
+                    current_line.push(p2.clone());
+                }
+
+                // First point inside, second outside - find intersection
+                (true, false) => {
+                    if current_line.is_empty() {
+                        current_line.push(p1.clone());
+                    }
+                    if let Some(intersection) = rect.find_intersection(p1, p2) {
+                        current_line.push(intersection);
+                        // End current line
+                        if current_line.len() >= 2 {
+                            result.push(Line {
+                                vertices: current_line,
+                            });
+                        }
+                        current_line = Vec::new();
+                    }
+                }
+
+                // First point outside, second inside - find intersection and start new line
+                (false, true) => {
+                    if let Some(intersection) = rect.find_intersection(p1, p2) {
+                        current_line = vec![intersection, p2.clone()];
+                    }
+                }
+
+                // Both points outside - check if line segment intersects rectangle
+                (false, false) => {
+                    if let Some((entry, exit)) = rect.find_segment_intersections(p1, p2) {
+                        if current_line.len() >= 2 {
+                            result.push(Line {
+                                vertices: current_line,
+                            });
+                        }
+                        result.push(Line::new(entry, exit));
+                        current_line = Vec::new();
+                    }
+                }
+            }
+        }
+
+        // Add final line segment if it exists
+        if current_line.len() >= 2 {
+            result.push(Line {
+                vertices: current_line,
+            });
+        }
+
+        result
+    }
+
     pub fn close(&mut self) {
         if !self.is_closed() {
             self.vertices.push(*self.first_vertex());
@@ -335,6 +410,20 @@ impl Eq for Line {}
 impl PartialEq for Line {
     fn eq(&self, other: &Line) -> bool {
         self.first_vertex() == other.first_vertex() && self.last_vertex() == other.last_vertex()
+    }
+}
+
+impl From<Rectangle> for Line {
+    fn from(r: Rectangle) -> Self {
+        Line {
+            vertices: vec![
+                Point2D::new(r.min.x, r.max.y),
+                Point2D::new(r.min.x, r.min.y),
+                Point2D::new(r.max.x, r.min.y),
+                Point2D::new(r.max.x, r.max.y),
+                Point2D::new(r.min.x, r.max.y),
+            ],
+        }
     }
 }
 

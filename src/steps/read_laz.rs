@@ -31,18 +31,18 @@ pub fn read_laz(
     las_bounds.max.y -= ref_point.y;
     las_bounds.min.y -= ref_point.y;
 
-    let mut xyzir = PointCloud::new(
+    let mut ground_cloud = PointCloud::new(
         las_reader
             .points()
-            .map(|r| r.unwrap())
+            .filter_map(Result::ok)
             .filter_map(|p| {
                 ((p.classification == Classification::Ground
                     || p.classification == Classification::Water)
                     && !p.is_withheld)
                     .then(|| {
                         let mut clone = p.clone();
-                        clone.x += 2. * (random() - 0.5) / 1000. - ref_point.x;
-                        clone.y += 2. * (random() - 0.5) / 1000. - ref_point.y;
+                        clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                        clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
                         clone
                     })
             }) // add noise on the order of mm for KD-tree stability
@@ -50,15 +50,15 @@ pub fn read_laz(
         las_bounds,
     );
 
-    let map_bounds = xyzir.get_dfm_dimensions();
+    let map_bounds = ground_cloud.get_dfm_dimensions();
     let tl = Point2D {
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };
-    let convex_hull = xyzir.bounded_convex_hull(&map_bounds, dist_to_hull_epsilon * 2.);
+    let convex_hull = ground_cloud.bounded_convex_hull(&map_bounds, dist_to_hull_epsilon);
 
-    let point_tree: ImmutableKdTree<f64, usize, 2, 32> =
-        ImmutableKdTree::new_from_slice(&xyzir.to_2d_slice());
+    let ground_tree: ImmutableKdTree<f64, usize, 2, 32> =
+        ImmutableKdTree::new_from_slice(&ground_cloud.to_2d_slice());
 
-    (xyzir, point_tree, convex_hull, tl)
+    (ground_cloud, ground_tree, convex_hull, tl)
 }
