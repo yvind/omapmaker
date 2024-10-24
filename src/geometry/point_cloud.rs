@@ -6,8 +6,6 @@ use crate::raster::FieldType;
 
 use crate::{CELL_SIZE, TILE_SIZE};
 
-const SIDE_LENGTH: f64 = TILE_SIZE / CELL_SIZE;
-
 use las::point::Classification;
 use las::{Bounds, Vector};
 use std::cmp::Ordering;
@@ -42,8 +40,8 @@ impl PointCloud {
         let dx = self.bounds.max.x - self.bounds.min.x;
         let dy = self.bounds.max.y - self.bounds.min.y;
 
-        let offset_x = (SIDE_LENGTH - dx) / 2.;
-        let offset_y = (SIDE_LENGTH - dy) / 2.;
+        let offset_x = (TILE_SIZE - dx) / 2.;
+        let offset_y = (TILE_SIZE - dy) / 2.;
 
         Bounds {
             min: Vector {

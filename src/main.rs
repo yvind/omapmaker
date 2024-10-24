@@ -1,5 +1,3 @@
-#![feature(portable_simd)]
-
 //mod c2hm;
 mod geometry;
 mod map;
@@ -58,6 +56,7 @@ fn main() {
         tiff_directory.push(laz_paths[fi].file_stem().unwrap());
 
         // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
+        // takes it sweet time reading the files, have not been able to make improvment on reading with multiple threads
         let (tile_paths, tile_cut_bounds) =
             steps::retile_laz(args.threads, &laz_neighbour_map[fi], &laz_paths);
 

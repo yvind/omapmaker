@@ -1,6 +1,6 @@
 use crate::{
     geometry::{Point2D, Rectangle},
-    TILE_SIZE_USIZE,
+    MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE,
 };
 
 use las::{point::Classification, raw, Builder, Point, Reader, Writer};
@@ -10,10 +10,6 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
-
-use std::time::Instant;
-
-use crate::{MIN_NEIGHBOUR_MARGIN, TILE_SIZE};
 
 pub fn retile_laz(
     num_threads: usize,
@@ -29,8 +25,6 @@ pub fn retile_laz(
 }
 
 fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectangle>) {
-    let now = Instant::now();
-
     let mut las_reader = Reader::from_path(input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
@@ -39,6 +33,7 @@ fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectan
     });
 
     let header = las_reader.header().clone().into_raw().unwrap();
+
     let bounds = Rectangle {
         min: Point2D {
             x: header.min_x,
@@ -57,30 +52,20 @@ fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectan
 
     let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &Rectangle::default());
 
-    println!(
-        "Bounds retiled, time including opening file etc: {:?}",
-        now.elapsed()
-    );
-    let now = Instant::now();
-
-    let mut point_buckets: Vec<Vec<Point>> = vec![
+    let mut point_buckets = vec![
         Vec::with_capacity(
             header.number_of_point_records as usize / (num_x_tiles * num_y_tiles)
         );
         num_x_tiles * num_y_tiles
     ];
 
-    // possible area for multithreading, only worth using rayon's into_par_iter when more than approx 1/2 million points
-    for point in las_reader.points().map(|p| p.unwrap()) {
+    for point in las_reader.points().filter_map(Result::ok) {
         for (i, b) in bb.iter().enumerate() {
             if b.contains(&point) {
                 point_buckets[i].push(point.clone());
             }
         }
     }
-
-    println!("points divided into tiles, time: {:?}", now.elapsed());
-    let now = Instant::now();
 
     let p = write_tiles_to_file(
         num_threads,
@@ -91,7 +76,6 @@ fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectan
         num_y_tiles,
         header,
     );
-    println!("written, time: {:?}", now.elapsed());
     (p, cb)
 }
 
@@ -150,7 +134,7 @@ fn multiple_files(
 
     let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &push_bounds);
 
-    let mut point_buckets: Vec<Vec<Point>> = vec![
+    let mut point_buckets = vec![
         Vec::with_capacity(
             header.number_of_point_records as usize / (num_x_tiles * num_y_tiles)
         );
@@ -361,8 +345,5 @@ fn retile_bounds(
             cut_bounds.push(inner_bounds);
         }
     }
-    println!("{:#?}", bounds);
-    println!("{:#?}", bb);
-    println!("{:#?}", cut_bounds);
     (bb, cut_bounds, num_x_tiles, num_y_tiles)
 }

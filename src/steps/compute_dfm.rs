@@ -27,10 +27,6 @@ pub fn compute_dfms(
         for x_index in 0..SIDE_LENGTH {
             let coords: Point2D = dem.index2coord(x_index, y_index).unwrap();
 
-            if !ch.contains(&coords).unwrap() {
-                continue;
-            }
-
             // slow due to very many lookups
             let nearest_n = pt.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);
             let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();

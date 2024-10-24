@@ -214,14 +214,14 @@ impl Dfm {
                     let a = self[(ys[*e], xs[*e])];
                     let b = self[(ys[(*e + 1) % 4], xs[(*e + 1) % 4])];
 
-                    let cell_tl = self.index2coord(xs[*e], ys[*e])?;
+                    let a_coord = self.index2coord(xs[*e], ys[*e])?;
 
-                    vertex_coordinates[i % 2].x = cell_tl.x
+                    vertex_coordinates[i % 2].x = a_coord.x
                         + CELL_SIZE
                             * (xs[(*e + 1) % 4] as i32 - xs[*e] as i32) as f64
                             * (level - a)
                             / (b - a);
-                    vertex_coordinates[i % 2].y = cell_tl.y
+                    vertex_coordinates[i % 2].y = a_coord.y
                         + CELL_SIZE
                             * (ys[*e] as i32 - ys[(*e + 1) % 4] as i32) as f64
                             * (level - a)
