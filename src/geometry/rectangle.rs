@@ -4,7 +4,7 @@ use std::ops::Add;
 use super::{Point, Point2D};
 use las::Bounds;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Rectangle {
     pub min: Point2D,
     pub max: Point2D,

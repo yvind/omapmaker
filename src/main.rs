@@ -19,12 +19,12 @@ use std::{
 
 // must be constant across training and inference if AI is to be applied
 const TILE_SIZE_USIZE: usize = 128;
-const NEIGHBOUR_MARGIN_USIZE: usize = 14;
+const MIN_NEIGHBOUR_MARGIN_USIZE: usize = 14;
 const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
 
 const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
 const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;
-const NEIGHBOUR_MARGIN: f64 = NEIGHBOUR_MARGIN_USIZE as f64;
+const MIN_NEIGHBOUR_MARGIN: f64 = MIN_NEIGHBOUR_MARGIN_USIZE as f64;
 
 fn main() {
     let args = Args::parse_cli();

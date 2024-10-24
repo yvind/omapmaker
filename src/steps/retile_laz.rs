@@ -13,14 +13,14 @@ use std::{
 
 use std::time::Instant;
 
-use crate::{NEIGHBOUR_MARGIN, NEIGHBOUR_MARGIN_USIZE, TILE_SIZE};
+use crate::{MIN_NEIGHBOUR_MARGIN, TILE_SIZE};
 
 pub fn retile_laz(
     num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
     paths: &[PathBuf],
 ) -> (Vec<PathBuf>, Vec<Rectangle>) {
-    assert!(paths.len() > 0);
+    assert!(!paths.is_empty());
     if paths.len() == 1 {
         single_file(num_threads, &(paths[0]))
     } else {
@@ -123,25 +123,25 @@ fn multiple_files(
             Some(_) => match i {
                 0 => continue,
                 1 => {
-                    push_bounds.min.x = -NEIGHBOUR_MARGIN;
-                    push_bounds.max.y = NEIGHBOUR_MARGIN;
+                    push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN;
+                    push_bounds.max.y = MIN_NEIGHBOUR_MARGIN;
                 }
-                2 => push_bounds.max.y = NEIGHBOUR_MARGIN,
+                2 => push_bounds.max.y = MIN_NEIGHBOUR_MARGIN,
                 3 => {
-                    push_bounds.max.x = NEIGHBOUR_MARGIN;
-                    push_bounds.max.y = NEIGHBOUR_MARGIN;
+                    push_bounds.max.x = MIN_NEIGHBOUR_MARGIN;
+                    push_bounds.max.y = MIN_NEIGHBOUR_MARGIN;
                 }
-                4 => push_bounds.max.x = NEIGHBOUR_MARGIN,
+                4 => push_bounds.max.x = MIN_NEIGHBOUR_MARGIN,
                 5 => {
-                    push_bounds.max.x = NEIGHBOUR_MARGIN;
-                    push_bounds.min.y = -NEIGHBOUR_MARGIN;
+                    push_bounds.max.x = MIN_NEIGHBOUR_MARGIN;
+                    push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN;
                 }
-                6 => push_bounds.min.y = -NEIGHBOUR_MARGIN,
+                6 => push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN,
                 7 => {
-                    push_bounds.min.x = -NEIGHBOUR_MARGIN;
-                    push_bounds.min.y = -NEIGHBOUR_MARGIN;
+                    push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN;
+                    push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN;
                 }
-                8 => push_bounds.min.x = -NEIGHBOUR_MARGIN,
+                8 => push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN,
                 _ => panic!("logic fail in laz neighbour calculation"),
             },
         }
@@ -289,24 +289,22 @@ fn write_tiles_to_file(
 
 fn retile_bounds(
     bounds: &Rectangle,
-    neighbour_bounds: &Rectangle,
+    neighbour_file_margin: &Rectangle,
 ) -> (Vec<Rectangle>, Vec<Rectangle>, usize, usize) {
     let x_range = bounds.max.x - bounds.min.x;
     let y_range = bounds.max.y - bounds.min.y;
 
-    let num_x_tiles =
-        ((x_range - NEIGHBOUR_MARGIN) / (TILE_SIZE - NEIGHBOUR_MARGIN)).ceil() as usize;
-    let num_y_tiles =
-        ((y_range - NEIGHBOUR_MARGIN) / (TILE_SIZE - NEIGHBOUR_MARGIN)).ceil() as usize;
+    let num_x_tiles = ((x_range - MIN_NEIGHBOUR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOUR_MARGIN))
+        .ceil()
+        .max(2.0) as usize;
+    let num_y_tiles = ((y_range - MIN_NEIGHBOUR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOUR_MARGIN))
+        .ceil()
+        .max(2.0) as usize;
 
-    let first_last_margin_x =
-        (-x_range + 2. * TILE_SIZE + ((num_x_tiles - 2) * TILE_SIZE_USIZE) as f64
-            - ((num_x_tiles - 3) * NEIGHBOUR_MARGIN_USIZE) as f64)
-            / 2.;
-    let first_last_margin_y =
-        (-y_range + 2. * TILE_SIZE + ((num_x_tiles - 2) * TILE_SIZE_USIZE) as f64
-            - ((num_x_tiles - 3) * NEIGHBOUR_MARGIN_USIZE) as f64)
-            / 2.;
+    let neighbour_margin_x =
+        ((num_x_tiles * TILE_SIZE_USIZE) as f64 - x_range) / (num_x_tiles - 1) as f64;
+    let neighbour_margin_y =
+        ((num_y_tiles * TILE_SIZE_USIZE) as f64 - y_range) / (num_y_tiles - 1) as f64;
 
     let mut bb: Vec<Rectangle> = Vec::with_capacity(num_x_tiles * num_y_tiles);
     let mut cut_bounds: Vec<Rectangle> = Vec::with_capacity(num_x_tiles * num_y_tiles);
@@ -321,51 +319,50 @@ fn retile_bounds(
                 tile_bounds.max.y = bounds.max.y;
                 tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
 
-                inner_bounds.max.y = bounds.max.y - neighbour_bounds.max.y;
-                inner_bounds.min.y = tile_bounds.min.y + first_last_margin_y / 2.;
+                inner_bounds.max.y = bounds.max.y - neighbour_file_margin.max.y;
+                inner_bounds.min.y = tile_bounds.min.y + neighbour_margin_y / 2.;
             } else if yi == num_y_tiles - 1 {
                 // no neigbour below
                 tile_bounds.min.y = bounds.min.y;
                 tile_bounds.max.y = tile_bounds.min.y + TILE_SIZE;
 
-                inner_bounds.min.y = bounds.min.y - neighbour_bounds.min.y;
-                inner_bounds.max.y = tile_bounds.max.y - first_last_margin_y / 2.;
+                inner_bounds.min.y = bounds.min.y - neighbour_file_margin.min.y;
+                inner_bounds.max.y = tile_bounds.max.y - neighbour_margin_y / 2.;
             } else {
-                tile_bounds.max.y = bounds.max.y - (TILE_SIZE_USIZE * yi) as f64
-                    + first_last_margin_y
-                    + (NEIGHBOUR_MARGIN_USIZE * (yi - 1)) as f64;
+                tile_bounds.max.y = bounds.max.y - (TILE_SIZE - neighbour_margin_y) * yi as f64;
                 tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
 
-                inner_bounds.max.y = tile_bounds.max.y - NEIGHBOUR_MARGIN / 2.;
-                inner_bounds.max.y = tile_bounds.min.y + NEIGHBOUR_MARGIN / 2.;
+                inner_bounds.max.y = tile_bounds.max.y - neighbour_margin_y / 2.;
+                inner_bounds.min.y = tile_bounds.min.y + neighbour_margin_y / 2.;
             }
             if xi == 0 {
                 // no neighbour to the left
                 tile_bounds.min.x = bounds.min.x;
                 tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
 
-                inner_bounds.min.x = bounds.min.x - neighbour_bounds.min.x;
-                inner_bounds.max.x = tile_bounds.max.x - first_last_margin_x / 2.;
+                inner_bounds.min.x = bounds.min.x - neighbour_file_margin.min.x;
+                inner_bounds.max.x = tile_bounds.max.x - neighbour_margin_x / 2.;
             } else if xi == num_x_tiles - 1 {
                 // no neigbour to the right
                 tile_bounds.max.x = bounds.max.x;
                 tile_bounds.min.x = tile_bounds.max.x - TILE_SIZE;
 
-                inner_bounds.max.x = bounds.max.x - neighbour_bounds.max.x;
-                inner_bounds.min.x = tile_bounds.min.x + first_last_margin_x / 2.;
+                inner_bounds.max.x = bounds.max.x - neighbour_file_margin.max.x;
+                inner_bounds.min.x = tile_bounds.min.x + neighbour_margin_x / 2.;
             } else {
-                tile_bounds.min.x =
-                    bounds.max.x + (TILE_SIZE_USIZE * xi) as f64 + first_last_margin_x
-                        - (NEIGHBOUR_MARGIN_USIZE * (xi - 1)) as f64;
+                tile_bounds.min.x = bounds.min.x + (TILE_SIZE - neighbour_margin_x) * xi as f64;
                 tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
 
-                inner_bounds.min.x = tile_bounds.min.x + NEIGHBOUR_MARGIN / 2.;
-                inner_bounds.max.x = tile_bounds.max.x - NEIGHBOUR_MARGIN / 2.;
+                inner_bounds.min.x = tile_bounds.min.x + neighbour_margin_x / 2.;
+                inner_bounds.max.x = tile_bounds.max.x - neighbour_margin_x / 2.;
             }
 
             bb.push(tile_bounds);
             cut_bounds.push(inner_bounds);
         }
     }
+    println!("{:#?}", bounds);
+    println!("{:#?}", bb);
+    println!("{:#?}", cut_bounds);
     (bb, cut_bounds, num_x_tiles, num_y_tiles)
 }
