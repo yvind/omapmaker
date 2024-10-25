@@ -51,8 +51,8 @@ impl Dfm {
         assert!(yi < SIDE_LENGTH);
 
         Ok(Point2D {
-            x: (xi as f64 + 0.5) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64 + 0.5) * CELL_SIZE,
+            x: (xi as f64 + 0.0) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64 + 0.0) * CELL_SIZE,
         })
     }
 
@@ -234,42 +234,46 @@ impl Dfm {
                         let key1 = self.get_edge_index(&vertex1).unwrap();
                         let key2 = self.get_edge_index(&vertex2).unwrap();
 
-                        let mut end_contour_index = contour_map[key1];
-                        let start_contour_index = contour_map[key2];
+                        let mut end_of_contour_index = contour_map[key1];
+                        let start_of_contour_index = contour_map[key2];
 
-                        if end_contour_index != usize::MAX && start_contour_index != usize::MAX {
+                        if end_of_contour_index != usize::MAX
+                            && start_of_contour_index != usize::MAX
+                        {
                             // join two existing contours
-                            if end_contour_index == start_contour_index {
+                            if end_of_contour_index == start_of_contour_index {
                                 // close the contour (joining a contour with itself)
-                                contours[end_contour_index].close();
+                                contours[end_of_contour_index].close();
                             } else {
                                 // join two different contours
                                 // do a swap remove on the start_contour_index and update map
                                 // append the contour to the contour at end_contour_index
-                                let contour = contours.swap_remove(start_contour_index);
+                                let contour = contours.swap_remove(start_of_contour_index);
 
                                 // if end_contour_index was the last element it's new position
                                 // is now start_contour_index after the swap_remove
-                                if contours.len() == end_contour_index {
-                                    end_contour_index = start_contour_index;
+                                if end_of_contour_index == contours.len() {
+                                    end_of_contour_index = start_of_contour_index;
                                 }
-                                contours[end_contour_index].append(contour);
+                                contours[end_of_contour_index].append(contour);
 
                                 // get the index of the positions in the map that needs updating
                                 // only first and last edge indecies of the contour needs updating
                                 // as the "inner" edges of a contour should never be encountered again
                                 let end_key = self
-                                    .get_edge_index(contours[end_contour_index].last_vertex())
+                                    .get_edge_index(contours[end_of_contour_index].last_vertex())
                                     .unwrap();
                                 let start_key = self
-                                    .get_edge_index(contours[end_contour_index].first_vertex())
+                                    .get_edge_index(contours[end_of_contour_index].first_vertex())
                                     .unwrap();
 
-                                contour_map[end_key] = end_contour_index;
-                                contour_map[start_key] = end_contour_index;
+                                contour_map[end_key] = end_of_contour_index;
+                                contour_map[start_key] = end_of_contour_index;
 
-                                // if the last element was removed no other update needs to be done
-                                if contours.len() == start_contour_index {
+                                // if the last element was removed or has already been dealt with no other update needs to be done
+                                if start_of_contour_index == contours.len()
+                                    || end_of_contour_index == start_of_contour_index
+                                {
                                     continue;
                                 }
                                 // get the index of the other affect contour in the map that needs updating
@@ -277,25 +281,25 @@ impl Dfm {
                                 // as the "inner" edges of a contour should never be encountered again
 
                                 let end_key = self
-                                    .get_edge_index(contours[start_contour_index].last_vertex())
+                                    .get_edge_index(contours[start_of_contour_index].last_vertex())
                                     .unwrap();
                                 let start_key = self
-                                    .get_edge_index(contours[start_contour_index].first_vertex())
+                                    .get_edge_index(contours[start_of_contour_index].first_vertex())
                                     .unwrap();
 
-                                contour_map[end_key] = start_contour_index;
-                                contour_map[start_key] = start_contour_index;
+                                contour_map[end_key] = start_of_contour_index;
+                                contour_map[start_key] = start_of_contour_index;
                             }
-                        } else if end_contour_index != usize::MAX {
+                        } else if end_of_contour_index != usize::MAX {
                             // append to an existing contour
-                            contours[end_contour_index].push(vertex2);
+                            contours[end_of_contour_index].push(vertex2);
                             // update map
-                            contour_map[key2] = end_contour_index;
-                        } else if start_contour_index != usize::MAX {
+                            contour_map[key2] = end_of_contour_index;
+                        } else if start_of_contour_index != usize::MAX {
                             // prepend to an existing contour
-                            contours[start_contour_index].prepend(vertex1);
+                            contours[start_of_contour_index].prepend(vertex1);
                             // update map
-                            contour_map[key1] = start_contour_index;
+                            contour_map[key1] = start_of_contour_index;
                         } else {
                             // start a new contour
                             let contour: Line = Line::new(vertex1, vertex2);

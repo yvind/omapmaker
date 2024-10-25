@@ -27,6 +27,8 @@ pub fn compute_basemap(
             }
         }
 
+        /*
+        println!("{}", bm_contours.len());
         let mut inside_contours = Vec::with_capacity(bm_contours.len());
         for c in bm_contours {
             let ncs = c.keep_inside(bound);
@@ -34,8 +36,9 @@ pub fn compute_basemap(
                 inside_contours.push(nc);
             }
         }
+        */
 
-        for c in inside_contours {
+        for c in bm_contours {
             let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
             c_object.add_auto_tag();
             c_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
