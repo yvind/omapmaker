@@ -132,7 +132,10 @@ fn write_tiles_to_file(
     num_y_tiles: usize,
     header: raw::Header,
 ) -> (Vec<PathBuf>, Vec<Rectangle>) {
-    let paths = Arc::new(Mutex::new(Vec::with_capacity(num_x_tiles * num_y_tiles)));
+    let paths = Arc::new(Mutex::new(vec![
+        PathBuf::default();
+        num_x_tiles * num_y_tiles
+    ]));
 
     tile_path.push("temp.txt"); // just beacause PathBuf::set_file_name() otherwise removes the dir name
 
@@ -169,7 +172,7 @@ fn write_tiles_to_file(
                     }
 
                     {
-                        paths.lock().unwrap().push(tile_path.clone());
+                        paths.lock().unwrap()[yi * num_x_tiles + xi].push(tile_path.clone());
                     }
                     let tile_bounds = &bb[yi * num_x_tiles + xi];
 
@@ -202,6 +205,11 @@ fn write_tiles_to_file(
         t.join().unwrap();
     }
 
+    let mut paths = Arc::<Mutex<Vec<PathBuf>>>::into_inner(paths)
+        .unwrap()
+        .into_inner()
+        .unwrap();
+
     let mut remove_index = Arc::<Mutex<Vec<usize>>>::into_inner(remove_index)
         .unwrap()
         .into_inner()
@@ -210,12 +218,8 @@ fn write_tiles_to_file(
     remove_index.sort_unstable_by(|a, b| b.cmp(a));
     for i in remove_index {
         cb.remove(i);
+        paths.remove(i);
     }
-
-    let paths = Arc::<Mutex<Vec<PathBuf>>>::into_inner(paths)
-        .unwrap()
-        .into_inner()
-        .unwrap();
 
     assert_eq!(paths.len(), cb.len());
     (paths, cb)

@@ -40,8 +40,7 @@ fn main() {
     println!("Running on {} threads", args.threads);
 
     // step 0: figure out lidar files spatial relationships, assuming they are divided from a big lidar-project by a square-ish grid
-    let (laz_neighbour_map, laz_paths, ref_point, _file_cut_bounds) =
-        steps::map_laz(args.in_file.clone());
+    let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(args.in_file.clone());
 
     // create map
     let map = Arc::new(Mutex::new(Omap::new(ref_point)));

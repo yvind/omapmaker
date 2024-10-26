@@ -81,33 +81,27 @@ impl Line {
                     if current_line.is_empty() {
                         current_line.push(p1.clone());
                     }
-                    if let Some(intersection) = rect.find_intersection(p1, p2) {
-                        current_line.push(intersection);
-                        // End current line
-                        if current_line.len() >= 2 {
-                            result.push(Line {
-                                vertices: current_line,
-                            });
-                        }
-                        current_line = Vec::new();
+                    let intersection = rect.find_intersection(p1, p2).unwrap();
+                    current_line.push(intersection);
+                    // End current line
+                    if current_line.len() >= 2 {
+                        result.push(Line {
+                            vertices: current_line,
+                        });
                     }
+                    current_line = Vec::new();
                 }
 
                 // First point outside, second inside - find intersection and start new line
                 (false, true) => {
-                    if let Some(intersection) = rect.find_intersection(p1, p2) {
-                        current_line = vec![intersection, p2.clone()];
-                    }
+                    let intersection = rect.find_intersection(p1, p2).unwrap();
+                    current_line = vec![intersection, p2.clone()];
                 }
 
                 // Both points outside - check if line segment intersects rectangle
                 (false, false) => {
                     if let Some((entry, exit)) = rect.find_segment_intersections(p1, p2) {
-                        if current_line.len() >= 2 {
-                            result.push(Line {
-                                vertices: current_line,
-                            });
-                        }
+                        assert!(current_line.is_empty());
                         result.push(Line::new(entry, exit));
                         current_line = Vec::new();
                     }

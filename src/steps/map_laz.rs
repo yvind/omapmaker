@@ -5,14 +5,7 @@ use std::{fs, path::PathBuf};
 
 use crate::geometry::{Point2D, Rectangle};
 
-pub fn map_laz(
-    input: PathBuf,
-) -> (
-    Vec<[Option<usize>; 9]>,
-    Vec<PathBuf>,
-    Point2D,
-    Vec<Rectangle>,
-) {
+pub fn map_laz(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
     if input.is_file() {
         single_file(input)
     } else {
@@ -44,14 +37,7 @@ fn lidar_in_directory(input: PathBuf) -> Vec<PathBuf> {
     paths
 }
 
-fn single_file(
-    input: PathBuf,
-) -> (
-    Vec<[Option<usize>; 9]>,
-    Vec<PathBuf>,
-    Point2D,
-    Vec<Rectangle>,
-) {
+fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
     let las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
@@ -69,18 +55,10 @@ fn single_file(
         vec![[Some(0), None, None, None, None, None, None, None, None]],
         vec![input],
         ref_point,
-        vec![Rectangle::from(bounds)],
     )
 }
 
-fn multiple_files(
-    paths: Vec<PathBuf>,
-) -> (
-    Vec<[Option<usize>; 9]>,
-    Vec<PathBuf>,
-    Point2D,
-    Vec<Rectangle>,
-) {
+fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
     let mut tile_names = Vec::with_capacity(paths.len());
@@ -105,7 +83,6 @@ fn multiple_files(
             vec![[Some(0), None, None, None, None, None, None, None, None]],
             tile_names,
             Point2D::from(center_point),
-            tile_bounds,
         );
     }
 
@@ -119,7 +96,7 @@ fn multiple_files(
     ref_point.x = (ref_point.x / (10 * tile_centers.len()) as f64).round() * 10.;
     ref_point.y = (ref_point.y / (10 * tile_centers.len()) as f64).round() * 10.;
 
-    (neighbours, tile_names, ref_point, tile_bounds)
+    (neighbours, tile_names, ref_point)
 }
 
 fn neighbouring_tiles(

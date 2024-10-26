@@ -1,7 +1,7 @@
 use super::{Line, Point, PointLaz};
 
 use std::convert::From;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Sub, SubAssign};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Point2D {
@@ -137,6 +137,13 @@ impl Sub for &Point2D {
             x: self.x - rhs.x,
             y: self.y - rhs.y,
         }
+    }
+}
+
+impl SubAssign for Point2D {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
     }
 }
 

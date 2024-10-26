@@ -51,8 +51,8 @@ impl Dfm {
         assert!(yi < SIDE_LENGTH);
 
         Ok(Point2D {
-            x: (xi as f64 + 0.0) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64 + 0.0) * CELL_SIZE,
+            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
         })
     }
 

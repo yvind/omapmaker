@@ -39,7 +39,7 @@ pub fn compute_map_objects(
 
         thread_handles.push(
             thread::Builder::new()
-                .stack_size(20 * 1024 * 1024) // needs to increase thread stack size to accomodate the marching squares wo hashmaps
+                .stack_size(10 * 1024 * 1024) // needs to increase thread stack size to accomodate the marching squares wo hashmaps
                 .spawn(move || {
                     let mut current_index = thread_i;
 
@@ -49,6 +49,10 @@ pub fn compute_map_objects(
                         // step 2: read each laz file and its neighbours and build point-cloud
                         let (ground_cloud, ground_tree, convex_hull, tl) =
                             steps::read_laz(tile_path, dist_to_hull_epsilon, ref_point);
+
+                        let mut current_cut_bounds = cut_bounds[current_index].clone();
+                        current_cut_bounds.min -= ref_point;
+                        current_cut_bounds.max -= ref_point;
 
                         // step 3: compute the DFMs
                         let (dem, grad_dem, drm, _, dim, _) =
@@ -61,7 +65,7 @@ pub fn compute_map_objects(
                                 ground_cloud.bounds.max.z,
                                 args.basemap_contours,
                                 &dem,
-                                &cut_bounds[current_index],
+                                &current_cut_bounds,
                                 args.simplification_distance,
                                 &map_ref,
                             );
