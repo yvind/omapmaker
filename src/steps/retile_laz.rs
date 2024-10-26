@@ -17,73 +17,7 @@ pub fn retile_laz(
     paths: &[PathBuf],
 ) -> (Vec<PathBuf>, Vec<Rectangle>) {
     assert!(!paths.is_empty());
-    if paths.len() == 1 {
-        single_file(num_threads, &(paths[0]))
-    } else {
-        multiple_files(num_threads, neighbour_map, paths)
-    }
-}
 
-fn single_file(num_threads: usize, input: &PathBuf) -> (Vec<PathBuf>, Vec<Rectangle>) {
-    let mut las_reader = Reader::from_path(input).unwrap_or_else(|_| {
-        panic!(
-            "Could not read given laz/las file with path: {}",
-            input.to_string_lossy()
-        )
-    });
-
-    let header = las_reader.header().clone().into_raw().unwrap();
-
-    let bounds = Rectangle {
-        min: Point2D {
-            x: header.min_x,
-            y: header.min_y,
-        },
-        max: Point2D {
-            x: header.max_x,
-            y: header.max_y,
-        },
-    };
-
-    let tiled_file = input.with_extension(""); // new PathBuf wo the extension from input path
-
-    fs::create_dir_all(&tiled_file)
-        .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
-
-    let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &Rectangle::default());
-
-    let mut point_buckets = vec![
-        Vec::with_capacity(
-            header.number_of_point_records as usize / (num_x_tiles * num_y_tiles)
-        );
-        num_x_tiles * num_y_tiles
-    ];
-
-    for point in las_reader.points().filter_map(Result::ok) {
-        for (i, b) in bb.iter().enumerate() {
-            if b.contains(&point) {
-                point_buckets[i].push(point.clone());
-            }
-        }
-    }
-
-    let p = write_tiles_to_file(
-        num_threads,
-        tiled_file,
-        point_buckets,
-        bb,
-        num_x_tiles,
-        num_y_tiles,
-        header,
-    );
-    (p, cb)
-}
-
-fn multiple_files(
-    num_threads: usize,
-    neighbour_map: &[Option<usize>; 9],
-    paths: &[PathBuf],
-) -> (Vec<PathBuf>, Vec<Rectangle>) {
     // read the laz to be re-tiled, must be readable by now
     let ci = neighbour_map[0].unwrap();
     let mut las_reader = Reader::from_path(&paths[ci]).unwrap();
@@ -176,17 +110,16 @@ fn multiple_files(
     fs::create_dir_all(&tiled_file)
         .unwrap_or_else(|_| panic!("Could not create tile folder for {:?}", tiled_file));
 
-    let p = write_tiles_to_file(
+    write_tiles_to_file(
         num_threads,
         tiled_file,
         point_buckets,
         bb,
+        cb,
         num_x_tiles,
         num_y_tiles,
         header,
-    );
-
-    (p, cb)
+    )
 }
 
 fn write_tiles_to_file(
@@ -194,16 +127,18 @@ fn write_tiles_to_file(
     mut tile_path: PathBuf,
     point_buckets: Vec<Vec<Point>>,
     bb: Vec<Rectangle>,
+    mut cb: Vec<Rectangle>,
     num_x_tiles: usize,
     num_y_tiles: usize,
     header: raw::Header,
-) -> Vec<PathBuf> {
+) -> (Vec<PathBuf>, Vec<Rectangle>) {
     let paths = Arc::new(Mutex::new(Vec::with_capacity(num_x_tiles * num_y_tiles)));
 
     tile_path.push("temp.txt"); // just beacause PathBuf::set_file_name() otherwise removes the dir name
 
     let point_buckets = Arc::new(point_buckets);
     let bb = Arc::new(bb);
+    let remove_index = Arc::new(Mutex::new(Vec::with_capacity(cb.len())));
 
     let mut thread_handles = Vec::with_capacity(num_threads);
     for ti in 0..num_threads {
@@ -212,6 +147,7 @@ fn write_tiles_to_file(
         let bb = bb.clone();
         let header = header.clone();
         let paths = paths.clone();
+        let remove_index = remove_index.clone();
 
         thread_handles.push(thread::spawn(move || {
             let mut yi = ti;
@@ -228,13 +164,13 @@ fn write_tiles_to_file(
                         .count()
                         < TILE_SIZE_USIZE
                     {
+                        remove_index.lock().unwrap().push(yi * num_x_tiles + xi);
                         continue;
                     }
 
                     {
                         paths.lock().unwrap().push(tile_path.clone());
                     }
-
                     let tile_bounds = &bb[yi * num_x_tiles + xi];
 
                     let mut tile_header = header.clone();
@@ -265,10 +201,24 @@ fn write_tiles_to_file(
     for t in thread_handles {
         t.join().unwrap();
     }
-    Arc::<Mutex<Vec<PathBuf>>>::into_inner(paths)
+
+    let mut remove_index = Arc::<Mutex<Vec<usize>>>::into_inner(remove_index)
         .unwrap()
         .into_inner()
+        .unwrap();
+
+    remove_index.sort_unstable_by(|a, b| b.cmp(a));
+    for i in remove_index {
+        cb.remove(i);
+    }
+
+    let paths = Arc::<Mutex<Vec<PathBuf>>>::into_inner(paths)
         .unwrap()
+        .into_inner()
+        .unwrap();
+
+    assert_eq!(paths.len(), cb.len());
+    (paths, cb)
 }
 
 fn retile_bounds(
