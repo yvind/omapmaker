@@ -141,10 +141,11 @@ impl Dfm {
         */
 
         // should preallocate some memory, but how much? How many contours can be expected to be created?
-        let mut contours: Vec<Line> = Vec::new(); //with_capacity(32);
+        let mut contours: Vec<Line> = Vec::with_capacity(32);
 
-        // maps from edges to contour passing that edge in contours-vec, avoids hashmap overhead
-        // is 1 MiB for SIDE_LENGTH = 256, needs to increase thread stack size
+        // maps from edges to contour passing that edge in contours-vec, avoids
+        // hashmap overhead at the expense of increased memory usage
+        // is ~1 MiB for SIDE_LENGTH = 256, needs to increase thread stack size
         let mut contour_map = [usize::MAX; NUM_EDGES];
 
         let lut: [[usize; 2]; 16] = [
@@ -247,7 +248,6 @@ impl Dfm {
                             } else {
                                 // join two different contours
                                 // do a swap remove on the start_contour_index and update map
-                                // append the contour to the contour at end_contour_index
                                 let contour = contours.swap_remove(start_of_contour_index);
 
                                 // if end_contour_index was the last element it's new position
@@ -255,11 +255,12 @@ impl Dfm {
                                 if end_of_contour_index == contours.len() {
                                     end_of_contour_index = start_of_contour_index;
                                 }
+                                // append the contour to the contour at end_contour_index
                                 contours[end_of_contour_index].append(contour);
 
                                 // get the index of the positions in the map that needs updating
-                                // only first and last edge indecies of the contour needs updating
-                                // as the "inner" edges of a contour should never be encountered again
+                                // only the edge indecies corresponding to the contours endpoints needs updating
+                                // as the "inner" edges a contour crosses should never be encountered again
                                 let end_key = self
                                     .get_edge_index(contours[end_of_contour_index].last_vertex())
                                     .unwrap();
@@ -277,8 +278,8 @@ impl Dfm {
                                     continue;
                                 }
                                 // get the index of the other affect contour in the map that needs updating
-                                // only first and last edge indecies of the contour needs updating
-                                // as the "inner" edges of a contour should never be encountered again
+                                // only the edge indecies corresponding to the contours endpoints needs updating
+                                // as the "inner" edges a contour crosses should never be encountered again
 
                                 let end_key = self
                                     .get_edge_index(contours[start_of_contour_index].last_vertex())
@@ -304,7 +305,7 @@ impl Dfm {
                             // start a new contour
                             let contour: Line = Line::new(vertex1, vertex2);
                             contours.push(contour);
-
+                            // update map
                             contour_map[key1] = contours.len() - 1;
                             contour_map[key2] = contours.len() - 1;
                         }

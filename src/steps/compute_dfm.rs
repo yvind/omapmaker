@@ -27,6 +27,10 @@ pub fn compute_dfms(
         for x_index in 0..SIDE_LENGTH {
             let coords: Point2D = dem.index2coord(x_index, y_index).unwrap();
 
+            if ch.contains(&coords).unwrap() {
+                continue;
+            }
+
             // slow due to very many lookups
             let nearest_n = pt.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);
             let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();
@@ -34,11 +38,11 @@ pub fn compute_dfms(
             // slow due to matrix inversion
             // gradients are almost for free
             let (elev, grad_elev) =
-                pc.interpolate_field(FieldType::Elevation, &neighbours, &coords, 0.5);
+                pc.interpolate_field(FieldType::Elevation, &neighbours, &coords, 5.);
             let (intens, grad_intens) =
-                pc.interpolate_field(FieldType::Intensity, &neighbours, &coords, 1.);
+                pc.interpolate_field(FieldType::Intensity, &neighbours, &coords, 5.);
             let (rn, grad_rn) =
-                pc.interpolate_field(FieldType::ReturnNumber, &neighbours, &coords, 1.);
+                pc.interpolate_field(FieldType::ReturnNumber, &neighbours, &coords, 5.);
 
             dem[(y_index, x_index)] = elev;
             grad_dem[(y_index, x_index)] = grad_elev;

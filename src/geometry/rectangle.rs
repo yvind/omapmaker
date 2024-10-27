@@ -55,7 +55,7 @@ impl Rectangle {
             return None;
         }
         let t = (boundary - p1) / (p2 - p1);
-        if t >= 0.0 && t <= 1.0 {
+        if (0.0..=1.0).contains(&t) {
             Some(t)
         } else {
             None
@@ -72,7 +72,7 @@ impl Rectangle {
     ) -> Option<Point2D> {
         if is_vertical {
             let t = (boundary - p1.x) / (p2.x - p1.x);
-            if t >= 0.0 && t <= 1.0 {
+            if (0.0..=1.0).contains(&t) {
                 let y = p1.y + t * (p2.y - p1.y);
                 Some(Point2D::new(boundary, y))
             } else {
@@ -80,7 +80,7 @@ impl Rectangle {
             }
         } else {
             let t = (boundary - p1.y) / (p2.y - p1.y);
-            if t >= 0.0 && t <= 1.0 {
+            if (0.0..=1.0).contains(&t) {
                 let x = p1.x + t * (p2.x - p1.x);
                 Some(Point2D::new(x, boundary))
             } else {
