@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 
 use crate::geometry::{Line, Point2D};
+use crate::{CELL_SIZE, INV_CELL_SIZE_USIZE, TILE_SIZE, TILE_SIZE_USIZE};
 
-use rustc_hash::FxHashMap as HashMap;
+const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+const NUM_EDGES: usize = 2 * SIDE_LENGTH * (SIDE_LENGTH + 1);
+
+use std::ops::{Index, IndexMut};
 use std::{
     ffi::OsString,
     fs::File,
@@ -11,48 +15,45 @@ use std::{
 };
 use tiff::encoder::{colortype::Gray32Float, TiffEncoder};
 
+pub enum Edges {
+    Top = 0,
+    Right = 1,
+    Bottom = 2,
+    Left = 3,
+}
+
 #[derive(Clone, Debug)]
 pub struct Dfm {
-    pub field: Vec<Vec<f64>>,
-    pub height: usize,
-    pub width: usize,
+    pub field: [f64; SIDE_LENGTH * SIDE_LENGTH],
     pub tl_coord: Point2D,
-    pub cell_size: f64,
 }
 
 impl Dfm {
-    pub fn new(width: usize, height: usize, tl_coord: Point2D, cell_size: f64) -> Dfm {
+    pub fn new(tl_coord: Point2D) -> Dfm {
         Dfm {
-            field: vec![vec![f64::NAN; width]; height],
-            height,
-            width,
+            field: [f64::NAN; SIDE_LENGTH * SIDE_LENGTH],
             tl_coord,
-            cell_size,
         }
     }
 
     pub fn difference(&self, other: &Dfm) -> Result<Dfm, &'static str> {
-        if self.height != other.height || self.width != other.width {
-            return Err("DFM dimensions don't match!");
-        }
-        let mut diff = Dfm::new(self.width, self.height, self.tl_coord, self.cell_size);
-        for y in 0..self.height {
-            for x in 0..self.width {
-                diff.field[y][x] = self.field[y][x] - other.field[y][x];
+        let mut diff = Dfm::new(self.tl_coord);
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                diff[(y, x)] = self[(y, x)] - other[(y, x)];
             }
         }
         Ok(diff)
     }
 
     pub fn index2coord(&self, xi: usize, yi: usize) -> Result<Point2D, &'static str> {
-        if xi >= self.width || yi >= self.height {
-            Err("Index out of bounds for DFM coordinate")
-        } else {
-            Ok(Point2D {
-                x: xi as f64 * self.cell_size + self.tl_coord.x,
-                y: self.tl_coord.y - yi as f64 * self.cell_size,
-            })
-        }
+        assert!(xi < SIDE_LENGTH);
+        assert!(yi < SIDE_LENGTH);
+
+        Ok(Point2D {
+            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
+        })
     }
 
     pub fn adjust(
@@ -62,27 +63,24 @@ impl Dfm {
         weigth: f64,
     ) -> Result<(), &'static str> {
         let diff = truth.difference(interpolated)?;
-        for y in 0..self.height {
-            for x in 0..self.width {
-                self.field[y][x] += diff.field[y][x] * weigth;
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                self[(y, x)] += diff[(y, x)] * weigth;
             }
         }
         Ok(())
     }
 
-    fn get_edge_index(&self, point: &Point2D) -> Option<usize> {
+    fn get_edge_index(&self, point: &Point2D) -> Result<usize, ()> {
         let p0 = Point2D::new(point.x - self.tl_coord.x, self.tl_coord.y - point.y);
 
-        if p0.x < 0.
-            || p0.x > self.width as f64 * self.cell_size
-            || p0.y < 0.
-            || p0.y > self.height as f64 * self.cell_size
-        {
-            return None;
-        }
+        assert!(p0.x >= 0.);
+        assert!(p0.y >= 0.);
+        assert!(p0.x <= TILE_SIZE);
+        assert!(p0.y <= TILE_SIZE);
 
-        let mut dx = p0.x / self.cell_size;
-        let mut dy = p0.y / self.cell_size;
+        let mut dx = p0.x / CELL_SIZE;
+        let mut dy = p0.y / CELL_SIZE;
 
         let x = dx.trunc();
         let y = dy.trunc();
@@ -97,39 +95,38 @@ impl Dfm {
         if dx > 0. && dy > 0. {
             // right or top edge
             if dx > dy {
-                ei = 1;
+                ei = Edges::Right;
             } else {
-                ei = 0;
+                ei = Edges::Top;
             }
         } else if dx > 0. {
             // right or bottom edge
             if dx > dy.abs() {
-                ei = 1;
+                ei = Edges::Right;
             } else {
-                ei = 2;
+                ei = Edges::Bottom;
             }
         } else if dy > 0. {
-            // left or top edge
+            // top or left edge
             if dy > dx.abs() {
-                ei = 0;
+                ei = Edges::Top;
             } else {
-                ei = 3;
+                ei = Edges::Left;
             }
         } else {
-            // left or bottom edge
+            // bottom or left edge
             if dy.abs() > dx.abs() {
-                ei = 2;
+                ei = Edges::Bottom;
             } else {
-                ei = 3;
+                ei = Edges::Left;
             }
         }
 
         match ei {
-            0 => Some(yi * (2 * self.width + 1) + xi),
-            1 => Some(yi * (2 * self.width + 1) + (xi + 1) + self.width),
-            2 => Some((yi + 1) * (2 * self.width + 1) + xi),
-            3 => Some(yi * (2 * self.width + 1) + xi + self.width),
-            _ => panic!("edge index out of bounds: {ei} not in [0, 3]"),
+            Edges::Top => Ok(yi * (2 * SIDE_LENGTH + 1) + xi),
+            Edges::Right => Ok(yi * (2 * SIDE_LENGTH + 1) + (xi + 1) + SIDE_LENGTH),
+            Edges::Bottom => Ok((yi + 1) * (2 * SIDE_LENGTH + 1) + xi),
+            Edges::Left => Ok(yi * (2 * SIDE_LENGTH + 1) + xi + SIDE_LENGTH),
         }
     }
 
@@ -139,12 +136,18 @@ impl Dfm {
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
             |       |   the lut gives which directed edge that should be crossed by the contour as corner indecies of the start and end corner
             |       |   performs linear interpolation based on the corner values of the crossed edges
-            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handeled seperately)
+            *-------*   [0, 0] is a special case corresponding to either no edge crossing or two edges should be crossed (handled seperately)
             3       2
         */
-        let dem = &self.field;
-        let mut contour_by_end: HashMap<usize, Line> = HashMap::default();
-        let mut contour_by_start: HashMap<usize, Line> = HashMap::default();
+
+        // should preallocate some memory, but how much? How many contours can be expected to be created?
+        let mut contours: Vec<Line> = Vec::with_capacity(32);
+
+        // maps from edges to contour passing that edge in contours-vec, avoids
+        // hashmap overhead at the expense of increased memory usage
+        // is ~1 MiB for SIDE_LENGTH = 256, needs to increase thread stack size
+        let mut contour_map = [usize::MAX; NUM_EDGES];
+
         let lut: [[usize; 2]; 16] = [
             [0, 0],
             [3, 0],
@@ -164,30 +167,30 @@ impl Dfm {
             [0, 0],
         ];
 
-        for yi in 0..self.height - 1 {
+        for yi in 0..SIDE_LENGTH - 1 {
             let ys = [yi, yi, yi + 1, yi + 1];
 
-            for xi in 0..self.width - 1 {
+            for xi in 0..SIDE_LENGTH - 1 {
                 let xs = [xi, xi + 1, xi + 1, xi];
 
-                if dem[ys[0]][xs[0]].is_nan()
-                    || dem[ys[1]][xs[1]].is_nan()
-                    || dem[ys[2]][xs[2]].is_nan()
-                    || dem[ys[3]][xs[3]].is_nan()
+                if self[(ys[0], xs[0])].is_nan()
+                    || self[(ys[1], xs[1])].is_nan()
+                    || self[(ys[2], xs[2])].is_nan()
+                    || self[(ys[3], xs[3])].is_nan()
                 {
                     continue;
                 }
-                let index = (dem[ys[0]][xs[0]] >= level) as usize
-                    + 2 * (dem[ys[1]][xs[1]] >= level) as usize
-                    + 4 * (dem[ys[2]][xs[2]] >= level) as usize
-                    + 8 * (dem[ys[3]][xs[3]] >= level) as usize;
+                let index = (self[(ys[0], xs[0])] >= level) as usize
+                    + 2 * (self[(ys[1], xs[1])] >= level) as usize
+                    + 4 * (self[(ys[2], xs[2])] >= level) as usize
+                    + 8 * (self[(ys[3], xs[3])] >= level) as usize;
 
                 let edge_indices: Vec<usize>;
                 if index == 0 || index == 15 {
                     continue;
                 } else if index == 5 {
-                    let dr = (dem[ys[0]][xs[0]] + dem[ys[2]][xs[2]]) / 2.; // above
-                    let dl = (dem[ys[1]][xs[1]] + dem[ys[3]][xs[3]]) / 2.; // below
+                    let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // above
+                    let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // below
 
                     if (dr - level).abs() > (dl - level).abs() {
                         edge_indices = vec![3, 0, 1, 2];
@@ -195,8 +198,8 @@ impl Dfm {
                         edge_indices = vec![1, 0, 3, 2];
                     }
                 } else if index == 10 {
-                    let dr = (dem[ys[0]][xs[0]] + dem[ys[2]][xs[2]]) / 2.; // below
-                    let dl = (dem[ys[1]][xs[1]] + dem[ys[3]][xs[3]]) / 2.; // above
+                    let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // below
+                    let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // above
 
                     if (dr - level).abs() > (dl - level).abs() {
                         edge_indices = vec![0, 3, 2, 1];
@@ -207,92 +210,110 @@ impl Dfm {
                     edge_indices = lut[index].to_vec();
                 }
 
-                let mut corner_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
+                let mut vertex_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
                 for (i, e) in edge_indices.iter().enumerate() {
-                    let a = dem[ys[*e]][xs[*e]];
-                    let b = dem[ys[(*e + 1) % 4]][xs[(*e + 1) % 4]];
+                    let a = self[(ys[*e], xs[*e])];
+                    let b = self[(ys[(*e + 1) % 4], xs[(*e + 1) % 4])];
 
-                    let cell_center = self.index2coord(xs[*e], ys[*e])?;
+                    let a_coord = self.index2coord(xs[*e], ys[*e])?;
 
-                    corner_coordinates[i % 2].x = cell_center.x
-                        + self.cell_size
+                    vertex_coordinates[i % 2].x = a_coord.x
+                        + CELL_SIZE
                             * (xs[(*e + 1) % 4] as i32 - xs[*e] as i32) as f64
                             * (level - a)
                             / (b - a);
-                    corner_coordinates[i % 2].y = cell_center.y
-                        + self.cell_size
+                    vertex_coordinates[i % 2].y = a_coord.y
+                        + CELL_SIZE
                             * (ys[*e] as i32 - ys[(*e + 1) % 4] as i32) as f64
                             * (level - a)
                             / (b - a);
 
                     if i % 2 == 1 {
-                        let vertex1 = corner_coordinates[0];
-                        let vertex2 = corner_coordinates[1];
+                        let vertex1 = vertex_coordinates[0];
+                        let vertex2 = vertex_coordinates[1];
 
                         let key1 = self.get_edge_index(&vertex1).unwrap();
                         let key2 = self.get_edge_index(&vertex2).unwrap();
 
-                        if contour_by_end.contains_key(&key1)
-                            && contour_by_start.contains_key(&key2)
+                        let mut end_of_contour_index = contour_map[key1];
+                        let start_of_contour_index = contour_map[key2];
+
+                        if end_of_contour_index != usize::MAX
+                            && start_of_contour_index != usize::MAX
                         {
                             // join two existing contours
-
-                            let mut contour: Line = contour_by_end.remove(&key1).unwrap();
-                            let contour2: Line = contour_by_start.remove(&key2).unwrap();
-
-                            if contour == contour2 {
-                                // close a contour (joining a contour with it self)
-
-                                contour.close();
-                                contour_by_end.insert(key2, contour);
+                            if end_of_contour_index == start_of_contour_index {
+                                // close the contour (joining a contour with itself)
+                                contours[end_of_contour_index].close();
                             } else {
                                 // join two different contours
-                                contour.append(contour2);
+                                // do a swap remove on the start_contour_index and update map
+                                let contour = contours.swap_remove(start_of_contour_index);
 
-                                let end_key = self.get_edge_index(contour.last_vertex()).unwrap();
-                                let start_key =
-                                    self.get_edge_index(contour.first_vertex()).unwrap();
+                                // if end_contour_index was the last element it's new position
+                                // is now start_contour_index after the swap_remove
+                                if end_of_contour_index == contours.len() {
+                                    end_of_contour_index = start_of_contour_index;
+                                }
+                                // append the contour to the contour at end_contour_index
+                                contours[end_of_contour_index].append(contour);
 
-                                contour_by_end.remove(&end_key).unwrap(); // unwrapping to cause a panic if logic fails
-                                contour_by_start.remove(&start_key).unwrap();
+                                // get the index of the positions in the map that needs updating
+                                // only the edge indecies corresponding to the contours endpoints needs updating
+                                // as the "inner" edges a contour crosses should never be encountered again
+                                let end_key = self
+                                    .get_edge_index(contours[end_of_contour_index].last_vertex())
+                                    .unwrap();
+                                let start_key = self
+                                    .get_edge_index(contours[end_of_contour_index].first_vertex())
+                                    .unwrap();
 
-                                contour_by_end.insert(end_key, contour.clone());
-                                contour_by_start.insert(start_key, contour);
+                                contour_map[end_key] = end_of_contour_index;
+                                contour_map[start_key] = end_of_contour_index;
+
+                                // if the last element was removed or has already been dealt with no other update needs to be done
+                                if start_of_contour_index == contours.len()
+                                    || end_of_contour_index == start_of_contour_index
+                                {
+                                    continue;
+                                }
+                                // get the index of the other affect contour in the map that needs updating
+                                // only the edge indecies corresponding to the contours endpoints needs updating
+                                // as the "inner" edges a contour crosses should never be encountered again
+
+                                let end_key = self
+                                    .get_edge_index(contours[start_of_contour_index].last_vertex())
+                                    .unwrap();
+                                let start_key = self
+                                    .get_edge_index(contours[start_of_contour_index].first_vertex())
+                                    .unwrap();
+
+                                contour_map[end_key] = start_of_contour_index;
+                                contour_map[start_key] = start_of_contour_index;
                             }
-                        } else if let Some(mut contour) = contour_by_end.remove(&key1) {
+                        } else if end_of_contour_index != usize::MAX {
                             // append to an existing contour
-                            contour.push(vertex2);
-
-                            let start_key = self.get_edge_index(contour.first_vertex()).unwrap();
-                            contour_by_start.remove(&start_key).unwrap();
-
-                            contour_by_end.insert(key2, contour.clone());
-                            contour_by_start.insert(start_key, contour);
-                        } else if let Some(mut contour) = contour_by_start.remove(&key2) {
+                            contours[end_of_contour_index].push(vertex2);
+                            // update map
+                            contour_map[key2] = end_of_contour_index;
+                        } else if start_of_contour_index != usize::MAX {
                             // prepend to an existing contour
-                            contour.prepend(vertex1);
-
-                            let end_key = self.get_edge_index(contour.last_vertex()).unwrap();
-                            contour_by_end.remove(&end_key).unwrap();
-
-                            contour_by_start.insert(key1, contour.clone());
-                            contour_by_end.insert(end_key, contour);
-                        } else if !contour_by_end.contains_key(&key1)
-                            && !contour_by_start.contains_key(&key2)
-                        {
+                            contours[start_of_contour_index].prepend(vertex1);
+                            // update map
+                            contour_map[key1] = start_of_contour_index;
+                        } else {
                             // start a new contour
                             let contour: Line = Line::new(vertex1, vertex2);
-
-                            contour_by_end.insert(key2, contour.clone());
-                            contour_by_start.insert(key1, contour);
-                        } else {
-                            panic!("Contour generation failed. Logic error...");
+                            contours.push(contour);
+                            // update map
+                            contour_map[key1] = contours.len() - 1;
+                            contour_map[key2] = contours.len() - 1;
                         }
                     }
                 }
             }
         }
-        Ok(contour_by_end.into_values().collect())
+        Ok(contours)
     }
 
     pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
@@ -307,14 +328,9 @@ impl Dfm {
         let mut tiff = File::create(tiff_path).expect("Unable to create tiff-file");
         let mut tiff = TiffEncoder::new(&mut tiff).unwrap();
 
-        let data = self
-            .field
-            .into_iter()
-            .flatten()
-            .map(|d| d as f32)
-            .collect::<Vec<f32>>();
+        let data = self.field.map(|d| d as f32);
 
-        tiff.write_image::<Gray32Float>(self.width as u32, self.height as u32, &data)
+        tiff.write_image::<Gray32Float>(SIDE_LENGTH as u32, SIDE_LENGTH as u32, &data)
             .expect("Cannot write tiff-file");
 
         let tfw = File::create(tfw_path).expect("Unable to create tfw-file");
@@ -322,13 +338,27 @@ impl Dfm {
         tfw.write_all(
             format!(
                 "{}\n0\n0\n-{}\n{}\n{}",
-                self.cell_size,
-                self.cell_size,
+                CELL_SIZE,
+                CELL_SIZE,
                 self.tl_coord.x + ref_point.x,
                 self.tl_coord.y + ref_point.y
             )
             .as_bytes(),
         )
         .expect("Cannot write tfw-file");
+    }
+}
+
+impl Index<(usize, usize)> for Dfm {
+    type Output = f64;
+
+    fn index(&self, index: (usize, usize)) -> &Self::Output {
+        &self.field[index.0 * INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE + index.1]
+    }
+}
+
+impl IndexMut<(usize, usize)> for Dfm {
+    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
+        &mut self.field[index.0 * INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE + index.1]
     }
 }

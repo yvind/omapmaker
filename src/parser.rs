@@ -1,24 +1,20 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-/// Extract contours and open areas from a classified point cloud
-#[derive(Parser)]
+/// Extract an orienteering map from a ground-classified point cloud
+#[derive(Parser, Clone)]
 pub struct Args {
-    /// Path to input, accepts .las or .laz files
-    #[arg(short, long)]
+    /// Path to input, accepts .las/.laz-files or a folder containing .las/.laz-files
+    #[arg(short, long, value_name = "[DIR, file.laz, file.las]")]
     pub in_file: PathBuf,
 
     /// Path to output directory, creates a new dir if given path doesn't exist, defaults to current working directory
-    #[arg(short, long, default_value = "./")]
+    #[arg(short, long, value_name = "DIR", default_value = ".")]
     pub output_directory: PathBuf,
 
-    /// Contour interval in meters of map output, default 5.0
+    /// Contour interval of map output in meters, must be at least 2m with formlines enabled else 1m
     #[arg(short, long, default_value_t = 5.)]
     pub contour_interval: f64,
-
-    /// Grid cell size in meters for DFM generation, default 0.5
-    #[arg(short, long, default_value_t = 0.5)]
-    pub grid_size: f64,
 
     /// Contour interval in meters of basemap (analytic contours) min value 0.1, default no basemap
     #[arg(short, long, default_value_t = 0.)]
@@ -28,52 +24,34 @@ pub struct Args {
     #[clap(short, long, action)]
     pub write_tiff: bool,
 
-    /// Compute the contours with formlines, defaults to no form lines
-    #[clap(short, long, action)]
-    pub form_lines: bool,
+    /// Compute the contours without formlines
+    #[clap(short, long, action = clap::ArgAction::SetFalse)]
+    pub no_form_lines: bool,
 
     /// Number of threads used in computation, defaults to all available threads
-    #[arg(short, long, default_value_t = 0)]
+    #[arg(short, long, default_value_t = std::thread::available_parallelism().unwrap().get())]
     pub threads: usize,
 
-    /// Use SIMD intrinsics, unstable but possible speed up
-    #[clap(long, action)]
-    pub simd: bool,
-
-    /// Pass this flag to not simplify any geometries, makes enormous file-sizes
-    #[clap(long, action)]
-    pub not_simplify: bool,
+    /// Simplifies the geometries in the map, min value 0.1
+    /// For any set of three vertices in a row the middle vertex is removed
+    /// if the distance in meters to the line through the other two is less than this value
+    #[arg(short, long, action, default_value_t = 0.1)]
+    pub simplification_distance: f64,
 }
 
 impl Args {
-    pub fn parse_cli() -> (PathBuf, PathBuf, f64, f64, f64, usize, bool, f64, bool) {
-        let args = Args::parse();
+    pub fn parse_cli() -> Args {
+        let mut args = Args::parse();
 
-        let contour_interval = if args.form_lines {
-            args.contour_interval / 2.
+        if !args.no_form_lines {
+            assert!(args.contour_interval >= 2.);
         } else {
-            args.contour_interval
-        };
-        let simplify_epsilon = 0.1 * (1 - args.not_simplify as u8) as f64;
+            assert!(args.contour_interval >= 1.);
+        }
 
-        let threads = if args.threads > 0 {
-            args.threads
-        } else {
-            std::thread::available_parallelism().unwrap().get()
-        };
+        args.output_directory.push("");
+        args.simplification_distance = args.simplification_distance.max(0.1);
 
-        assert!(contour_interval >= 1.);
-
-        (
-            args.in_file,
-            args.output_directory,
-            contour_interval,
-            args.grid_size,
-            args.basemap_contours,
-            threads,
-            args.simd,
-            simplify_epsilon,
-            args.write_tiff,
-        )
+        args
     }
 }

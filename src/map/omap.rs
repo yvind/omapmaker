@@ -1,29 +1,23 @@
 #![allow(dead_code)]
 
 use super::MapObject;
-use crate::geometry::Point2D;
+use crate::geometry::{Point2D, Rectangle};
 
 use std::io::{BufWriter, Write};
 use std::{
-    ffi::OsString,
+    ffi::OsStr,
     fs::File,
     path::{Path, PathBuf},
 };
 
 pub struct Omap {
-    filepath: PathBuf,
     ref_point: Point2D,
     objects: Vec<Box<dyn MapObject>>,
 }
 
 impl Omap {
-    pub fn new(filename: &OsString, dir: &Path, georef_point: Point2D) -> Self {
-        let mut output = PathBuf::from(dir);
-        output.push(filename);
-        output.set_extension("omap");
-
+    pub fn new(georef_point: Point2D) -> Self {
         Omap {
-            filepath: output,
             ref_point: georef_point,
             objects: vec![],
         }
@@ -33,8 +27,12 @@ impl Omap {
         self.objects.push(Box::new(obj));
     }
 
-    pub fn write_to_file(&self) {
-        let f = File::create(&self.filepath).expect("Unable to create omap file");
+    pub fn write_to_file(&self, filename: &OsStr, dir: &Path) {
+        let mut filepath = PathBuf::from(dir);
+        filepath.push(filename);
+        filepath.set_extension("omap");
+
+        let f = File::create(&filepath).expect("Unable to create omap file");
         let mut f = BufWriter::new(f);
 
         self.write_header(&mut f);

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::Point2D;
+use crate::geometry::{Point2D, Rectangle};
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -26,6 +26,13 @@ impl PointObject {
 }
 
 impl MapObject for PointObject {
+    fn bounding_box(&self) -> Rectangle {
+        Rectangle {
+            min: self.coordinates,
+            max: self.coordinates,
+        }
+    }
+
     fn add_tag(&mut self, k: &str, v: &str) {
         self.tags.push(Tag::new(k, v));
     }

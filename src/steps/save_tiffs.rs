@@ -1,6 +1,6 @@
 use crate::{geometry::Point2D, raster::Dfm};
 
-use std::{ffi::OsString, path::Path};
+use std::{ffi::OsStr, ffi::OsString, path::Path};
 
 pub fn save_tiffs(
     dem: Dfm,
@@ -8,7 +8,7 @@ pub fn save_tiffs(
     dim: Dfm,
     drm: Dfm,
     ref_point: &Point2D,
-    file_stem: &OsString,
+    file_stem: &OsStr,
     output_directory: &Path,
 ) {
     let mut dem_name = OsString::from("dem_");

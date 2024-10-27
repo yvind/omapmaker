@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::{Point, Point2D};
+use super::{Point, Point2D, Rectangle};
 
 #[derive(Clone, Debug)]
 pub struct Line {
@@ -14,6 +14,30 @@ impl Line {
         }
     }
 
+    pub fn bounding_box(&self) -> Rectangle {
+        let mut min_x = f64::MAX;
+        let mut min_y = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut max_y = f64::MIN;
+
+        self.vertices.iter().for_each(|p| {
+            if p.x > max_x {
+                max_x = p.x
+            } else if p.x < min_x {
+                min_x = p.x
+            }
+            if p.y > max_y {
+                max_y = p.y
+            } else if p.y < min_y {
+                min_y = p.y
+            }
+        });
+        Rectangle {
+            min: Point2D::new(min_x, min_y),
+            max: Point2D::new(max_x, max_y),
+        }
+    }
+
     pub fn is_closed(&self) -> bool {
         self.first_vertex() == self.last_vertex()
     }
@@ -24,6 +48,75 @@ impl Line {
 
     pub fn pop(&mut self) {
         self.vertices.pop();
+    }
+
+    pub fn keep_inside(self, rect: &Rectangle) -> Vec<Line> {
+        let mut result = Vec::new();
+        let mut current_line = Vec::new();
+
+        // Handle empty or single-point lines
+        if self.vertices.len() <= 1 {
+            return vec![];
+        }
+
+        // Iterate through line segments
+        for window in self.vertices.windows(2) {
+            let p1 = &window[0];
+            let p2 = &window[1];
+
+            let p1_inside = rect.contains(p1);
+            let p2_inside = rect.contains(p2);
+
+            match (p1_inside, p2_inside) {
+                // Both points inside - add segment to current line
+                (true, true) => {
+                    if current_line.is_empty() {
+                        current_line.push(p1.clone());
+                    }
+                    current_line.push(p2.clone());
+                }
+
+                // First point inside, second outside - find intersection
+                (true, false) => {
+                    if current_line.is_empty() {
+                        current_line.push(p1.clone());
+                    }
+                    let intersection = rect.find_intersection(p1, p2).unwrap();
+                    current_line.push(intersection);
+                    // End current line
+                    if current_line.len() >= 2 {
+                        result.push(Line {
+                            vertices: current_line,
+                        });
+                    }
+                    current_line = Vec::new();
+                }
+
+                // First point outside, second inside - find intersection and start new line
+                (false, true) => {
+                    let intersection = rect.find_intersection(p1, p2).unwrap();
+                    current_line = vec![intersection, p2.clone()];
+                }
+
+                // Both points outside - check if line segment intersects rectangle
+                (false, false) => {
+                    if let Some((entry, exit)) = rect.find_segment_intersections(p1, p2) {
+                        assert!(current_line.is_empty());
+                        result.push(Line::new(entry, exit));
+                        current_line = Vec::new();
+                    }
+                }
+            }
+        }
+
+        // Add final line segment if it exists
+        if current_line.len() >= 2 {
+            result.push(Line {
+                vertices: current_line,
+            });
+        }
+
+        result
     }
 
     pub fn close(&mut self) {
@@ -255,12 +348,14 @@ impl Line {
             let this_vertex = self.vertices[i];
             let next_vertex = self.vertices[i + 1];
 
-            let n1 = (this_vertex - prev_vertex).normal();
-            let n2 = (next_vertex - this_vertex).normal();
+            let n1 = (&this_vertex - &prev_vertex).normal();
+            let n2 = (&next_vertex - &this_vertex).normal();
 
-            let normal = (n1 + n2).norm();
+            let mut normal = &n1 + &n2;
+            normal.norm();
+            normal.scale(epsilon);
 
-            normals.push(normal.scale(epsilon));
+            normals.push(normal);
             prev_vertex = this_vertex;
         }
         normals.push(normals[0]);
@@ -285,12 +380,14 @@ impl Line {
             let this_vertex = self.vertices[i];
             let next_vertex = self.vertices[i + 1];
 
-            let n1 = (this_vertex - prev_vertex).normal();
-            let n2 = (next_vertex - this_vertex).normal();
+            let n1 = (&this_vertex - &prev_vertex).normal();
+            let n2 = (&next_vertex - &this_vertex).normal();
 
-            let normal = (n1 + n2).norm();
+            let mut normal = &n1 + &n2;
+            normal.norm();
+            normal.scale(epsilon);
 
-            normals.push(normal.scale(epsilon));
+            normals.push(normal);
             prev_vertex = this_vertex;
         }
         normals.push(normals[0]);
@@ -307,6 +404,20 @@ impl Eq for Line {}
 impl PartialEq for Line {
     fn eq(&self, other: &Line) -> bool {
         self.first_vertex() == other.first_vertex() && self.last_vertex() == other.last_vertex()
+    }
+}
+
+impl From<Rectangle> for Line {
+    fn from(r: Rectangle) -> Self {
+        Line {
+            vertices: vec![
+                Point2D::new(r.min.x, r.max.y),
+                Point2D::new(r.min.x, r.min.y),
+                Point2D::new(r.max.x, r.min.y),
+                Point2D::new(r.max.x, r.max.y),
+                Point2D::new(r.min.x, r.max.y),
+            ],
+        }
     }
 }
 

@@ -1,6 +1,4 @@
-#![feature(portable_simd)]
-
-//mod cdt;
+//mod c2hm;
 mod geometry;
 mod map;
 mod matrix;
@@ -11,135 +9,100 @@ mod steps;
 use map::Omap;
 use parser::Args;
 
-use std::{fs, path::Path, sync::Arc};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::{
+    fs,
+    sync::{Arc, Mutex},
+};
+
+// must be constant across training and inference if AI is to be applied
+const TILE_SIZE_USIZE: usize = 128;
+const MIN_NEIGHBOUR_MARGIN_USIZE: usize = 14;
+const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
+
+const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
+const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;
+const MIN_NEIGHBOUR_MARGIN: f64 = MIN_NEIGHBOUR_MARGIN_USIZE as f64;
 
 fn main() {
-    // step 0: read inputs from command line
-    let (
-        in_file,
-        output_directory,
-        _contour_interval,
-        cell_size,
-        basemap_interval,
-        num_threads,
-        simd,
-        simplify_epsilon,
-        write_tiff,
-    ) = Args::parse_cli();
-    let dist_to_hull_epsilon = 2. * cell_size;
-    let neighbour_margin = 20.;
+    let args = Args::parse_cli();
 
-    // create output folders, nothing happens if directory already exists
-    fs::create_dir_all(&output_directory).expect("Could not create output folder");
+    // create output folder, nothing happens if directory already exists
+    fs::create_dir_all(&args.output_directory).expect("Could not create output folder");
 
-    let mut tiff_directory = output_directory.clone();
+    let file_stem = args.in_file.file_stem().unwrap();
+    let mut tiff_directory = args.output_directory.clone();
     tiff_directory.push("tiffs");
-    if write_tiff {
+    if args.write_tiff {
         fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
     }
 
-    println!("Running on {} threads", num_threads);
-    println!("\nPreparing input lidar file(s) for processing...");
-    // step 1: prepare for processing lidar-files
-    let (laz_neighbour_map, laz_paths, ref_point, file_stem) =
-        steps::prepare_laz(in_file, neighbour_margin);
+    println!("Running on {} threads", args.threads);
+
+    // step 0: figure out lidar files spatial relationships, assuming they are divided from a big lidar-project by a square-ish grid
+    let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(args.in_file.clone());
 
     // create map
-    let mut map = Omap::new(&file_stem, &output_directory, ref_point);
+    let map = Arc::new(Mutex::new(Omap::new(ref_point)));
 
     for fi in 0..laz_paths.len() {
-        println!("***********************************************");
-        println!(
-            "\t Processing Lidar-file {} of {}...",
-            fi + 1,
-            laz_paths.len()
-        );
+        println!("\n***********************************************");
+        println!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len());
         println!("\t{:?}", laz_paths[fi].file_name().unwrap());
         println!("-----------------------------------------------");
+        println!("Subtiling file...");
 
-        let las_name = Path::new(&laz_paths[fi].file_name().unwrap())
-            .file_stem()
-            .unwrap()
-            .to_owned();
+        tiff_directory.push(laz_paths[fi].file_stem().unwrap());
 
-        // step 2: read each laz file and its neighbours and build point-cloud
-        let (xyzir, point_tree, convex_hull, width, height, tl) = steps::read_laz(
-            &laz_neighbour_map[fi],
-            &laz_paths,
-            &ref_point,
-            cell_size,
-            neighbour_margin,
-            dist_to_hull_epsilon,
+        // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
+        // takes it sweet time reading the files, have not been able to make improvment on reading with multiple threads
+        let (tile_paths, tile_cut_bounds) =
+            steps::retile_laz(args.threads, &laz_neighbour_map[fi], &laz_paths);
+
+        println!("Computing map features...");
+
+        let pb = ProgressBar::new(tile_paths.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] [{bar:40.white/gray}] ({eta})")
+                .unwrap()
+                .progress_chars("=>."),
+        );
+        let pb = Arc::new(Mutex::new(pb));
+
+        // refactor so that it returns a laz-file map where all tiles are cut, merged and
+        // filtered for too small objects except those that touch the bounds of the laz
+        // only merge polygons across tile boundaries if they are too small to be
+        // on their own
+        steps::compute_map_objects(
+            map.clone(),
+            &args,
+            tile_paths,
+            ref_point,
+            tile_cut_bounds,
+            &tiff_directory,
+            pb.clone(),
         );
 
-        // step 3: compute the DFMs
-        println!("Computing DFMs...");
-        let (dem, grad_dem, drm, _, dim, _) = steps::compute_dfms(
-            point_tree.clone(),
-            xyzir.clone(),
-            convex_hull.clone(),
-            num_threads,
-            (width, height, cell_size, tl),
-            simd,
-        );
+        // delete all sub-tiles
+        fs::remove_dir_all(laz_paths[fi].with_extension(""))
+            .expect("Could not remove dir with sub-tiled las-file");
 
-        // step 4: contour generation
-        if basemap_interval >= 0.1 {
-            println!("Computing basemap contours...");
+        pb.lock().unwrap().finish();
 
-            steps::compute_basemap(
-                num_threads,
-                xyzir.bounds.min.z,
-                xyzir.bounds.max.z,
-                basemap_interval,
-                &dem,
-                &convex_hull,
-                dist_to_hull_epsilon,
-                simplify_epsilon,
-                &mut map,
-            );
-        }
-
-        // TODO: make thresholds adaptive to local terrain ( create a smoothed version of the dfm and use that value to adapt threshold)
-        // step 5: compute vegetation
-        println!("Computing yellow...");
-        steps::compute_open_land(
-            &drm,
-            1.2,
-            dist_to_hull_epsilon,
-            &convex_hull,
-            simplify_epsilon,
-            &mut map,
-        );
-
-        // step 6: compute cliffs
-        println!("Computing cliffs...");
-        steps::compute_cliffs(
-            &grad_dem,
-            0.7,
-            dist_to_hull_epsilon,
-            &convex_hull,
-            simplify_epsilon,
-            &mut map,
-        );
-
-        // step 7: save dfms
-        if write_tiff {
-            println!("Writing gridded Las-fields to Tiff files...");
-            steps::save_tiffs(
-                Arc::unwrap_or_clone(dem),
-                Arc::unwrap_or_clone(grad_dem),
-                Arc::unwrap_or_clone(dim),
-                Arc::unwrap_or_clone(drm),
-                &ref_point,
-                &las_name,
-                &tiff_directory,
-            );
-        }
+        tiff_directory.pop();
     }
+    // refactor:
+    // merge all laz-file maps and filter out everything that's too small
+    // only merge polygons across boundaries if they are too small to be
+    // on their own
 
     // save map to file
-    println!("Writing omap file...");
-    map.write_to_file();
+    println!("\nWriting omap file...");
+    Arc::<Mutex<Omap>>::into_inner(map)
+        .expect("Could not get inner value of arc, stray refrence somewhere")
+        .into_inner()
+        .expect("Map mutex poisoned, a thread paniced while holding mutex")
+        .write_to_file(file_stem, &args.output_directory);
     println!("Done!");
 }

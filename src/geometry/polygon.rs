@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-use super::{Line, Point2D};
+use super::{Line, Point2D, Rectangle};
 
 #[derive(Clone, Debug)]
 pub struct Polygon {
@@ -16,6 +16,10 @@ impl Polygon {
             boundary: outer,
             holes: vec![],
         }
+    }
+
+    pub fn bounding_box(&self) -> Rectangle {
+        self.boundary.bounding_box()
     }
 
     pub fn simplify(&mut self, epsilon: f64) {
@@ -128,11 +132,16 @@ impl Polygon {
         }
 
         // add all closed contours of the right orientation to its own polygon
+        let mut filtered_out: usize = 0;
         i = 0;
         while i < contours.len() {
             let contour = &contours[i];
             let area: f64 = contour.signed_area().unwrap();
-            if area > -min_size / 10. && area < min_size {
+
+            if area >= 0. && area < min_size {
+                contours.swap_remove(i);
+                filtered_out += 1;
+            } else if area <= 0. && area > -min_size / 10. {
                 contours.swap_remove(i);
             } else if area >= min_size {
                 polygons.push(Polygon::new(contour.clone()));
@@ -142,8 +151,8 @@ impl Polygon {
             }
         }
 
-        // a background polygon must to be added if only holes exist
-        if polygons.is_empty() {
+        // a background polygon must to be added if only large holes exist
+        if polygons.is_empty() && filtered_out == 0 {
             polygons.push(Polygon::new(convex_hull.clone()));
         }
 

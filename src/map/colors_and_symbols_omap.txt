@@ -33,7 +33,7 @@
 <color priority="31" name="SPOT PURPLE" c="0.35" m="0.85" y="0" k="0" opacity="1"><spotcolors knockout="true"><namedcolor>PURPLE</namedcolor></spotcolors><cmyk method="custom"/></color>
 <color priority="32" name="SPOT BLACK" c="0" m="0" y="0" k="1" opacity="1"><spotcolors knockout="true"><namedcolor>BLACK</namedcolor></spotcolors><cmyk method="custom"/></color>
 <color priority="33" name="SPOT YELLOW" c="0" m="0.27" y="0.79" k="0" opacity="1"><spotcolors knockout="true"><namedcolor>YELLOW</namedcolor></spotcolors><cmyk method="custom"/></color>
-<color priority="34" name="SPOT BROWN" c="0" m="0.56" y="1" k="0.18" opacity="1"><spotcolors knockout="true"><namedcolor>BROWN</namedcolor></spotcolors><cmyk method="custom"/></color>
+<color priority="34" name="SPOT BROWN" c="0.25" m="0.75" y="1" k="0" opacity="1"><spotcolors knockout="true"><namedcolor>BROWN</namedcolor></spotcolors><cmyk method="custom"/></color>
 <color priority="35" name="SPOT DARK GREEN" c="1" m="0" y="0.8" k="0.3" opacity="1"><spotcolors knockout="true"><namedcolor>DARK GREEN</namedcolor></spotcolors><cmyk method="custom"/></color>
 <color priority="36" name="SPOT GREEN" c="0.76" m="0" y="0.91" k="0" opacity="1"><spotcolors knockout="true"><namedcolor>GREEN</namedcolor></spotcolors><cmyk method="custom"/></color>
 <color priority="37" name="SPOT BLUE" c="1" m="0" y="0" k="0" opacity="1"><spotcolors knockout="true"><namedcolor>BLUE</namedcolor></spotcolors><cmyk method="custom"/></color>

@@ -4,13 +4,18 @@ use crate::{
     raster::Dfm,
 };
 
+use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
+const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+
+use std::sync::{Arc, Mutex};
+
 pub fn compute_cliffs(
     slope: &Dfm,
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
     convex_hull: &Line,
     simplify_epsilon: f64,
-    map: &mut Omap,
+    map: &Arc<Mutex<Omap>>,
 ) {
     let mut cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
 
@@ -18,12 +23,12 @@ pub fn compute_cliffs(
         yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
     }
 
-    let cliff_hint = slope.field[slope.height / 2][slope.width / 2] > cliff_threshold;
+    let cliff_hint = slope[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)] > cliff_threshold;
     let cliff_polygons = Polygon::from_contours(
         cliff_contours,
         convex_hull,
         PolygonTrigger::Above,
-        0.,
+        10.,
         dist_to_hull_epsilon,
         cliff_hint,
     );
@@ -34,6 +39,7 @@ pub fn compute_cliffs(
         }
         let mut cliff_object = AreaObject::from_polygon(polygon, Symbol::GiganticBoulder);
         cliff_object.add_auto_tag();
-        map.add_object(cliff_object);
+
+        map.lock().unwrap().add_object(cliff_object);
     }
 }
