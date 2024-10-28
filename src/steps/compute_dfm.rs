@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::geometry::{Line, Point2D, PointCloud};
+use crate::geometry::{LineString, Point2D, PointCloud};
 use crate::raster::{Dfm, FieldType};
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 
@@ -11,7 +11,7 @@ use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 pub fn compute_dfms(
     pt: &ImmutableKdTree<f64, usize, 2, 32>,
     pc: &PointCloud,
-    ch: &Line,
+    ch: &LineString,
     tl: Point2D,
 ) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
     let mut dem = Dfm::new(tl);
@@ -26,10 +26,6 @@ pub fn compute_dfms(
     for y_index in 0..SIDE_LENGTH {
         for x_index in 0..SIDE_LENGTH {
             let coords: Point2D = dem.index2coord(x_index, y_index).unwrap();
-
-            if ch.contains(&coords).unwrap() {
-                continue;
-            }
 
             // slow due to very many lookups
             let nearest_n = pt.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);

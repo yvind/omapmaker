@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::Point;
+use super::{Line, Point};
 
 pub use las::Point as PointLaz;
 
@@ -50,21 +50,21 @@ impl Point for PointLaz {
         self.z += dz;
     }
 
-    fn closest_point_on_line_segment(&self, a: &impl Point, b: &impl Point) -> PointLaz {
+    fn closest_point_on_line_segment(&self, line: &Line) -> Self {
         let mut diff = self.clone();
-        diff.x = b.get_x() - a.get_x();
-        diff.y = b.get_y() - a.get_y();
+        diff.x = line.end.x - line.start.x;
+        diff.y = line.end.y - line.start.y;
         let len = diff.length();
         diff.norm();
 
         let mut s = self.clone();
-        s.translate(-a.get_x(), -a.get_y(), 0.);
+        s.translate(-line.start.x, -line.start.y, 0.);
 
         let image = s.dot(&diff).max(0.).min(len);
 
         let mut out = self.clone();
-        out.x = a.get_x() + diff.get_x() * image;
-        out.y = a.get_y() + diff.get_y() * image;
+        out.x = line.start.x + diff.x * image;
+        out.y = line.start.y + diff.y * image;
         out
     }
 
@@ -72,30 +72,8 @@ impl Point for PointLaz {
         (self.x - b.get_x()).powi(2) + (self.y - b.get_y()).powi(2)
     }
 
-    fn consecutive_orientation(&self, a: &impl Point, b: &impl Point) -> f64 {
-        (a.get_x() - self.x) * (b.get_y() - self.y) - (a.get_y() - self.y) * (b.get_x() - self.x)
-    }
-
-    fn cross_product(&self, other: &impl Point) -> f64 {
-        self.x * other.get_y() - other.get_x() * self.y
-    }
-
-    fn dist_to_line_segment_squared(&self, a: &impl Point, b: &impl Point) -> f64 {
-        self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
-    }
-
-    fn dot(&self, other: &impl Point) -> f64 {
-        self.x * other.get_x() + self.y * other.get_y()
-    }
-
-    fn norm(&mut self) {
-        let l = self.length();
-
-        self.scale(1. / l);
-    }
-
-    fn length(&self) -> f64 {
-        (self.x * self.x + self.y * self.y).sqrt()
+    fn dist_to_line_segment_squared(&self, line: &Line) -> f64 {
+        self.squared_euclidean_distance(&self.closest_point_on_line_segment(line))
     }
 
     fn normal(&self) -> Self {

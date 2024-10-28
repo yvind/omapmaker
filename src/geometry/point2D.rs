@@ -1,4 +1,4 @@
-use super::{Line, Point, PointLaz};
+use super::{Line, LineString, Point, PointLaz};
 
 use std::convert::From;
 use std::ops::{Add, Sub, SubAssign};
@@ -21,7 +21,7 @@ impl Point2D {
     pub fn get_distance_along_line_square_sum(
         &self,
         other: &Point2D,
-        line: &Line,
+        line: &LineString,
         epsilon: f64,
     ) -> Result<f64, &'static str> {
         let length = line.len();
@@ -55,7 +55,7 @@ impl Point2D {
             }
         }
 
-        let range = Line::get_range_on_line(last_index, first_index, length);
+        let range = LineString::get_range_on_line(last_index, first_index, length);
 
         let mut dist = 0.;
 
@@ -78,19 +78,16 @@ impl Point2D {
         let x = (self.x * 66.66666).round();
         let y = -(self.y * 66.66666).round();
 
-        if (x > 2.0_f64.powi(32) - 1.) || (y > 2.0_f64.powi(32) - 1.) {
-            Err("map coordinate overflow, try a smaller laz file")
+        if (x > 2.0_f64.powi(31) - 1.) || (y > 2.0_f64.powi(31) - 1.) {
+            Err("map coordinate overflow, double check that all lidar files are over the same general area and in the same coordinate refrence system. Or try fewer files at a time")
         } else {
             Ok((x as i32, y as i32))
         }
     }
 
-    pub fn on_edge_index(&self, hull: &Line, epsilon: f64) -> Result<usize, &'static str> {
-        let len = hull.vertices.len();
-        for i in 0..len - 1 {
-            if self.dist_to_line_segment_squared(&hull.vertices[i], &hull.vertices[i + 1])
-                < epsilon * epsilon
-            {
+    pub fn on_edge_index(&self, hull: &LineString, epsilon: f64) -> Result<usize, &'static str> {
+        for (i, window) in hull.vertices.windows(2).enumerate() {
+            if self.dist_to_line_segment_squared(&window.into()) < epsilon * epsilon {
                 return Ok(i);
             }
         }
@@ -169,51 +166,26 @@ impl Point for Point2D {
         self.y += dy;
     }
 
-    fn closest_point_on_line_segment(&self, a: &impl Point, b: &impl Point) -> Self {
+    fn closest_point_on_line_segment(&self, line: &Line) -> Self {
         let mut diff = *self;
-        diff.x = b.get_x() - a.get_x();
-        diff.y = b.get_y() - a.get_y();
+        diff.x = line.end.x - line.start.x;
+        diff.y = line.end.y - line.start.y;
         let len = diff.length();
         diff.norm();
 
         let mut s = *self;
-        s.translate(-a.get_x(), -a.get_y(), 0.);
+        s.translate(-line.start.x, -line.start.y, 0.);
 
         let image = s.dot(&diff).max(0.).min(len);
 
         Point2D {
-            x: a.get_x() + diff.x * image,
-            y: a.get_y() + diff.y * image,
+            x: line.start.x + diff.x * image,
+            y: line.start.y + diff.y * image,
         }
     }
 
-    fn consecutive_orientation(&self, a: &impl Point, b: &impl Point) -> f64 {
-        (a.get_x() - self.x) * (b.get_y() - self.y) - (a.get_y() - self.y) * (b.get_x() - self.x)
-    }
-
-    fn squared_euclidean_distance(&self, other: &impl Point) -> f64 {
-        (self.x - other.get_x()).powi(2) + (self.y - other.get_y()).powi(2)
-    }
-
-    fn cross_product(&self, other: &impl Point) -> f64 {
-        self.x * other.get_y() - other.get_x() * self.y
-    }
-
-    fn dist_to_line_segment_squared(&self, a: &impl Point, b: &impl Point) -> f64 {
-        self.squared_euclidean_distance(&self.closest_point_on_line_segment(a, b))
-    }
-
-    fn dot(&self, other: &impl Point) -> f64 {
-        self.x * other.get_x() + self.y * other.get_y()
-    }
-
-    fn norm(&mut self) {
-        let l = self.length();
-        self.scale(1. / l);
-    }
-
-    fn length(&self) -> f64 {
-        (self.x * self.x + self.y * self.y).sqrt()
+    fn dist_to_line_segment_squared(&self, line: &Line) -> f64 {
+        self.squared_euclidean_distance(&self.closest_point_on_line_segment(line))
     }
 
     fn normal(&self) -> Self {
@@ -235,7 +207,7 @@ mod test {
 
     #[test]
     fn on_edge_index_middle() -> Result<(), &'static str> {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
 
         line.push(Point2D::new(0.1, 1.2));
         line.push(Point2D::new(1.1, 2.2));
@@ -251,7 +223,7 @@ mod test {
 
     #[test]
     fn on_edge_index_first() -> Result<(), &'static str> {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
 
         line.push(Point2D::new(0.1, 1.2));
         line.push(Point2D::new(1.1, 2.2));
@@ -267,7 +239,7 @@ mod test {
 
     #[test]
     fn on_edge_index_last() -> Result<(), &'static str> {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-0.5, -1.3));
 
         line.push(Point2D::new(0.1, 1.2));
         line.push(Point2D::new(1.1, 2.2));
@@ -283,7 +255,7 @@ mod test {
 
     #[test]
     fn distance_along_line_closed() -> Result<(), &'static str> {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
 
         line.push(Point2D::new(1., 1.));
         line.push(Point2D::new(1., -1.));
@@ -301,7 +273,7 @@ mod test {
 
     #[test]
     fn distance_along_line_open() -> Result<(), &'static str> {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
 
         line.push(Point2D::new(1., 1.));
         line.push(Point2D::new(1., -1.));
@@ -319,7 +291,7 @@ mod test {
     #[test]
     #[should_panic(expected = "The other point is before the first point on the line")]
     fn distance_along_line_open_panic() {
-        let mut line = Line::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
+        let mut line = LineString::new(Point2D::new(-1., -1.), Point2D::new(-1., 1.));
 
         line.push(Point2D::new(1., 1.));
         line.push(Point2D::new(1., -1.));

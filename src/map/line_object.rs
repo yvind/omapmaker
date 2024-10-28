@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::{Line, Rectangle};
+use crate::geometry::{LineString, Rectangle};
 
 use std::{
     fs::File,
@@ -10,12 +10,12 @@ use std::{
 
 pub struct LineObject {
     symbol: Symbol,
-    coordinates: Line,
+    coordinates: LineString,
     tags: Vec<Tag>,
 }
 
 impl LineObject {
-    pub fn from_line(line: Line, symbol: Symbol) -> Self {
+    pub fn from_line(line: LineString, symbol: Symbol) -> Self {
         Self {
             symbol,
             coordinates: line,

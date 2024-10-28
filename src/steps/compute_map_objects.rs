@@ -1,4 +1,4 @@
-use crate::geometry::{Line, Point2D, Rectangle};
+use crate::geometry::{LineString, Point2D, Rectangle};
 use crate::map::{Omap, Symbol};
 use crate::parser::Args;
 use crate::steps;
@@ -39,7 +39,7 @@ pub fn compute_map_objects(
 
         thread_handles.push(
             thread::Builder::new()
-                .stack_size(10 * 1024 * 1024) // needs to increase thread stack size to accomodate the marching squares wo hashmaps
+                .stack_size(10 * 1024 * 1024) // needs to increase thread stack size to accomodate marching squares wo hashmaps
                 .spawn(move || {
                     let mut current_index = thread_i;
 
@@ -54,6 +54,8 @@ pub fn compute_map_objects(
                         current_cut_bounds.min -= ref_point;
                         current_cut_bounds.max -= ref_point;
 
+                        let cut_overlay = convex_hull.inner_line(&current_cut_bounds.into());
+
                         // step 3: compute the DFMs
                         let (dem, grad_dem, drm, _, dim, _) =
                             steps::compute_dfms(&ground_tree, &ground_cloud, &convex_hull, tl);
@@ -65,7 +67,7 @@ pub fn compute_map_objects(
                                 ground_cloud.bounds.max.z,
                                 args.basemap_contours,
                                 &dem,
-                                &current_cut_bounds,
+                                &cut_overlay,
                                 args.simplification_distance,
                                 &map_ref,
                             );

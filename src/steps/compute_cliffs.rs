@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{Line, Polygon, PolygonTrigger},
+    geometry::{LineString, Polygon, PolygonTrigger},
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
@@ -13,7 +13,7 @@ pub fn compute_cliffs(
     slope: &Dfm,
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
-    convex_hull: &Line,
+    convex_hull: &LineString,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {

@@ -1,4 +1,4 @@
-use crate::geometry::{Line, Point2D, PointCloud};
+use crate::geometry::{LineString, Point2D, PointCloud};
 
 use fastrand::f64 as random;
 use kiddo::immutable::float::kdtree::ImmutableKdTree;
@@ -12,7 +12,7 @@ pub fn read_laz(
 ) -> (
     PointCloud,
     ImmutableKdTree<f64, usize, 2, 32>,
-    Line,
+    LineString,
     Point2D,
 ) {
     // read first and main laz file

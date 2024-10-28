@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use super::{Line, Point, Point2D, PointLaz};
+use super::{LineString, Point, Point2D, PointLaz};
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 use crate::raster::FieldType;
 
-use crate::{CELL_SIZE, TILE_SIZE};
+use crate::TILE_SIZE;
 
 use las::point::Classification;
 use las::{Bounds, Vector};
@@ -57,9 +57,9 @@ impl PointCloud {
         }
     }
 
-    pub fn bounded_convex_hull(&mut self, dfm_bounds: &Bounds, epsilon: f64) -> Line {
+    pub fn bounded_convex_hull(&mut self, dfm_bounds: &Bounds, epsilon: f64) -> LineString {
         let convex_hull = self.convex_hull();
-        let mut hull_contour: Line = Line { vertices: vec![] };
+        let mut hull_contour: LineString = LineString { vertices: vec![] };
 
         for mut point in convex_hull {
             if (dfm_bounds.min.x - point.x).abs() <= epsilon {

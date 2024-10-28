@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::geometry::{Line, Point2D};
+use crate::geometry::{LineString, Point2D};
 use crate::{CELL_SIZE, INV_CELL_SIZE_USIZE, TILE_SIZE, TILE_SIZE_USIZE};
 
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
@@ -130,7 +130,7 @@ impl Dfm {
         }
     }
 
-    pub fn marching_squares(&self, level: f64) -> Result<Vec<Line>, &'static str> {
+    pub fn marching_squares(&self, level: f64) -> Result<Vec<LineString>, &'static str> {
         /*
             0       1
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
@@ -141,7 +141,7 @@ impl Dfm {
         */
 
         // should preallocate some memory, but how much? How many contours can be expected to be created?
-        let mut contours: Vec<Line> = Vec::with_capacity(32);
+        let mut contours: Vec<LineString> = Vec::with_capacity(32);
 
         // maps from edges to contour passing that edge in contours-vec, avoids
         // hashmap overhead at the expense of increased memory usage
@@ -303,7 +303,7 @@ impl Dfm {
                             contour_map[key1] = start_of_contour_index;
                         } else {
                             // start a new contour
-                            let contour: Line = Line::new(vertex1, vertex2);
+                            let contour: LineString = LineString::new(vertex1, vertex2);
                             contours.push(contour);
                             // update map
                             contour_map[key1] = contours.len() - 1;

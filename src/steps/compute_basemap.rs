@@ -1,4 +1,4 @@
-use crate::geometry::{Line, Rectangle};
+use crate::geometry::LineString;
 use crate::map::{LineObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
@@ -9,7 +9,7 @@ pub fn compute_basemap(
     max_z: f64,
     basemap_interval: f64,
     dem: &Dfm,
-    bound: &Rectangle,
+    cut_overlay: &LineString,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -29,7 +29,7 @@ pub fn compute_basemap(
 
         let mut inside_contours = Vec::with_capacity(bm_contours.len());
         for c in bm_contours {
-            let ncs = c.keep_inside(bound);
+            let ncs = c.clip(cut_overlay);
             for nc in ncs.into_iter() {
                 inside_contours.push(nc);
             }

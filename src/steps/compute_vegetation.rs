@@ -1,5 +1,5 @@
 use crate::{
-    geometry::{Line, Polygon, PolygonTrigger},
+    geometry::{LineString, Polygon, PolygonTrigger},
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
@@ -13,7 +13,7 @@ pub fn compute_vegetation(
     dfm: &Dfm,
     opt_lower_threshold: Option<f64>,
     opt_upper_threshold: Option<f64>,
-    convex_hull: &Line,
+    convex_hull: &LineString,
     dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
     symbol: Symbol,

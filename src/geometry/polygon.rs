@@ -1,14 +1,14 @@
 #![allow(dead_code)]
-use super::{Line, Point2D, Rectangle};
+use super::{LineString, Point2D, Rectangle};
 
 #[derive(Clone, Debug)]
 pub struct Polygon {
-    pub boundary: Line,
-    pub holes: Vec<Line>,
+    pub boundary: LineString,
+    pub holes: Vec<LineString>,
 }
 
 impl Polygon {
-    pub fn new(mut outer: Line) -> Polygon {
+    pub fn new(mut outer: LineString) -> Polygon {
         if !outer.is_closed() {
             outer.close();
         }
@@ -37,7 +37,7 @@ impl Polygon {
         !self.holes.is_empty()
     }
 
-    pub fn add_hole(&mut self, mut hole: Line) {
+    pub fn add_hole(&mut self, mut hole: LineString) {
         if !hole.is_closed() {
             hole.close();
         }
@@ -68,8 +68,8 @@ impl Polygon {
     }
 
     pub fn from_contours(
-        mut contours: Vec<Line>,
-        convex_hull: &Line,
+        mut contours: Vec<LineString>,
+        convex_hull: &LineString,
         polygon_type: PolygonTrigger,
         min_size: f64,
         epsilon: f64,
