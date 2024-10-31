@@ -1,10 +1,12 @@
 use crate::{
-    geometry::{LineString, MapLineString, MapMultiPolygon, MultiPolygon, Polygon, PolygonTrigger},
+    geometry::{
+        LineString, MapMultiLineString, MapMultiPolygon, MultiPolygon, Polygon, PolygonTrigger,
+    },
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
 
-use geo::Simplify;
+use geo::{BooleanOps, Simplify};
 
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
@@ -16,32 +18,30 @@ pub fn compute_cliffs(
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
     convex_hull: &LineString,
-    cut_overlay: &LineString,
+    cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
     let mut cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
 
-    let mut cut_contours = Vec::with_capacity(cliff_contours.0.len());
-    for yc in cliff_contours.iter_mut() {
-        yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
-        cut_contours.extend(yc.clip(cut_overlay));
-    }
+    cliff_contours.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
+    cliff_contours = cut_overlay.clip(&cliff_contours, false);
 
     let cliff_hint = slope[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)] > cliff_threshold;
-    let cliff_polygons = MultiPolygon::from_contours(
-        cut_contours,
-        cut_overlay,
+    let mut cliff_polygons = MultiPolygon::from_contours(
+        cliff_contours,
+        cut_overlay.exterior(),
         PolygonTrigger::Above,
         10.,
         dist_to_hull_epsilon,
         cliff_hint,
     );
 
-    for mut polygon in cliff_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
+    if simplify_epsilon > 0. {
+        cliff_polygons = cliff_polygons.simplify(&simplify_epsilon);
+    }
+
+    for polygon in cliff_polygons.into_iter() {
         let mut cliff_object = AreaObject::from_polygon(polygon, Symbol::GiganticBoulder);
         cliff_object.add_auto_tag();
 

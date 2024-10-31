@@ -1,8 +1,8 @@
-use crate::geometry::{LineString, MapMultiLineString};
+use crate::geometry::Polygon;
 use crate::map::{LineObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
-use geo::Simplify;
+use geo::{BooleanOps, Simplify};
 use std::sync::{Arc, Mutex};
 
 pub fn compute_basemap(
@@ -10,7 +10,7 @@ pub fn compute_basemap(
     min_z: f64,
     max_z: f64,
     basemap_interval: f64,
-    cut_overlay: &LineString,
+    cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -22,19 +22,12 @@ pub fn compute_basemap(
 
         let mut bm_contours = dem.marching_squares(bm_level).unwrap();
 
-        let simplified_contours;
         if simplify_epsilon > 0. {
-            simplified_contours = bm_contours
-                .into_iter()
-                .map(|c| c.simplify(&simplify_epsilon))
-                .collect();
-        } else {
-            simplified_contours = bm_contours;
+            bm_contours = bm_contours.simplify(&simplify_epsilon);
         }
+        bm_contours = cut_overlay.clip(&bm_contours, false); // not trust-worthy, randomly splits and reverses LineStrings
 
-        let inside_contours = simplified_contours.clip(cut_overlay);
-
-        for c in inside_contours {
+        for c in bm_contours {
             let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
             c_object.add_auto_tag();
             c_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());

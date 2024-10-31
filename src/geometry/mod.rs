@@ -4,6 +4,7 @@ pub mod multi_line_string;
 pub mod multi_polygon;
 pub mod point_cloud;
 pub mod point_lidar;
+//pub mod polygon;
 pub mod rectangle;
 
 pub use self::coord::{Coord, MapCoord};
@@ -12,6 +13,7 @@ pub use self::multi_line_string::{MapMultiLineString, MultiLineString};
 pub use self::multi_polygon::{MapMultiPolygon, MultiPolygon};
 pub use self::point_cloud::PointCloud;
 pub use self::point_lidar::{PointLaz, PointTrait};
+//pub use self::polygon::{MapPolygon, Polygon};
 pub use self::rectangle::{MapRectangle, Rectangle};
 pub use geo::Line;
 pub use geo::Point;

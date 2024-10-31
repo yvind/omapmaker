@@ -50,7 +50,12 @@ pub fn compute_map_objects(
                         let (ground_cloud, ground_tree, convex_hull, tl) =
                             steps::read_laz(tile_path, dist_to_hull_epsilon, ref_point);
 
-                        let mut current_cut_bounds = cut_bounds[current_index].clone();
+                        // step 3: compute the DFMs
+                        let (dem, grad_dem, drm, _, dim, _) =
+                            steps::compute_dfms(&ground_tree, &ground_cloud, &convex_hull, tl);
+
+                        // figure out the cut-overlay (intersect of cut-bounds and convex hull)
+                        let mut current_cut_bounds = cut_bounds[current_index];
                         current_cut_bounds.set_min(current_cut_bounds.min() - ref_point);
                         current_cut_bounds.set_max(current_cut_bounds.max() - ref_point);
 
@@ -64,10 +69,6 @@ pub fn compute_map_objects(
                                 }
                             };
 
-                        // step 3: compute the DFMs
-                        let (dem, grad_dem, drm, _, dim, _) =
-                            steps::compute_dfms(&ground_tree, &ground_cloud, &convex_hull, tl);
-
                         // step 4: contour generation
                         if args.basemap_contours >= 0.1 {
                             steps::compute_basemap(
@@ -80,6 +81,8 @@ pub fn compute_map_objects(
                                 &map_ref,
                             );
                         }
+
+                        /*
 
                         // TODO: make thresholds adaptive to local terrain (create a smoothed version of the dfm and use that value to adapt threshold)
                         // step 5: compute vegetation
@@ -141,6 +144,8 @@ pub fn compute_map_objects(
                             args.simplification_distance,
                             &map_ref,
                         );
+
+                        */
 
                         // step 7: save dfms
                         if args.write_tiff {

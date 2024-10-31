@@ -5,8 +5,7 @@ use geo::{BooleanOps, ClosestPoint, Distance, Euclidean};
 pub trait MapLineString {
     fn first_vertex(&self) -> &Coord;
     fn last_vertex(&self) -> &Coord;
-    fn prepend(&mut self, line: LineString);
-    fn inner_line(&self, other: &LineString) -> Option<LineString>;
+    fn inner_line(&self, other: &LineString) -> Option<Polygon>;
     fn get_range_on_line(last_index: usize, first_index: usize, length: usize) -> Vec<usize>;
     fn on_edge_index(&self, coord: &Coord, epsilon: f64) -> Option<usize>;
     fn close_by_line(&mut self, line: &LineString, epsilon: f64) -> Result<(), &'static str>;
@@ -88,12 +87,7 @@ impl MapLineString for LineString {
         Ok(dist)
     }
 
-    fn prepend(&mut self, mut line: LineString) {
-        line.0.append(&mut self.0);
-        self.0 = line.0;
-    }
-
-    fn inner_line(&self, other: &LineString) -> Option<LineString> {
+    fn inner_line(&self, other: &LineString) -> Option<Polygon> {
         let p1 = Polygon::new(self.clone(), vec![]);
         let p2 = Polygon::new(other.clone(), vec![]);
 
@@ -101,7 +95,7 @@ impl MapLineString for LineString {
         if multipolygon.0.is_empty() {
             None
         } else if multipolygon.0.len() == 1 {
-            Some(multipolygon.0[0].exterior().clone())
+            Some(multipolygon.into_iter().next().unwrap())
         } else {
             panic!("Multiple disjoint overlaps between the convex hull and the clipping region");
         }
@@ -228,8 +222,12 @@ impl MapLineString for LineString {
             return Ok(());
         }
 
-        let first_index = line.on_edge_index(self.first_vertex(), epsilon).unwrap();
-        let last_index = line.on_edge_index(self.last_vertex(), epsilon).unwrap();
+        let first_index = line
+            .on_edge_index(self.first_vertex(), epsilon)
+            .expect("coordinate is not on the line");
+        let last_index = line
+            .on_edge_index(self.last_vertex(), epsilon)
+            .expect("coordinate is not on the line");
 
         let first_line = Line::new(
             line.0[first_index],

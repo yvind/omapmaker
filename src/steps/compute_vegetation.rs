@@ -1,5 +1,8 @@
 use crate::{
-    geometry::{LineString, Polygon, PolygonTrigger},
+    geometry::{
+        LineString, MapMultiLineString, MapMultiPolygon, MultiLineString, MultiPolygon, Polygon,
+        PolygonTrigger,
+    },
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
@@ -7,13 +10,15 @@ use crate::{
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
 
+use geo::{BooleanOps, Simplify};
+
 use std::sync::{Arc, Mutex};
 
 pub fn compute_vegetation(
     dfm: &Dfm,
     opt_thresholds: (Option<f64>, Option<f64>),
     convex_hull: &LineString,
-    cut_overlay: &LineString,
+    cut_overlay: &Polygon,
     dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
     symbol: Symbol,
@@ -34,11 +39,11 @@ pub fn compute_vegetation(
             veg_hint = hint_val < upper_threshold && hint_val > lower_threshold;
 
             for c in upper_contours.iter_mut() {
-                c.vertices.reverse();
+                c.0.reverse();
             }
             polygon_trigger = PolygonTrigger::Above;
 
-            contours.extend(upper_contours);
+            contours.0.extend(upper_contours);
         }
         (Some(lower_threshold), None) => {
             // Only interested in area above lower threshold
@@ -55,11 +60,9 @@ pub fn compute_vegetation(
         (None, None) => return,
     }
 
-    for vc in contours.iter_mut() {
-        vc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
-    }
+    contours.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
 
-    let veg_polygons = Polygon::from_contours(
+    let veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
         polygon_trigger,
@@ -68,30 +71,26 @@ pub fn compute_vegetation(
         veg_hint,
     );
 
-    let veg_contours = LineString::from_polygons(veg_polygons);
+    let mut veg_contours = MultiLineString::from_polygons(veg_polygons);
 
-    let mut out_contours = Vec::with_capacity(veg_contours.len());
-    for c in veg_contours.into_iter() {
-        out_contours.extend(c.clip(cut_overlay));
-    }
+    veg_contours = cut_overlay.clip(&veg_contours, false);
 
-    for vc in out_contours.iter_mut() {
-        vc.fix_ends_to_line(cut_overlay, dist_to_hull_epsilon);
-    }
+    //veg_contours.fix_ends_to_line(cut_overlay.exterior(), dist_to_hull_epsilon);
 
-    let veg_polygons = Polygon::from_contours(
-        out_contours,
-        cut_overlay,
+    let mut veg_polygons = MultiPolygon::from_contours(
+        veg_contours,
+        cut_overlay.exterior(),
         polygon_trigger,
         0.,
         dist_to_hull_epsilon,
         veg_hint,
     );
 
-    for mut polygon in veg_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
+    if simplify_epsilon > 0. {
+        veg_polygons = veg_polygons.simplify(&simplify_epsilon);
+    }
+
+    for polygon in veg_polygons {
         let mut veg_object = AreaObject::from_polygon(polygon, symbol);
         veg_object.add_auto_tag();
 
