@@ -1,11 +1,10 @@
-#![allow(dead_code)]
-
-use super::{LineString, Point, Point2D, PointLaz};
+use super::{Coord, LineString, PointLaz, PointTrait};
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 use crate::raster::FieldType;
 
 use crate::TILE_SIZE;
 
+use geo::Simplify;
 use las::point::Classification;
 use las::{Bounds, Vector};
 use std::cmp::Ordering;
@@ -59,7 +58,7 @@ impl PointCloud {
 
     pub fn bounded_convex_hull(&mut self, dfm_bounds: &Bounds, epsilon: f64) -> LineString {
         let convex_hull = self.convex_hull();
-        let mut hull_contour: LineString = LineString { vertices: vec![] };
+        let mut hull_contour: LineString = LineString::new(vec![]);
 
         for mut point in convex_hull {
             if (dfm_bounds.min.x - point.x).abs() <= epsilon {
@@ -73,12 +72,11 @@ impl PointCloud {
                 point.y = dfm_bounds.max.y;
             }
 
-            hull_contour.push(point.into())
+            hull_contour.0.push(point.flatten().into());
         }
         hull_contour.close();
 
-        hull_contour.simplify(epsilon);
-        hull_contour
+        hull_contour.simplify(&epsilon)
     }
 
     fn convex_hull(&mut self) -> Vec<PointLaz> {
@@ -87,10 +85,7 @@ impl PointCloud {
             .iter()
             .filter(|p| p.classification == Classification::Ground);
 
-        let mut bottom_point = gp_iter
-            .next()
-            .expect("No ground points in Pointcloud!")
-            .clone();
+        let mut bottom_point = gp_iter.next().unwrap().clone();
         for point in gp_iter {
             if point.y < bottom_point.y || (point.y == bottom_point.y && point.x < bottom_point.x) {
                 bottom_point = point.clone();
@@ -115,36 +110,30 @@ impl PointCloud {
 
         convex_hull.push(bottom_point.clone());
 
-        let mut skip_to = 1;
-        for (i, point) in self.points.iter().skip(1).enumerate() {
-            if point.classification == Classification::Ground {
-                convex_hull.push(point.clone());
-                skip_to = i;
-                break;
-            }
-        }
+        let mut gp_iter = self
+            .points
+            .iter()
+            .skip(1)
+            .filter(|p| p.classification == Classification::Ground);
+        convex_hull.push(gp_iter.next().unwrap().clone());
 
-        let mut hull_head = 1;
-        for point in self.points.iter().skip(skip_to) {
-            if point.classification != Classification::Ground {
+        for point in gp_iter {
+            if bottom_point.consecutive_orientation(point, &convex_hull[convex_hull.len() - 1])
+                == 0.0
+            {
                 continue;
             }
-            if bottom_point.consecutive_orientation(point, &convex_hull[hull_head]) == 0.0 {
-                continue;
-            }
-            while hull_head > 1 {
+            while convex_hull.len() > 2 {
                 // If segment(i, i+1) turns right relative to segment(i-1, i), point(i) is not part of the convex hull.
-                let orientation = convex_hull[hull_head - 1]
-                    .consecutive_orientation(&convex_hull[hull_head], point);
+                let orientation = convex_hull[convex_hull.len() - 2]
+                    .consecutive_orientation(&convex_hull[convex_hull.len() - 1], point);
                 if orientation <= 0.0 {
-                    hull_head -= 1;
                     convex_hull.pop();
                 } else {
                     break;
                 }
             }
             convex_hull.push(point.clone());
-            hull_head += 1;
         }
         convex_hull
     }
@@ -153,7 +142,7 @@ impl PointCloud {
         &self,
         field: FieldType,
         neighbours: &Vec<usize>,
-        point: &Point2D,
+        point: &Coord,
         smoothing: f64,
     ) -> (f64, f64) {
         let nrows = neighbours.len();

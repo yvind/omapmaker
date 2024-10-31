@@ -1,14 +1,15 @@
-use crate::geometry::LineString;
+use crate::geometry::{LineString, MapMultiLineString};
 use crate::map::{LineObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
+use geo::Simplify;
 use std::sync::{Arc, Mutex};
 
 pub fn compute_basemap(
+    dem: &Dfm,
     min_z: f64,
     max_z: f64,
     basemap_interval: f64,
-    dem: &Dfm,
     cut_overlay: &LineString,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
@@ -21,19 +22,17 @@ pub fn compute_basemap(
 
         let mut bm_contours = dem.marching_squares(bm_level).unwrap();
 
+        let simplified_contours;
         if simplify_epsilon > 0. {
-            for c in bm_contours.iter_mut() {
-                c.simplify(simplify_epsilon)
-            }
+            simplified_contours = bm_contours
+                .into_iter()
+                .map(|c| c.simplify(&simplify_epsilon))
+                .collect();
+        } else {
+            simplified_contours = bm_contours;
         }
 
-        let mut inside_contours = Vec::with_capacity(bm_contours.len());
-        for c in bm_contours {
-            let ncs = c.clip(cut_overlay);
-            for nc in ncs.into_iter() {
-                inside_contours.push(nc);
-            }
-        }
+        let inside_contours = simplified_contours.clip(cut_overlay);
 
         for c in inside_contours {
             let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);

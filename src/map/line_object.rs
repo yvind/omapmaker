@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+use geo::BoundingRect;
+
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::{LineString, Rectangle};
+use crate::geometry::{LineString, MapCoord, Rectangle};
 
 use std::{
     fs::File,
@@ -30,7 +32,7 @@ impl MapObject for LineObject {
     }
 
     fn bounding_box(&self) -> Rectangle {
-        self.coordinates.bounding_box()
+        self.coordinates.bounding_rect().unwrap()
     }
 
     fn write_to_map(&self, f: &mut BufWriter<File>) {
@@ -43,11 +45,11 @@ impl MapObject for LineObject {
     }
 
     fn write_coords(&self, f: &mut BufWriter<File>) {
-        let num_coords = self.coordinates.len();
+        let num_coords = self.coordinates.0.len();
 
         f.write_all(format!("<coords count=\"{num_coords}\">").as_bytes())
             .expect("Could not write to map file");
-        for (i, coord) in self.coordinates.vertices.iter().enumerate() {
+        for (i, coord) in self.coordinates.coords().enumerate() {
             let c = coord.to_map_coordinates().unwrap();
 
             if i == num_coords - 1 && self.coordinates.is_closed() {

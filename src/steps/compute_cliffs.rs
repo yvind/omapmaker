@@ -1,8 +1,10 @@
 use crate::{
-    geometry::{LineString, Polygon, PolygonTrigger},
+    geometry::{LineString, MapLineString, MapMultiPolygon, MultiPolygon, Polygon, PolygonTrigger},
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
+
+use geo::Simplify;
 
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
@@ -14,19 +16,22 @@ pub fn compute_cliffs(
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
     convex_hull: &LineString,
+    cut_overlay: &LineString,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
     let mut cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
 
+    let mut cut_contours = Vec::with_capacity(cliff_contours.0.len());
     for yc in cliff_contours.iter_mut() {
         yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
+        cut_contours.extend(yc.clip(cut_overlay));
     }
 
     let cliff_hint = slope[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)] > cliff_threshold;
-    let cliff_polygons = Polygon::from_contours(
-        cliff_contours,
-        convex_hull,
+    let cliff_polygons = MultiPolygon::from_contours(
+        cut_contours,
+        cut_overlay,
         PolygonTrigger::Above,
         10.,
         dist_to_hull_epsilon,

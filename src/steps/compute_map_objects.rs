@@ -1,4 +1,4 @@
-use crate::geometry::{LineString, Point2D, Rectangle};
+use crate::geometry::{Coord, MapLineString, MapRectangle, Rectangle};
 use crate::map::{Omap, Symbol};
 use crate::parser::Args;
 use crate::steps;
@@ -15,7 +15,7 @@ pub fn compute_map_objects(
     map: Arc<Mutex<Omap>>,
     args: &Args,
     tile_paths: Vec<PathBuf>,
-    ref_point: Point2D,
+    ref_point: Coord,
     cut_bounds: Vec<Rectangle>,
     tiff_directory: &Path,
     pb: Arc<Mutex<ProgressBar>>,
@@ -51,10 +51,18 @@ pub fn compute_map_objects(
                             steps::read_laz(tile_path, dist_to_hull_epsilon, ref_point);
 
                         let mut current_cut_bounds = cut_bounds[current_index].clone();
-                        current_cut_bounds.min -= ref_point;
-                        current_cut_bounds.max -= ref_point;
+                        current_cut_bounds.set_min(current_cut_bounds.min() - ref_point);
+                        current_cut_bounds.set_max(current_cut_bounds.max() - ref_point);
 
-                        let cut_overlay = convex_hull.inner_line(&current_cut_bounds.into());
+                        let cut_overlay =
+                            match convex_hull.inner_line(&current_cut_bounds.into_line_string()) {
+                                Some(l) => l,
+                                None => {
+                                    pb.lock().unwrap().inc(1);
+                                    current_index += args.threads;
+                                    continue;
+                                }
+                            };
 
                         // step 3: compute the DFMs
                         let (dem, grad_dem, drm, _, dim, _) =
@@ -63,24 +71,23 @@ pub fn compute_map_objects(
                         // step 4: contour generation
                         if args.basemap_contours >= 0.1 {
                             steps::compute_basemap(
+                                &dem,
                                 ground_cloud.bounds.min.z,
                                 ground_cloud.bounds.max.z,
                                 args.basemap_contours,
-                                &dem,
                                 &cut_overlay,
                                 args.simplification_distance,
                                 &map_ref,
                             );
                         }
 
-                        /*
                         // TODO: make thresholds adaptive to local terrain (create a smoothed version of the dfm and use that value to adapt threshold)
                         // step 5: compute vegetation
                         steps::compute_vegetation(
                             &drm,
-                            None,
-                            Some(1.2),
+                            (None, Some(1.2)),
                             &convex_hull,
+                            &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::RoughOpenLand,
@@ -90,9 +97,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            Some(2.1),
-                            None, //Some(3.0),
+                            (Some(2.1), None), //Some(3.0),
                             &convex_hull,
+                            &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::LightGreen,
@@ -102,9 +109,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            Some(3.0),
-                            None, //Some(4.0),
+                            (Some(3.0), None), //Some(4.0),
                             &convex_hull,
+                            &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::MediumGreen,
@@ -114,9 +121,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            Some(4.0),
-                            None,
+                            (Some(4.0), None),
                             &convex_hull,
+                            &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::DarkGreen,
@@ -130,10 +137,10 @@ pub fn compute_map_objects(
                             0.7,
                             dist_to_hull_epsilon,
                             &convex_hull,
+                            &cut_overlay,
                             args.simplification_distance,
                             &map_ref,
                         );
-                        */
 
                         // step 7: save dfms
                         if args.write_tiff {
@@ -147,6 +154,7 @@ pub fn compute_map_objects(
                                 &tiff_directory,
                             );
                         }
+
                         pb.lock().unwrap().inc(1);
 
                         current_index += args.threads;

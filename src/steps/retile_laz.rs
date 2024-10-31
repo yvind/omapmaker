@@ -1,7 +1,9 @@
 use crate::{
-    geometry::{Point2D, Rectangle},
+    geometry::{Coord, PointTrait, Rectangle},
     MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE,
 };
+
+use geo::Contains;
 
 use las::{point::Classification, raw, Builder, Point, Reader, Writer};
 use std::{
@@ -23,48 +25,53 @@ pub fn retile_laz(
     let mut las_reader = Reader::from_path(&paths[ci]).unwrap();
 
     let header = las_reader.header().clone().into_raw().unwrap();
-    let mut bounds = Rectangle {
-        min: Point2D {
+    let bounds = Rectangle::new(
+        Coord {
             x: header.min_x,
             y: header.min_y,
         },
-        max: Point2D {
+        Coord {
             x: header.max_x,
             y: header.max_y,
         },
-    };
+    );
 
-    let mut push_bounds = Rectangle::default();
+    let mut min = Coord::zero();
+    let mut max = Coord::zero();
     for (i, v) in neighbour_map.iter().enumerate() {
         match v {
             None => continue,
             Some(_) => match i {
                 0 => continue,
                 1 => {
-                    push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN;
-                    push_bounds.max.y = MIN_NEIGHBOUR_MARGIN;
+                    min.x = -MIN_NEIGHBOUR_MARGIN;
+                    max.y = MIN_NEIGHBOUR_MARGIN;
                 }
-                2 => push_bounds.max.y = MIN_NEIGHBOUR_MARGIN,
+                2 => max.y = MIN_NEIGHBOUR_MARGIN,
                 3 => {
-                    push_bounds.max.x = MIN_NEIGHBOUR_MARGIN;
-                    push_bounds.max.y = MIN_NEIGHBOUR_MARGIN;
+                    max.x = MIN_NEIGHBOUR_MARGIN;
+                    max.y = MIN_NEIGHBOUR_MARGIN;
                 }
-                4 => push_bounds.max.x = MIN_NEIGHBOUR_MARGIN,
+                4 => max.x = MIN_NEIGHBOUR_MARGIN,
                 5 => {
-                    push_bounds.max.x = MIN_NEIGHBOUR_MARGIN;
-                    push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN;
+                    max.x = MIN_NEIGHBOUR_MARGIN;
+                    min.y = -MIN_NEIGHBOUR_MARGIN;
                 }
-                6 => push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN,
+                6 => min.y = -MIN_NEIGHBOUR_MARGIN,
                 7 => {
-                    push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN;
-                    push_bounds.min.y = -MIN_NEIGHBOUR_MARGIN;
+                    min.x = -MIN_NEIGHBOUR_MARGIN;
+                    min.y = -MIN_NEIGHBOUR_MARGIN;
                 }
-                8 => push_bounds.min.x = -MIN_NEIGHBOUR_MARGIN,
+                8 => min.x = -MIN_NEIGHBOUR_MARGIN,
                 _ => panic!("logic fail in laz neighbour calculation"),
             },
         }
     }
-    bounds = &bounds + &push_bounds;
+    let push_bounds = Rectangle::new(min, max);
+    let bounds = Rectangle::new(
+        bounds.min() + push_bounds.min(),
+        bounds.max() + push_bounds.max(),
+    );
 
     let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &push_bounds);
 
@@ -79,7 +86,7 @@ pub fn retile_laz(
     // read points from main file into buckets
     for point in las_reader.points().filter_map(Result::ok) {
         for (i, b) in bb.iter().enumerate() {
-            if b.contains(&point) {
+            if b.contains(&point.coords()) {
                 point_buckets[i].push(point.clone());
             }
         }
@@ -96,7 +103,7 @@ pub fn retile_laz(
                 for point in las_reader.points().filter_map(Result::ok) {
                     // only edge boxes should be considered
                     for (i, b) in bb.iter().enumerate() {
-                        if b.contains(&point) {
+                        if b.contains(&point.coords()) {
                             point_buckets[i].push(point.clone());
                         }
                     }
@@ -177,10 +184,10 @@ fn write_tiles_to_file(
                     let tile_bounds = &bb[yi * num_x_tiles + xi];
 
                     let mut tile_header = header.clone();
-                    tile_header.max_x = tile_bounds.max.x;
-                    tile_header.max_y = tile_bounds.max.y;
-                    tile_header.min_x = tile_bounds.min.x;
-                    tile_header.min_y = tile_bounds.min.y;
+                    tile_header.max_x = tile_bounds.max().x;
+                    tile_header.max_y = tile_bounds.max().y;
+                    tile_header.min_x = tile_bounds.min().x;
+                    tile_header.min_y = tile_bounds.min().y;
 
                     tile_header.version.minor = 4;
                     tile_header.number_of_point_records = points.len() as u32;
@@ -229,8 +236,8 @@ fn retile_bounds(
     bounds: &Rectangle,
     neighbour_file_margin: &Rectangle,
 ) -> (Vec<Rectangle>, Vec<Rectangle>, usize, usize) {
-    let x_range = bounds.max.x - bounds.min.x;
-    let y_range = bounds.max.y - bounds.min.y;
+    let x_range = bounds.max().x - bounds.min().x;
+    let y_range = bounds.max().y - bounds.min().y;
 
     let num_x_tiles = ((x_range - MIN_NEIGHBOUR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOUR_MARGIN))
         .ceil()
@@ -249,54 +256,57 @@ fn retile_bounds(
 
     for yi in 0..num_y_tiles {
         for xi in 0..num_x_tiles {
-            let mut tile_bounds = Rectangle::default();
-            let mut inner_bounds = Rectangle::default();
+            let mut tile_min = Coord::zero();
+            let mut tile_max = Coord::zero();
+
+            let mut inner_min = Coord::zero();
+            let mut inner_max = Coord::zero();
 
             if yi == 0 {
                 // no neighbour above
-                tile_bounds.max.y = bounds.max.y;
-                tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
+                tile_max.y = bounds.max().y;
+                tile_min.y = tile_max.y - TILE_SIZE;
 
-                inner_bounds.max.y = bounds.max.y - neighbour_file_margin.max.y;
-                inner_bounds.min.y = tile_bounds.min.y + neighbour_margin_y / 2.;
+                inner_max.y = bounds.max().y - neighbour_file_margin.max().y;
+                inner_min.y = tile_min.y + neighbour_margin_y / 2.;
             } else if yi == num_y_tiles - 1 {
                 // no neigbour below
-                tile_bounds.min.y = bounds.min.y;
-                tile_bounds.max.y = tile_bounds.min.y + TILE_SIZE;
+                tile_min.y = bounds.min().y;
+                tile_max.y = tile_min.y + TILE_SIZE;
 
-                inner_bounds.min.y = bounds.min.y - neighbour_file_margin.min.y;
-                inner_bounds.max.y = tile_bounds.max.y - neighbour_margin_y / 2.;
+                inner_min.y = bounds.min().y - neighbour_file_margin.min().y;
+                inner_max.y = tile_max.y - neighbour_margin_y / 2.;
             } else {
-                tile_bounds.max.y = bounds.max.y - (TILE_SIZE - neighbour_margin_y) * yi as f64;
-                tile_bounds.min.y = tile_bounds.max.y - TILE_SIZE;
+                tile_max.y = bounds.max().y - (TILE_SIZE - neighbour_margin_y) * yi as f64;
+                tile_min.y = tile_max.y - TILE_SIZE;
 
-                inner_bounds.max.y = tile_bounds.max.y - neighbour_margin_y / 2.;
-                inner_bounds.min.y = tile_bounds.min.y + neighbour_margin_y / 2.;
+                inner_max.y = tile_max.y - neighbour_margin_y / 2.;
+                inner_min.y = tile_min.y + neighbour_margin_y / 2.;
             }
             if xi == 0 {
                 // no neighbour to the left
-                tile_bounds.min.x = bounds.min.x;
-                tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
+                tile_min.x = bounds.min().x;
+                tile_max.x = tile_min.x + TILE_SIZE;
 
-                inner_bounds.min.x = bounds.min.x - neighbour_file_margin.min.x;
-                inner_bounds.max.x = tile_bounds.max.x - neighbour_margin_x / 2.;
+                inner_min.x = bounds.min().x - neighbour_file_margin.min().x;
+                inner_max.x = tile_max.x - neighbour_margin_x / 2.;
             } else if xi == num_x_tiles - 1 {
                 // no neigbour to the right
-                tile_bounds.max.x = bounds.max.x;
-                tile_bounds.min.x = tile_bounds.max.x - TILE_SIZE;
+                tile_max.x = bounds.max().x;
+                tile_min.x = tile_max.x - TILE_SIZE;
 
-                inner_bounds.max.x = bounds.max.x - neighbour_file_margin.max.x;
-                inner_bounds.min.x = tile_bounds.min.x + neighbour_margin_x / 2.;
+                inner_max.x = bounds.max().x - neighbour_file_margin.max().x;
+                inner_min.x = tile_min.x + neighbour_margin_x / 2.;
             } else {
-                tile_bounds.min.x = bounds.min.x + (TILE_SIZE - neighbour_margin_x) * xi as f64;
-                tile_bounds.max.x = tile_bounds.min.x + TILE_SIZE;
+                tile_min.x = bounds.min().x + (TILE_SIZE - neighbour_margin_x) * xi as f64;
+                tile_max.x = tile_min.x + TILE_SIZE;
 
-                inner_bounds.min.x = tile_bounds.min.x + neighbour_margin_x / 2.;
-                inner_bounds.max.x = tile_bounds.max.x - neighbour_margin_x / 2.;
+                inner_min.x = tile_min.x + neighbour_margin_x / 2.;
+                inner_max.x = tile_max.x - neighbour_margin_x / 2.;
             }
 
-            bb.push(tile_bounds);
-            cut_bounds.push(inner_bounds);
+            bb.push(Rectangle::new(tile_min, tile_max));
+            cut_bounds.push(Rectangle::new(inner_min, inner_max));
         }
     }
     (bb, cut_bounds, num_x_tiles, num_y_tiles)

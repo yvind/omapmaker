@@ -1,8 +1,5 @@
-#![allow(dead_code)]
-
+use crate::geometry::Rectangle;
 use std::{fs::File, io::BufWriter};
-
-use crate::geometry::{Point2D, Rectangle};
 
 pub trait MapObject: 'static + Sync + Send {
     fn add_tag(&mut self, k: &str, v: &str);
@@ -18,6 +15,4 @@ pub trait MapObject: 'static + Sync + Send {
     fn write_coords(&self, f: &mut BufWriter<File>);
 
     fn write_tags(&self, f: &mut BufWriter<File>);
-
-    //fn cut(self, bounds: &Rectangle) -> Vec<Box<dyn MapObject>>;
 }

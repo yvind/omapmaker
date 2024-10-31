@@ -1,4 +1,4 @@
-use crate::geometry::{LineString, Point2D, PointCloud};
+use crate::geometry::{Coord, LineString, PointCloud};
 
 use fastrand::f64 as random;
 use kiddo::immutable::float::kdtree::ImmutableKdTree;
@@ -8,12 +8,12 @@ use std::path::PathBuf;
 pub fn read_laz(
     las_path: &PathBuf,
     dist_to_hull_epsilon: f64,
-    ref_point: Point2D,
+    ref_point: Coord,
 ) -> (
     PointCloud,
     ImmutableKdTree<f64, usize, 2, 32>,
     LineString,
-    Point2D,
+    Coord,
 ) {
     // read first and main laz file
     let mut las_reader = Reader::from_path(las_path).unwrap_or_else(|_| {
@@ -51,7 +51,7 @@ pub fn read_laz(
     );
 
     let map_bounds = ground_cloud.get_dfm_dimensions();
-    let tl = Point2D {
+    let tl = Coord {
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };

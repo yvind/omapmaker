@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::MapObject;
-use crate::geometry::{Point2D, Rectangle};
+use geo::Point;
 
 use std::io::{BufWriter, Write};
 use std::{
@@ -11,12 +11,12 @@ use std::{
 };
 
 pub struct Omap {
-    ref_point: Point2D,
+    ref_point: Point,
     objects: Vec<Box<dyn MapObject>>,
 }
 
 impl Omap {
-    pub fn new(georef_point: Point2D) -> Self {
+    pub fn new(georef_point: Point) -> Self {
         Omap {
             ref_point: georef_point,
             objects: vec![],
@@ -43,7 +43,7 @@ impl Omap {
 
     fn write_header(&self, f: &mut BufWriter<File>) {
         f.write_all(b"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<map xmlns=\"http://openorienteering.org/apps/mapper/xml/v2\" version=\"9\">\n<notes></notes>\n").expect("Could not write to map file");
-        f.write_all(format!("<georeferencing scale=\"15000\"><projected_crs id=\"Local\"><ref_point x=\"{}\" y=\"{}\"/></projected_crs></georeferencing>\n", self.ref_point.x, self.ref_point.y).as_bytes()).expect("Could not write to map file");
+        f.write_all(format!("<georeferencing scale=\"15000\"><projected_crs id=\"Local\"><ref_point x=\"{}\" y=\"{}\"/></projected_crs></georeferencing>\n", self.ref_point.x(), self.ref_point.y()).as_bytes()).expect("Could not write to map file");
     }
 
     fn write_colors_symbols(&self, f: &mut BufWriter<File>) {
