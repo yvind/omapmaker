@@ -25,10 +25,12 @@ pub fn compute_basemap(
         if simplify_epsilon > 0. {
             bm_contours = bm_contours.simplify(&simplify_epsilon);
         }
-        bm_contours = cut_overlay.clip(&bm_contours, false); // not trust-worthy, randomly splits and reverses LineStrings
+        println!("{:?}", bm_contours);
+        bm_contours = cut_overlay.clip(&bm_contours, false); // clip in geo 0.29 not trust-worthy, randomly splits and reverses LineStrings
+        println!("{:?}", bm_contours);
 
         for c in bm_contours {
-            let mut c_object = LineObject::from_line(c, Symbol::BasemapContour);
+            let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);
             c_object.add_auto_tag();
             c_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
 

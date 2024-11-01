@@ -17,7 +17,7 @@ pub struct LineObject {
 }
 
 impl LineObject {
-    pub fn from_line(line: LineString, symbol: Symbol) -> Self {
+    pub fn from_line_string(line: LineString, symbol: Symbol) -> Self {
         Self {
             symbol,
             coordinates: line,
