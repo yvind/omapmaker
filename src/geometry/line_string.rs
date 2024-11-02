@@ -1,6 +1,6 @@
 use super::{Coord, Line, Polygon};
 pub use geo::LineString;
-use geo::{BooleanOps, ClosestPoint, EuclideanDistance}; //, Distance, Euclidean};
+use geo::{BooleanOps, ClosestPoint, Distance, Euclidean};
 
 pub trait MapLineString {
     fn first_vertex(&self) -> &Coord;
@@ -54,8 +54,8 @@ impl MapLineString for LineString {
             if last_index == first_index {
                 let prev_vertex = &self.0[first_index];
 
-                if start.euclidean_distance(prev_vertex) > end.euclidean_distance(prev_vertex)
-                //Euclidean::distance(*start, *prev_vertex) > Euclidean::distance(*end, *prev_vertex)
+                if Euclidean::distance(*start, *prev_vertex)
+                    > Euclidean::distance(*end, *prev_vertex)
                 {
                     return Err("The end point is before the start point on the line");
                 }
@@ -65,10 +65,9 @@ impl MapLineString for LineString {
         if last_index == first_index {
             let prev_vertex = &self.0[first_index];
 
-            if start.euclidean_distance(prev_vertex) <= end.euclidean_distance(prev_vertex)
-            //Euclidean::distance(*start, *prev_vertex) <= Euclidean::distance(*end, *prev_vertex)
+            if Euclidean::distance(*start, *prev_vertex) <= Euclidean::distance(*end, *prev_vertex)
             {
-                return Ok(start.euclidean_distance(end)); //Euclidean::distance(*start, *end));
+                return Ok(Euclidean::distance(*start, *end));
             }
         }
 
@@ -80,10 +79,10 @@ impl MapLineString for LineString {
         for i in range {
             let next_vertex = self.0[i];
 
-            dist += prev_vertex.euclidean_distance(&next_vertex); //Euclidean::distance(prev_vertex, next_vertex);
+            dist += Euclidean::distance(prev_vertex, next_vertex);
             prev_vertex = next_vertex;
         }
-        dist += prev_vertex.euclidean_distance(end); //Euclidean::distance(prev_vertex, *end);
+        dist += Euclidean::distance(prev_vertex, *end);
 
         Ok(dist)
     }
@@ -122,9 +121,8 @@ impl MapLineString for LineString {
         if last_index == first_index {
             let prev_vertex = &line.0[first_index];
 
-            if last_vertex.euclidean_distance(prev_vertex)
-                <= first_vertex.euclidean_distance(prev_vertex)
-            //Euclidean::distance(*last_vertex, *prev_vertex) <= Euclidean::distance(*first_vertex, *prev_vertex)
+            if Euclidean::distance(*last_vertex, *prev_vertex)
+                <= Euclidean::distance(*first_vertex, *prev_vertex)
             {
                 self.close();
                 return Ok(());
@@ -182,9 +180,8 @@ impl MapLineString for LineString {
         if self_index == other_index {
             let prev_vertex = &line.0[self_index];
 
-            if last_self.euclidean_distance(prev_vertex)
-                <= first_other.euclidean_distance(prev_vertex)
-            //Euclidean::distance(*last_self, *prev_vertex) <= Euclidean::distance(*first_other, *prev_vertex)
+            if Euclidean::distance(*last_self, *prev_vertex)
+                <= Euclidean::distance(*first_other, *prev_vertex)
             {
                 self.0.extend(other.0);
                 return Ok(());
@@ -210,8 +207,7 @@ impl MapLineString for LineString {
 
     fn on_edge_index(&self, point: &Coord, epsilon: f64) -> Option<usize> {
         for (i, line) in self.lines().enumerate() {
-            if line.euclidean_distance(point) < epsilon {
-                //Euclidean::distance(&line, *point) < epsilon {
+            if Euclidean::distance(&line, *point) < epsilon {
                 return Some(i);
             }
         }
@@ -221,8 +217,7 @@ impl MapLineString for LineString {
     fn fix_ends_to_line(&mut self, line: &LineString, epsilon: f64) -> Result<(), &'static str> {
         if self.is_closed() {
             return Ok(());
-        } else if self.last_vertex().euclidean_distance(self.first_vertex()) < epsilon {
-            //Euclidean::distance(*self.last_vertex(), *self.first_vertex()) < epsilon {
+        } else if Euclidean::distance(*self.last_vertex(), *self.first_vertex()) < epsilon {
             self.close();
             return Ok(());
         }

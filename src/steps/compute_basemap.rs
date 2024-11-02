@@ -1,8 +1,8 @@
-use crate::geometry::Polygon;
+use crate::geometry::{MapRectangle, Rectangle};
 use crate::map::{LineObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
-use geo::{BooleanOps, Simplify};
+use geo::Simplify;
 use std::sync::{Arc, Mutex};
 
 pub fn compute_basemap(
@@ -10,7 +10,8 @@ pub fn compute_basemap(
     min_z: f64,
     max_z: f64,
     basemap_interval: f64,
-    cut_overlay: &Polygon,
+    temp_cut: &Rectangle,
+    //cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -25,9 +26,7 @@ pub fn compute_basemap(
         if simplify_epsilon > 0. {
             bm_contours = bm_contours.simplify(&simplify_epsilon);
         }
-        println!("{:?}", bm_contours);
-        bm_contours = cut_overlay.clip(&bm_contours, false); // clip in geo 0.29 not trust-worthy, randomly splits and reverses LineStrings
-        println!("{:?}", bm_contours);
+        bm_contours = temp_cut.clip_lines(bm_contours); // clip in geo is not trust-worthy, randomly splits and reverses LineStrings
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);

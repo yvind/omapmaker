@@ -1,16 +1,14 @@
-use crate::{
-    geometry::{
-        LineString, MapMultiLineString, MapMultiPolygon, MultiLineString, MultiPolygon, Polygon,
-        PolygonTrigger,
-    },
-    map::{AreaObject, MapObject, Omap, Symbol},
-    raster::Dfm,
+use crate::geometry::{
+    LineString, MapMultiLineString, MapMultiPolygon, MapRectangle, MultiLineString, MultiPolygon,
+    Polygon, PolygonTrigger, Rectangle,
 };
+use crate::map::{AreaObject, MapObject, Omap, Symbol};
+use crate::raster::Dfm;
 
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
 
-use geo::{BooleanOps, Simplify};
+use geo::Simplify;
 
 use std::sync::{Arc, Mutex};
 
@@ -18,6 +16,7 @@ pub fn compute_vegetation(
     dfm: &Dfm,
     opt_thresholds: (Option<f64>, Option<f64>),
     convex_hull: &LineString,
+    temp_cut: &Rectangle,
     cut_overlay: &Polygon,
     dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
@@ -73,7 +72,7 @@ pub fn compute_vegetation(
 
     let mut veg_contours = MultiLineString::from_polygons(veg_polygons);
 
-    veg_contours = cut_overlay.clip(&veg_contours, false);
+    veg_contours = temp_cut.clip_lines(veg_contours); // clip in geo is not trust-worthy, randomly splits and reverses LineStrings
 
     //veg_contours.fix_ends_to_line(cut_overlay.exterior(), dist_to_hull_epsilon);
 

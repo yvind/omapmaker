@@ -76,13 +76,12 @@ pub fn compute_map_objects(
                                 ground_cloud.bounds.min.z,
                                 ground_cloud.bounds.max.z,
                                 args.basemap_contours,
-                                &cut_overlay,
+                                &current_cut_bounds,
+                                //&cut_overlay,
                                 args.simplification_distance,
                                 &map_ref,
                             );
                         }
-
-                        /*
 
                         // TODO: make thresholds adaptive to local terrain (create a smoothed version of the dfm and use that value to adapt threshold)
                         // step 5: compute vegetation
@@ -90,6 +89,7 @@ pub fn compute_map_objects(
                             &drm,
                             (None, Some(1.2)),
                             &convex_hull,
+                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -102,6 +102,7 @@ pub fn compute_map_objects(
                             &drm,
                             (Some(2.1), None), //Some(3.0),
                             &convex_hull,
+                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -114,6 +115,7 @@ pub fn compute_map_objects(
                             &drm,
                             (Some(3.0), None), //Some(4.0),
                             &convex_hull,
+                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -126,6 +128,7 @@ pub fn compute_map_objects(
                             &drm,
                             (Some(4.0), None),
                             &convex_hull,
+                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -140,12 +143,11 @@ pub fn compute_map_objects(
                             0.7,
                             dist_to_hull_epsilon,
                             &convex_hull,
+                            &current_cut_bounds,
                             &cut_overlay,
                             args.simplification_distance,
                             &map_ref,
                         );
-
-                        */
 
                         // step 7: save dfms
                         if args.write_tiff {
