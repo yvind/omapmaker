@@ -1,6 +1,8 @@
-use super::{LineString, MapLineString, MultiLineString, Polygon, PolygonTrigger};
+use super::{
+    LineString, MapLineString, MapMultiLineString, MultiLineString, Polygon, PolygonTrigger,
+};
+use geo::Contains;
 pub use geo::MultiPolygon;
-use geo::{Area, Contains};
 
 pub trait MapMultiPolygon {
     fn from_contours(
@@ -40,6 +42,8 @@ impl MapMultiPolygon for MultiPolygon {
                 c.0.reverse();
             }
         }
+
+        contours.fix_ends_to_line(convex_hull, epsilon);
 
         // filter out all unclosed contours
         let mut i: usize = 0;
@@ -86,18 +90,20 @@ impl MapMultiPolygon for MultiPolygon {
         i = 0;
         while i < contours.0.len() {
             let contour = &contours.0[i];
-            let area: f64 = contour.signed_area();
-
-            if area >= 0. && area < min_size {
-                contours.0.swap_remove(i);
-                filtered_out += 1;
-            } else if area <= 0. && area > -min_size / 10. {
-                contours.0.swap_remove(i);
-            } else if area >= min_size {
-                polygons.push(Polygon::new(contour.clone(), vec![]));
-                contours.0.swap_remove(i);
+            if let Some(area) = contour.line_string_signed_area() {
+                if area >= 0. && area < min_size {
+                    contours.0.swap_remove(i);
+                    filtered_out += 1;
+                } else if area <= 0. && area > -min_size / 10. {
+                    contours.0.swap_remove(i);
+                } else if area >= min_size {
+                    polygons.push(Polygon::new(contour.clone(), vec![]));
+                    contours.0.swap_remove(i);
+                } else {
+                    i += 1;
+                }
             } else {
-                i += 1;
+                contours.0.swap_remove(i);
             }
         }
 
@@ -116,5 +122,78 @@ impl MapMultiPolygon for MultiPolygon {
             }
         }
         MultiPolygon::new(polygons)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+
+    #[test]
+    fn assemble_polygons() {
+        let contours = MultiLineString::new(vec![
+            LineString::new(vec![
+                Coord { x: 0.0, y: 20.0 },
+                Coord { x: 10.0, y: 15.0 },
+                Coord { x: 20.0, y: 0.0 },
+            ]),
+            LineString::new(vec![Coord { x: 30.0, y: 0.0 }, Coord { x: 30.0, y: 100.0 }]),
+            LineString::new(vec![
+                Coord { x: 10.0, y: 70.0 },
+                Coord { x: 20.0, y: 70.0 },
+                Coord { x: 20.0, y: 60.0 },
+                Coord { x: 10.0, y: 60.0 },
+                Coord { x: 10.0, y: 70.0 },
+            ]),
+            LineString::new(vec![
+                Coord { x: 60.0, y: 100.0 },
+                Coord { x: 40.0, y: 70.0 },
+                Coord { x: 100.0, y: 10.0 },
+            ]),
+        ]);
+
+        let hull = LineString::new(vec![
+            Coord { x: 0.0, y: 0.0 },
+            Coord { x: 100.0, y: 0.0 },
+            Coord { x: 100.0, y: 100.0 },
+            Coord { x: 0.0, y: 100.0 },
+            Coord { x: 0.0, y: 0.0 },
+        ]);
+
+        let polygons =
+            MultiPolygon::from_contours(contours, &hull, PolygonTrigger::Above, 0., 1., true);
+
+        let expected = MultiPolygon::new(vec![
+            Polygon::new(
+                LineString::new(vec![
+                    Coord { x: 0.0, y: 20.0 },
+                    Coord { x: 10.0, y: 15.0 },
+                    Coord { x: 20.0, y: 0.0 },
+                    Coord { x: 30.0, y: 0.0 },
+                    Coord { x: 30.0, y: 100.0 },
+                    Coord { x: 0.0, y: 100.0 },
+                    Coord { x: 0.0, y: 20.0 },
+                ]),
+                vec![LineString::new(vec![
+                    Coord { x: 10.0, y: 70.0 },
+                    Coord { x: 20.0, y: 70.0 },
+                    Coord { x: 20.0, y: 60.0 },
+                    Coord { x: 10.0, y: 60.0 },
+                    Coord { x: 10.0, y: 70.0 },
+                ])],
+            ),
+            Polygon::new(
+                LineString::new(vec![
+                    Coord { x: 60.0, y: 100.0 },
+                    Coord { x: 40.0, y: 70.0 },
+                    Coord { x: 100.0, y: 10.0 },
+                    Coord { x: 100.0, y: 100.0 },
+                    Coord { x: 60.0, y: 100.0 },
+                ]),
+                vec![],
+            ),
+        ]);
+
+        assert_eq!(polygons, expected);
     }
 }

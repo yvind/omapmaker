@@ -36,15 +36,12 @@ pub fn read_laz(
             .points()
             .filter_map(Result::ok)
             .filter_map(|p| {
-                ((p.classification == Classification::Ground
-                    || p.classification == Classification::Water)
-                    && !p.is_withheld)
-                    .then(|| {
-                        let mut clone = p.clone();
-                        clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                        clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                        clone
-                    })
+                (p.classification == Classification::Ground && !p.is_withheld).then(|| {
+                    let mut clone = p.clone();
+                    clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                    clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                    clone
+                })
             }) // add noise on the order of mm for KD-tree stability
             .collect(),
         las_bounds,
@@ -56,6 +53,22 @@ pub fn read_laz(
         y: map_bounds.max.y,
     };
     let convex_hull = ground_cloud.bounded_convex_hull(&map_bounds, dist_to_hull_epsilon);
+
+    let mut las_reader = Reader::from_path(las_path).unwrap();
+    ground_cloud.add(
+        las_reader
+            .points()
+            .filter_map(Result::ok)
+            .filter_map(|p| {
+                (p.classification == Classification::Water && !p.is_withheld).then(|| {
+                    let mut clone = p.clone();
+                    clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                    clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                    clone
+                })
+            }) // add noise on the order of mm for KD-tree stability
+            .collect::<Vec<_>>(),
+    );
 
     let ground_tree: ImmutableKdTree<f64, usize, 2, 32> =
         ImmutableKdTree::new_from_slice(&ground_cloud.to_2d_slice());

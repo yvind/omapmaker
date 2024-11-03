@@ -5,8 +5,14 @@ use geo::{BooleanOps, ClosestPoint, Distance, Euclidean};
 pub trait MapLineString {
     fn first_vertex(&self) -> &Coord;
     fn last_vertex(&self) -> &Coord;
+    fn line_string_signed_area(&self) -> Option<f64>;
     fn inner_line(&self, other: &LineString) -> Option<Polygon>;
-    fn get_range_on_line(last_index: usize, first_index: usize, length: usize) -> Vec<usize>;
+    fn get_range_on_line(
+        start: usize,
+        end: usize,
+        length: usize,
+        is_closed: bool,
+    ) -> Result<Vec<usize>, &'static str>;
     fn on_edge_index(&self, coord: &Coord, epsilon: f64) -> Option<usize>;
     fn close_by_line(&mut self, line: &LineString, epsilon: f64) -> Result<(), &'static str>;
     fn fix_ends_to_line(&mut self, line: &LineString, epsilon: f64) -> Result<(), &'static str>;
@@ -25,14 +31,23 @@ pub trait MapLineString {
 }
 
 impl MapLineString for LineString {
+    fn line_string_signed_area(&self) -> Option<f64> {
+        if self.0.len() <= 3 || !self.is_closed() {
+            return None;
+        }
+        let mut area: f64 = 0.;
+        for i in 0..self.0.len() - 1 {
+            area += 0.5 * (self.0[i].x * self.0[i + 1].y - self.0[i].y * self.0[i + 1].x);
+        }
+        Some(area)
+    }
+
     fn get_distance_along_line(
         &self,
         start: &Coord,
         end: &Coord,
         epsilon: f64,
     ) -> Result<f64, &'static str> {
-        let length = self.0.len();
-
         let last_index = match self.on_edge_index(end, epsilon) {
             Some(i) => i,
             None => {
@@ -47,7 +62,7 @@ impl MapLineString for LineString {
         };
 
         if !self.is_closed() {
-            if last_index > first_index {
+            if last_index < first_index {
                 return Err("The end point is before the start point on the line");
             }
 
@@ -58,6 +73,8 @@ impl MapLineString for LineString {
                     > Euclidean::distance(*end, *prev_vertex)
                 {
                     return Err("The end point is before the start point on the line");
+                } else {
+                    return Ok(Euclidean::distance(*start, *end));
                 }
             }
         }
@@ -71,7 +88,9 @@ impl MapLineString for LineString {
             }
         }
 
-        let range = LineString::get_range_on_line(last_index, first_index, length);
+        let range =
+            LineString::get_range_on_line(first_index, last_index, self.0.len(), self.is_closed())
+                .unwrap();
 
         let mut dist = 0.;
 
@@ -95,7 +114,13 @@ impl MapLineString for LineString {
         if multipolygon.0.is_empty() {
             None
         } else if multipolygon.0.len() == 1 {
-            Some(multipolygon.into_iter().next().unwrap())
+            let mut i = multipolygon.into_iter().next().unwrap();
+
+            if i.exterior().line_string_signed_area().unwrap() < 0. {
+                i.exterior_mut(|e| e.0.reverse());
+            }
+
+            Some(i)
         } else {
             panic!("Multiple disjoint overlaps between the convex hull and the clipping region");
         }
@@ -133,7 +158,10 @@ impl MapLineString for LineString {
             return Err("The other point is before the first point on the open line");
         }
 
-        for i in LineString::get_range_on_line(last_index, first_index, line.0.len()) {
+        for i in
+            LineString::get_range_on_line(last_index, first_index, line.0.len(), line.is_closed())
+                .unwrap()
+        {
             self.0.push(line.0[i]);
         }
         self.close();
@@ -141,13 +169,20 @@ impl MapLineString for LineString {
         Ok(())
     }
 
-    fn get_range_on_line(last_index: usize, first_index: usize, length: usize) -> Vec<usize> {
-        if last_index < first_index {
-            (last_index + 1..first_index + 1).collect()
+    fn get_range_on_line(
+        start: usize,
+        end: usize,
+        length: usize,
+        is_closed: bool,
+    ) -> Result<Vec<usize>, &'static str> {
+        if start < end {
+            Ok((start + 1..=end).collect())
+        } else if is_closed {
+            let mut out = (start + 1..length).collect::<Vec<usize>>();
+            out.extend((0..=end).collect::<Vec<usize>>());
+            Ok(out)
         } else {
-            let mut out = (last_index + 1..length - 1).collect::<Vec<usize>>();
-            out.extend((0..first_index + 1).collect::<Vec<usize>>());
-            out
+            Err("Could not get range on line as the line is not closed and start is after end")
         }
     }
 
@@ -188,11 +223,8 @@ impl MapLineString for LineString {
             }
         }
 
-        if !line.is_closed() && self_index >= other_index {
-            return Err("The other point is before the first point on the open line");
-        }
-
-        let range = Self::get_range_on_line(self_index, other_index, line.0.len());
+        let range =
+            LineString::get_range_on_line(self_index, other_index, line.0.len(), line.is_closed())?;
 
         for i in range {
             self.0.push(line.0[i]);
@@ -235,23 +267,92 @@ impl MapLineString for LineString {
         );
         let last_line = Line::new(line.0[last_index], line.0[(last_index + 1) % line.0.len()]);
 
-        let first_add = match first_line.closest_point(&(*self.first_vertex()).into()) {
+        match first_line.closest_point(&(*self.first_vertex()).into()) {
             geo::Closest::Indeterminate => {
                 return Err("no unique closest point on the line when fixing ends to line")
             }
-            geo::Closest::Intersection(p) => p,
-            geo::Closest::SinglePoint(p) => p,
+            geo::Closest::Intersection(_) => (),
+            geo::Closest::SinglePoint(p) => self.0.insert(0, p.0),
         };
-        let last_add = match last_line.closest_point(&(*self.last_vertex()).into()) {
+        match last_line.closest_point(&(*self.last_vertex()).into()) {
             geo::Closest::Indeterminate => {
                 return Err("no unique closest point on the line when fixing ends to line")
             }
-            geo::Closest::Intersection(p) => p,
-            geo::Closest::SinglePoint(p) => p,
+            geo::Closest::Intersection(_) => (),
+            geo::Closest::SinglePoint(p) => self.0.push(p.0),
         };
-
-        self.0.insert(0, first_add.0);
-        self.0.push(last_add.0);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::*;
+
+    #[test]
+    fn test_range_on_line_overlap() {
+        let range = <LineString as MapLineString>::get_range_on_line(3, 1, 5, true).unwrap();
+        let expected = vec![4, 0, 1];
+        assert_eq!(range, expected);
+    }
+
+    #[test]
+    fn test_range_on_line_simple() {
+        let range = <LineString as MapLineString>::get_range_on_line(2, 3, 5, false).unwrap();
+        let expected = vec![3];
+        assert_eq!(range, expected);
+    }
+
+    #[test]
+    fn test_distance_along_line_simple() {
+        let line = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        let v1 = Coord { x: 20., y: 0. };
+        let v2 = Coord { x: 10., y: 100. };
+
+        let d = line.get_distance_along_line(&v1, &v2, 1.);
+
+        assert_eq!(d, Ok(270.));
+    }
+
+    #[test]
+    fn test_distance_along_line_overlap() {
+        let line = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        let v1 = Coord { x: 20., y: 0. };
+        let v2 = Coord { x: 10., y: 100. };
+
+        let d = line.get_distance_along_line(&v2, &v1, 1.);
+
+        assert_eq!(d, Ok(130.));
+    }
+
+    #[test]
+    fn test_on_edge_index() {
+        let line = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        let v1 = Coord { x: 20., y: 100. };
+
+        let i = line.on_edge_index(&v1, 1.);
+
+        assert_eq!(i, Some(3));
     }
 }

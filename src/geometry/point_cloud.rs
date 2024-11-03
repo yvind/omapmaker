@@ -2,7 +2,7 @@ use super::{Coord, LineString, PointLaz, PointTrait};
 use crate::matrix::{Matrix32x6, Vector32, Vector6};
 use crate::raster::FieldType;
 
-use crate::TILE_SIZE;
+use crate::{CELL_SIZE, TILE_SIZE};
 
 use geo::Simplify;
 use las::point::Classification;
@@ -29,10 +29,6 @@ impl PointCloud {
 
     pub fn to_2d_slice(&self) -> Vec<[f64; 2]> {
         self.points.iter().map(|p| [p.x, p.y]).collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.points.len()
     }
 
     pub fn get_dfm_dimensions(&self) -> Bounds {

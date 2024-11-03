@@ -1,5 +1,5 @@
 use crate::geometry::{Coord, MapLineString, MapRectangle, Rectangle};
-use crate::map::{Omap, Symbol};
+use crate::map::{LineObject, Omap, Symbol};
 use crate::parser::Args;
 use crate::steps;
 
@@ -59,7 +59,7 @@ pub fn compute_map_objects(
                         current_cut_bounds.set_min(current_cut_bounds.min() - ref_point);
                         current_cut_bounds.set_max(current_cut_bounds.max() - ref_point);
 
-                        let cut_overlay =
+                        let mut cut_overlay =
                             match convex_hull.inner_line(&current_cut_bounds.into_line_string()) {
                                 Some(l) => l,
                                 None => {
@@ -68,6 +68,18 @@ pub fn compute_map_objects(
                                     continue;
                                 }
                             };
+                        if convex_hull.line_string_signed_area().unwrap() < 0. {
+                            println!("polygon wrong way around");
+                            cut_overlay.exterior_mut(|e| e.0.reverse());
+                        }
+
+                        map_ref
+                            .lock()
+                            .unwrap()
+                            .add_object(LineObject::from_line_string(
+                                cut_overlay.exterior().clone(),
+                                Symbol::Formline,
+                            ));
 
                         // step 4: contour generation
                         if args.basemap_contours >= 0.1 {
@@ -94,9 +106,10 @@ pub fn compute_map_objects(
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::RoughOpenLand,
-                            225.,
                             &map_ref,
                         );
+
+                        /*
 
                         steps::compute_vegetation(
                             &drm,
@@ -107,7 +120,6 @@ pub fn compute_map_objects(
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::LightGreen,
-                            225.,
                             &map_ref,
                         );
 
@@ -120,7 +132,6 @@ pub fn compute_map_objects(
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::MediumGreen,
-                            110.,
                             &map_ref,
                         );
 
@@ -133,7 +144,6 @@ pub fn compute_map_objects(
                             dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::DarkGreen,
-                            64.,
                             &map_ref,
                         );
 
@@ -148,6 +158,7 @@ pub fn compute_map_objects(
                             args.simplification_distance,
                             &map_ref,
                         );
+                        */
 
                         // step 7: save dfms
                         if args.write_tiff {

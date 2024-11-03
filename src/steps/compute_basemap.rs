@@ -26,7 +26,7 @@ pub fn compute_basemap(
         if simplify_epsilon > 0. {
             bm_contours = bm_contours.simplify(&simplify_epsilon);
         }
-        bm_contours = temp_cut.clip_lines(bm_contours); // clip in geo is not trust-worthy, randomly splits and reverses LineStrings
+        bm_contours = temp_cut.clip_lines(bm_contours); // clip in geo is not trust-worthy, randomly reverses LineStrings
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);

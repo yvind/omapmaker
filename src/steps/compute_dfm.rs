@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::geometry::{Coord, LineString, PointCloud};
+use crate::geometry::{Coord, LineString, PointCloud, Polygon};
 use crate::raster::{Dfm, FieldType};
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
 
@@ -24,11 +24,13 @@ pub fn compute_dfms(
 
     let num_neighbours = 32;
 
+    let pch = Polygon::new(ch.clone(), vec![]);
+
     for y_index in 0..SIDE_LENGTH {
         for x_index in 0..SIDE_LENGTH {
             let coords = dem.index2coord(x_index, y_index).unwrap();
 
-            if ch.contains(&coords) {
+            if !pch.contains(&coords) {
                 continue;
             }
 
