@@ -1,6 +1,4 @@
-use super::{
-    LineString, MapLineString, MapMultiLineString, MultiLineString, Polygon, PolygonTrigger,
-};
+use super::{LineString, MapLineString, MapMultiLineString, MultiLineString, Polygon};
 use geo::Contains;
 pub use geo::MultiPolygon;
 
@@ -8,7 +6,6 @@ pub trait MapMultiPolygon {
     fn from_contours(
         contours: MultiLineString,
         convex_hull: &LineString,
-        polygon_type: PolygonTrigger,
         min_size: f64,
         epsilon: f64,
         hint: bool,
@@ -19,7 +16,6 @@ impl MapMultiPolygon for MultiPolygon {
     fn from_contours(
         mut contours: MultiLineString,
         convex_hull: &LineString,
-        polygon_type: PolygonTrigger,
         min_size: f64,
         epsilon: f64,
         hint: bool,
@@ -30,19 +26,13 @@ impl MapMultiPolygon for MultiPolygon {
         if contours.0.is_empty() {
             // everywhere is either above or below the limit
             // needs to use the hint to classify everywhere correctly
-            if polygon_type as i8 * (2 * hint as i8 - 1) > 0 {
+            if hint {
                 polygons.push(Polygon::new(convex_hull.clone(), vec![]));
             }
             return MultiPolygon::new(polygons);
         }
 
-        // reverse all contours if we are interested in the polygons that the areas below the contours build, instead of the areas above
-        if polygon_type == PolygonTrigger::Below {
-            for c in contours.iter_mut() {
-                c.0.reverse();
-            }
-        }
-
+        // snap all line ends to the convex hull before polygon building
         contours.fix_ends_to_line(convex_hull, epsilon);
 
         // filter out all unclosed contours
@@ -130,7 +120,7 @@ mod tests {
     use super::super::*;
 
     #[test]
-    fn assemble_polygons() {
+    fn test_assemble_polygons() {
         let contours = MultiLineString::new(vec![
             LineString::new(vec![
                 Coord { x: 0.0, y: 20.0 },
@@ -160,8 +150,7 @@ mod tests {
             Coord { x: 0.0, y: 0.0 },
         ]);
 
-        let polygons =
-            MultiPolygon::from_contours(contours, &hull, PolygonTrigger::Above, 0., 1., true);
+        let polygons = MultiPolygon::from_contours(contours, &hull, 0., 1., true);
 
         let expected = MultiPolygon::new(vec![
             Polygon::new(

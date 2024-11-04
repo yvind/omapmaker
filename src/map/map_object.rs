@@ -8,8 +8,6 @@ pub trait MapObject: 'static + Sync + Send {
         self.add_tag("generator", "laz2omap");
     }
 
-    fn bounding_box(&self) -> Rectangle;
-
     fn write_to_map(&self, f: &mut BufWriter<File>);
 
     fn write_coords(&self, f: &mut BufWriter<File>);

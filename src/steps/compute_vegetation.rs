@@ -1,14 +1,8 @@
-use crate::geometry::{
-    LineString, MapMultiLineString, MapMultiPolygon, MapRectangle, MultiLineString, MultiPolygon,
-    Polygon, PolygonTrigger, Rectangle,
-};
+use crate::geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon};
 use crate::map::{AreaObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
-use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
-const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
-
-use geo::Simplify;
+use geo::{BooleanOps, Simplify};
 
 use std::sync::{Arc, Mutex};
 
@@ -16,7 +10,6 @@ pub fn compute_vegetation(
     dfm: &Dfm,
     opt_thresholds: (Option<f64>, Option<f64>),
     convex_hull: &LineString,
-    temp_cut: &Rectangle,
     cut_overlay: &Polygon,
     dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
@@ -24,9 +17,12 @@ pub fn compute_vegetation(
     map: &Arc<Mutex<Omap>>,
 ) {
     let mut contours;
-    let hint_val = dfm[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)];
+    let hint_val = match dfm.hint_value() {
+        Some(f) => *f,
+        None => return,
+    };
+
     let veg_hint;
-    let polygon_trigger;
 
     match opt_thresholds {
         (Some(lower_threshold), Some(upper_threshold)) => {
@@ -39,7 +35,6 @@ pub fn compute_vegetation(
             for c in upper_contours.iter_mut() {
                 c.0.reverse();
             }
-            polygon_trigger = PolygonTrigger::Above;
 
             contours.0.extend(upper_contours);
         }
@@ -47,40 +42,27 @@ pub fn compute_vegetation(
             // Only interested in area above lower threshold
             contours = dfm.marching_squares(lower_threshold).unwrap();
             veg_hint = hint_val > lower_threshold;
-            polygon_trigger = PolygonTrigger::Above;
         }
         (None, Some(upper_threshold)) => {
             // Only interested in area below upper threshold
             contours = dfm.marching_squares(upper_threshold).unwrap();
             veg_hint = hint_val < upper_threshold;
-            polygon_trigger = PolygonTrigger::Below;
+            for c in contours.iter_mut() {
+                c.0.reverse();
+            }
         }
         (None, None) => return,
     }
 
-    /*
-    let mut veg_polygons = MultiPolygon::from_contours(
+    let veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
-        polygon_trigger,
         symbol.min_size(),
         dist_to_hull_epsilon,
         veg_hint,
     );
 
-    let mut veg_contours = MultiLineString::from_polygons(veg_polygons);
-
-    */
-
-    let veg_contours = temp_cut.clip_lines(contours); // clip in geo is not trust-worthy, randomly splits and reverses LineStrings
-    let mut veg_polygons = MultiPolygon::from_contours(
-        veg_contours,
-        cut_overlay.exterior(),
-        polygon_trigger,
-        symbol.min_size(),
-        dist_to_hull_epsilon,
-        veg_hint,
-    );
+    let mut veg_polygons = cut_overlay.intersection(&veg_polygons);
 
     if simplify_epsilon > 0. {
         veg_polygons = veg_polygons.simplify(&simplify_epsilon);

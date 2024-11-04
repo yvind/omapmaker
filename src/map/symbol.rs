@@ -33,7 +33,7 @@ impl Symbol {
             Symbol::SlopelineFormline => 0.,
             Symbol::SmallBoulder => 0.,
             Symbol::LargeBoulder => 0.,
-            Symbol::GiganticBoulder => 0.,
+            Symbol::GiganticBoulder => 10.,
             Symbol::SandyGround => 225.,
             Symbol::BareRock => 225.,
             Symbol::RoughOpenLand => 225.,

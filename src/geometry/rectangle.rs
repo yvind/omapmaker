@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use super::{Coord, Line, LineString, MultiLineString};
 pub use geo::Rect as Rectangle;
 use geo::{
@@ -12,11 +13,12 @@ pub trait MapRectangle {
     fn into_line_string(self) -> LineString;
     fn touch_margin(&self, other: &Rectangle, margin: f64) -> bool;
     // functions below become obsolete when i_overlay in geo is fixed
-    fn clip_lines(&self, lines: MultiLineString) -> MultiLineString;
-    fn clip_line(&self, line: LineString) -> Option<Vec<LineString>>;
+    fn clip_multi_line_string(&self, lines: MultiLineString) -> MultiLineString;
+    fn clip_line_string(&self, line: LineString) -> Option<Vec<LineString>>;
     fn rect_line_intersection(&self, line: &Line) -> Option<Coord>;
     fn rect_line_intersections(&self, line: &Line) -> Option<(Coord, Coord)>;
     fn lines(&self) -> Vec<Line>;
+    fn on_rect(&self, coord: &Coord, epsilon: f64) -> bool;
 }
 
 impl MapRectangle for Rectangle {
@@ -66,20 +68,20 @@ impl MapRectangle for Rectangle {
             || self.min().y > other.max().y + margin)
     }
 
-    fn clip_lines(&self, lines: MultiLineString) -> MultiLineString {
+    fn clip_multi_line_string(&self, lines: MultiLineString) -> MultiLineString {
         let mut output = MultiLineString::new(vec![]);
 
         for line in lines.into_iter() {
             if self.contains(&line) {
                 output.0.push(line);
-            } else if let Some(parts) = self.clip_line(line) {
+            } else if let Some(parts) = self.clip_line_string(line) {
                 output.0.extend(parts)
             }
         }
         output
     }
 
-    fn clip_line(&self, line: LineString) -> Option<Vec<LineString>> {
+    fn clip_line_string(&self, line: LineString) -> Option<Vec<LineString>> {
         if self.intersects(&line) {
             let mut parts = vec![];
 
@@ -124,6 +126,7 @@ impl MapRectangle for Rectangle {
             if current_line.len() > 1 {
                 parts.push(LineString::new(current_line));
             }
+
             Some(parts)
         } else {
             None
@@ -150,7 +153,7 @@ impl MapRectangle for Rectangle {
     fn rect_line_intersections(&self, line: &Line) -> Option<(Coord, Coord)> {
         let mut is = [None, None];
 
-        for i in 0..is.len() {
+        for i in is.iter_mut() {
             for segment in self.lines() {
                 if let Some(w_intersection) = line_intersection(segment, *line) {
                     match w_intersection {
@@ -158,7 +161,7 @@ impl MapRectangle for Rectangle {
                             intersection: c,
                             is_proper: _,
                         } => {
-                            is[i] = Some(c);
+                            *i = Some(c);
                             break;
                         }
                         LineIntersection::Collinear { intersection: _ } => {
@@ -222,5 +225,43 @@ impl MapRectangle for Rectangle {
                 },
             ),
         ]
+    }
+
+    fn on_rect(&self, point: &Coord, epsilon: f64) -> bool {
+        (point.x - self.min().x).abs() < epsilon
+            || (point.x - self.max().x).abs() < epsilon
+            || (point.y - self.min().y).abs() < epsilon
+            || (point.y - self.max().y).abs() < epsilon
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clip_lines_closed_line() {
+        let bounds = Rectangle::new(Coord { x: 0., y: 0. }, Coord { x: 100., y: 100. });
+
+        let clip_line = LineString::new(vec![
+            Coord { x: 1., y: 40. },
+            Coord { x: -1., y: 40. },
+            Coord { x: -1., y: 30. },
+            Coord { x: 1., y: 30. },
+            Coord { x: 1., y: 40. },
+        ]);
+
+        let result = bounds.clip_line_string(clip_line).unwrap();
+
+        let expected = vec![
+            LineString::new(vec![Coord { x: 1., y: 40. }, Coord { x: 0., y: 40. }]),
+            LineString::new(vec![
+                Coord { x: 0., y: 30. },
+                Coord { x: 1., y: 30. },
+                Coord { x: 1., y: 40. },
+            ]),
+        ];
+
+        assert_eq!(expected, result);
     }
 }

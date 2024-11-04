@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::geometry::{Coord, LineString, MapLineString, MultiLineString};
 use crate::{CELL_SIZE, INV_CELL_SIZE_USIZE, TILE_SIZE, TILE_SIZE_USIZE};
 
@@ -27,6 +29,13 @@ pub struct Dfm {
 }
 
 impl Dfm {
+    pub fn hint_value(&self) -> Option<&f64> {
+        if !self.field[self.field.len() / 2].is_nan() {
+            return Some(&self.field[self.field.len() / 2]);
+        }
+        self.field.iter().find(|f| !f.is_nan())
+    }
+
     pub fn new(tl_coord: Coord) -> Dfm {
         Dfm {
             field: [f64::NAN; SIDE_LENGTH * SIDE_LENGTH],

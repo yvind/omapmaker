@@ -35,18 +35,30 @@ impl PointCloud {
         let dx = self.bounds.max.x - self.bounds.min.x;
         let dy = self.bounds.max.y - self.bounds.min.y;
 
-        let offset_x = (TILE_SIZE - dx) / 2.;
-        let offset_y = (TILE_SIZE - dy) / 2.;
+        // small but non-zero for some odd reason
+        // stretch or shrink the bounds to fit
+        // to TILESIZE exactly
+        let stretch_x = (TILE_SIZE - dx) / 2.;
+        let stretch_y = (TILE_SIZE - dy) / 2.;
+
+        // because the top-left corner of every cell is queried
+        // shift the dem over so top left corner of the first and last
+        // cell in both dimensions are equally far from self.bounds
+        // i.e shift by half the cell size
+        // positive in x as left is min_x -> need to increase to shift
+        // negative in y as top is max_y -> need to decrease to shift
+        let offset_x = CELL_SIZE / 2.;
+        let offset_y = -CELL_SIZE / 2.;
 
         Bounds {
             min: Vector {
-                x: self.bounds.min.x - offset_x,
-                y: self.bounds.min.y - offset_y,
+                x: self.bounds.min.x - stretch_x + offset_x,
+                y: self.bounds.min.y - stretch_y + offset_y,
                 z: self.bounds.min.z,
             },
             max: Vector {
-                x: self.bounds.max.x + offset_x,
-                y: self.bounds.max.y + offset_y,
+                x: self.bounds.max.x + stretch_x + offset_x,
+                y: self.bounds.max.y + stretch_y + offset_y,
                 z: self.bounds.max.z,
             },
         }
@@ -222,5 +234,55 @@ impl PointCloud {
         let gradient_size = (gradient_x.powi(2) + gradient_y.powi(2)).sqrt();
 
         (value, gradient_size)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_dfm_dimensions() {
+        let bounds = Bounds {
+            min: Vector {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            max: Vector {
+                x: TILE_SIZE - 0.01,
+                y: TILE_SIZE + 0.01,
+                z: 0.,
+            },
+        };
+
+        let pc = PointCloud::new(vec![], bounds);
+
+        let dfm_bounds = pc.get_dfm_dimensions();
+
+        let expected = Bounds {
+            min: Vector {
+                x: CELL_SIZE / 2.,
+                y: -CELL_SIZE / 2.,
+                z: 0.,
+            },
+            max: Vector {
+                x: TILE_SIZE + CELL_SIZE / 2.,
+                y: TILE_SIZE - CELL_SIZE / 2.,
+                z: 0.,
+            },
+        };
+
+        assert!(
+            ((dfm_bounds.max.x - expected.max.x).powi(2)
+                + (dfm_bounds.min.x - expected.min.x).powi(2))
+            .abs()
+                < 0.01
+        );
+        assert!(
+            ((dfm_bounds.max.y - expected.max.y).powi(2)
+                + (dfm_bounds.min.y - expected.min.y).powi(2))
+            .abs()
+                < 0.01
+        );
     }
 }

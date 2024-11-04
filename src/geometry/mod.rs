@@ -16,9 +16,3 @@ pub use self::rectangle::{MapRectangle, Rectangle};
 pub use geo::Line;
 pub use geo::Point;
 pub use geo::Polygon;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PolygonTrigger {
-    Above = 1,
-    Below = -1,
-}

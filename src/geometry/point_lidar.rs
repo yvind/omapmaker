@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use super::{Coord, Point};
 pub use las::Point as PointLaz;
 
@@ -50,7 +52,7 @@ impl PointTrait for PointLaz {
 }
 
 pub trait PointTrait {
-    fn new(x: f64, y: f64, z: f64) -> PointLaz;
+    fn new(x: f64, y: f64, z: f64) -> Self;
 
     fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64;
 

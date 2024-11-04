@@ -1,4 +1,4 @@
-use crate::geometry::{MapRectangle, Rectangle};
+use crate::geometry::{MapMultiLineString, MapRectangle, Polygon, Rectangle};
 use crate::map::{LineObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
 
@@ -7,16 +7,15 @@ use std::sync::{Arc, Mutex};
 
 pub fn compute_basemap(
     dem: &Dfm,
-    min_z: f64,
-    max_z: f64,
+    z_range: (f64, f64),
     basemap_interval: f64,
     temp_cut: &Rectangle,
-    //cut_overlay: &Polygon,
+    cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
-    let bm_levels = ((max_z - min_z) / basemap_interval).ceil() as usize;
-    let start_level = (min_z / basemap_interval).floor() * basemap_interval;
+    let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize;
+    let start_level = (z_range.0 / basemap_interval).floor() * basemap_interval;
 
     for c_index in 0..bm_levels {
         let bm_level = c_index as f64 * basemap_interval + start_level;
@@ -26,7 +25,9 @@ pub fn compute_basemap(
         if simplify_epsilon > 0. {
             bm_contours = bm_contours.simplify(&simplify_epsilon);
         }
-        bm_contours = temp_cut.clip_lines(bm_contours); // clip in geo is not trust-worthy, randomly reverses LineStrings
+
+        bm_contours = temp_cut.clip_multi_line_string(bm_contours); // clip in geo is not trust-worthy, randomly reverses LineStrings
+        bm_contours = bm_contours.merge(cut_overlay.exterior());
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);

@@ -59,7 +59,7 @@ pub fn compute_map_objects(
                         current_cut_bounds.set_min(current_cut_bounds.min() - ref_point);
                         current_cut_bounds.set_max(current_cut_bounds.max() - ref_point);
 
-                        let mut cut_overlay =
+                        let cut_overlay =
                             match convex_hull.inner_line(&current_cut_bounds.into_line_string()) {
                                 Some(l) => l,
                                 None => {
@@ -68,10 +68,6 @@ pub fn compute_map_objects(
                                     continue;
                                 }
                             };
-                        if convex_hull.line_string_signed_area().unwrap() < 0. {
-                            println!("polygon wrong way around");
-                            cut_overlay.exterior_mut(|e| e.0.reverse());
-                        }
 
                         map_ref
                             .lock()
@@ -85,11 +81,10 @@ pub fn compute_map_objects(
                         if args.basemap_contours >= 0.1 {
                             steps::compute_basemap(
                                 &dem,
-                                ground_cloud.bounds.min.z,
-                                ground_cloud.bounds.max.z,
+                                (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z),
                                 args.basemap_contours,
                                 &current_cut_bounds,
-                                //&cut_overlay,
+                                &cut_overlay,
                                 args.simplification_distance,
                                 &map_ref,
                             );
@@ -101,7 +96,6 @@ pub fn compute_map_objects(
                             &drm,
                             (None, Some(1.2)),
                             &convex_hull,
-                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -109,13 +103,10 @@ pub fn compute_map_objects(
                             &map_ref,
                         );
 
-                        /*
-
                         steps::compute_vegetation(
                             &drm,
                             (Some(2.1), None), //Some(3.0),
                             &convex_hull,
-                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -127,7 +118,6 @@ pub fn compute_map_objects(
                             &drm,
                             (Some(3.0), None), //Some(4.0),
                             &convex_hull,
-                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -139,7 +129,6 @@ pub fn compute_map_objects(
                             &drm,
                             (Some(4.0), None),
                             &convex_hull,
-                            &current_cut_bounds,
                             &cut_overlay,
                             dist_to_hull_epsilon,
                             args.simplification_distance,
@@ -153,12 +142,10 @@ pub fn compute_map_objects(
                             0.7,
                             dist_to_hull_epsilon,
                             &convex_hull,
-                            &current_cut_bounds,
                             &cut_overlay,
                             args.simplification_distance,
                             &map_ref,
                         );
-                        */
 
                         // step 7: save dfms
                         if args.write_tiff {

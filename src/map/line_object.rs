@@ -31,10 +31,6 @@ impl MapObject for LineObject {
         self.tags.push(Tag::new(k, v));
     }
 
-    fn bounding_box(&self) -> Rectangle {
-        self.coordinates.bounding_rect().unwrap()
-    }
-
     fn write_to_map(&self, f: &mut BufWriter<File>) {
         f.write_all(format!("<object type=\"1\" symbol=\"{}\">", self.symbol).as_bytes())
             .expect("Could not write to map file");

@@ -26,10 +26,6 @@ impl PointObject {
 }
 
 impl MapObject for PointObject {
-    fn bounding_box(&self) -> Rectangle {
-        Rectangle::new(self.coordinates.0, self.coordinates.0)
-    }
-
     fn add_tag(&mut self, k: &str, v: &str) {
         self.tags.push(Tag::new(k, v));
     }

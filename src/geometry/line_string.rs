@@ -28,9 +28,16 @@ pub trait MapLineString {
         line: &LineString,
         epsilon: f64,
     ) -> Result<(), &'static str>;
+    fn prepend(&mut self, other: LineString);
 }
 
 impl MapLineString for LineString {
+    fn prepend(&mut self, mut other: LineString) {
+        let a = self.0.drain(..);
+        other.0.extend(a);
+        self.0 = other.0;
+    }
+
     fn line_string_signed_area(&self) -> Option<f64> {
         if self.0.len() <= 3 || !self.is_closed() {
             return None;
@@ -178,7 +185,7 @@ impl MapLineString for LineString {
         if start < end {
             Ok((start + 1..=end).collect())
         } else if is_closed {
-            let mut out = (start + 1..length).collect::<Vec<usize>>();
+            let mut out = (start + 1..length - 1).collect::<Vec<usize>>();
             out.extend((0..=end).collect::<Vec<usize>>());
             Ok(out)
         } else {
@@ -239,7 +246,7 @@ impl MapLineString for LineString {
 
     fn on_edge_index(&self, point: &Coord, epsilon: f64) -> Option<usize> {
         for (i, line) in self.lines().enumerate() {
-            if Euclidean::distance(&line, *point) < epsilon {
+            if Euclidean::distance(&line, *point) <= epsilon {
                 return Some(i);
             }
         }
@@ -287,12 +294,14 @@ impl MapLineString for LineString {
 
 #[cfg(test)]
 mod tests {
+    use geo::Area;
+
     use super::super::*;
 
     #[test]
     fn test_range_on_line_overlap() {
-        let range = <LineString as MapLineString>::get_range_on_line(3, 1, 5, true).unwrap();
-        let expected = vec![4, 0, 1];
+        let range = <LineString as MapLineString>::get_range_on_line(2, 1, 5, true).unwrap();
+        let expected = vec![3, 0, 1];
         assert_eq!(range, expected);
     }
 
@@ -349,10 +358,70 @@ mod tests {
             Coord { x: 0., y: 100. },
         ]);
 
-        let v1 = Coord { x: 20., y: 100. };
+        let v1 = Coord { x: 20., y: 100.9 };
 
         let i = line.on_edge_index(&v1, 1.);
 
         assert_eq!(i, Some(3));
+    }
+
+    #[test]
+    fn test_signed_area_linestring() {
+        let line = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        assert_eq!(Some(10_000.), line.line_string_signed_area());
+    }
+
+    #[test]
+    fn test_geo_agreed_signed_area_linestring() {
+        let line = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        let own_area = line.line_string_signed_area().unwrap();
+
+        let polygon = Polygon::new(line, vec![]);
+
+        assert_eq!(own_area, polygon.signed_area());
+    }
+
+    #[test]
+    fn test_fix_ends_to_line() {
+        let hull = LineString::new(vec![
+            Coord { x: 0., y: 100. },
+            Coord { x: 0., y: 0. },
+            Coord { x: 100., y: 0. },
+            Coord { x: 100., y: 100. },
+            Coord { x: 0., y: 100. },
+        ]);
+
+        let mut cont = LineString::new(vec![
+            Coord { x: 12.2, y: 100.5 },
+            Coord { x: 50., y: 50. },
+            Coord { x: 67.1, y: 0.7 },
+        ]);
+
+        cont.fix_ends_to_line(&hull, 1.0).unwrap();
+
+        let expected = LineString::new(vec![
+            Coord { x: 12.2, y: 100. },
+            Coord { x: 12.2, y: 100.5 },
+            Coord { x: 50., y: 50. },
+            Coord { x: 67.1, y: 0.7 },
+            Coord { x: 67.1, y: 0.0 },
+        ]);
+
+        assert!((cont.0[0] - expected.0[0]).y.abs() < 0.001);
+        assert!((cont.0[4] - expected.0[4]).y.abs() < 0.001);
     }
 }
