@@ -39,7 +39,7 @@ impl MapLineString for LineString {
     }
 
     fn line_string_signed_area(&self) -> Option<f64> {
-        if self.0.len() <= 3 || !self.is_closed() {
+        if self.0.len() < 3 || !self.is_closed() {
             return None;
         }
         let mut area: f64 = 0.;

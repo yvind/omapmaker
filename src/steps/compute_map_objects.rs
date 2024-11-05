@@ -85,6 +85,7 @@ pub fn compute_map_objects(
                                 args.basemap_contours,
                                 &current_cut_bounds,
                                 &cut_overlay,
+                                dist_to_hull_epsilon,
                                 args.simplification_distance,
                                 &map_ref,
                             );

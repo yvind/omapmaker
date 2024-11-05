@@ -75,31 +75,30 @@ impl MapMultiPolygon for MultiPolygon {
             }
         }
 
+        // a background polygon must to be added if only holes exist
+        let mut only_holes = true;
+        for c in contours.0.iter() {
+            if c.line_string_signed_area().unwrap() > 0. {
+                only_holes = false;
+                break;
+            }
+        }
+        if only_holes {
+            polygons.push(Polygon::new(convex_hull.clone(), vec![]));
+        }
+
         // add all closed contours of the right orientation to its own polygon
-        let mut filtered_out: usize = 0;
         i = 0;
         while i < contours.0.len() {
             let contour = &contours.0[i];
-            if let Some(area) = contour.line_string_signed_area() {
-                if area >= 0. && area < min_size {
-                    contours.0.swap_remove(i);
-                    filtered_out += 1;
-                } else if area <= 0. && area > -min_size / 10. {
-                    contours.0.swap_remove(i);
-                } else if area >= min_size {
-                    polygons.push(Polygon::new(contour.clone(), vec![]));
-                    contours.0.swap_remove(i);
-                } else {
-                    i += 1;
-                }
-            } else {
+            let area = contour.line_string_signed_area().unwrap();
+            if area > -min_size / 10. && area < min_size {
                 contours.0.swap_remove(i);
+            } else if area >= min_size {
+                polygons.push(Polygon::new(contours.0.swap_remove(i), vec![]));
+            } else {
+                i += 1;
             }
-        }
-
-        // a background polygon must to be added if only large holes exist
-        if polygons.is_empty() && filtered_out == 0 {
-            polygons.push(Polygon::new(convex_hull.clone(), vec![]));
         }
 
         // add the holes to the polygons

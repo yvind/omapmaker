@@ -11,6 +11,7 @@ pub fn compute_basemap(
     basemap_interval: f64,
     temp_cut: &Rectangle,
     cut_overlay: &Polygon,
+    dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -27,7 +28,7 @@ pub fn compute_basemap(
         }
 
         bm_contours = temp_cut.clip_multi_line_string(bm_contours); // clip in geo is not trust-worthy, randomly reverses LineStrings
-        bm_contours = bm_contours.merge(cut_overlay.exterior());
+        bm_contours = bm_contours.merge(cut_overlay.exterior(), dist_to_hull_epsilon);
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);

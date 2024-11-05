@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::{
     geometry::{Coord, PointTrait, Rectangle},
     MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE,
@@ -82,7 +84,7 @@ pub fn retile_laz(
         num_x_tiles * num_y_tiles
     ];
 
-    // possible area for multithreading
+    // possible area for multithreading, this shit takes most of the running time
     // read points from main file into buckets
     for point in las_reader.points().filter_map(Result::ok) {
         for (i, b) in bb.iter().enumerate() {

@@ -3,7 +3,7 @@ pub use geo::{Distance, Euclidean, MultiLineString};
 
 pub trait MapMultiLineString {
     fn fix_ends_to_line(&mut self, hull: &LineString, epsilon: f64);
-    fn merge(self, bound: &LineString) -> MultiLineString;
+    fn merge(self, bound: &LineString, bound_epsilon: f64) -> MultiLineString;
 }
 
 impl MapMultiLineString for MultiLineString {
@@ -13,7 +13,7 @@ impl MapMultiLineString for MultiLineString {
         }
     }
 
-    fn merge(mut self, bound: &LineString) -> MultiLineString {
+    fn merge(mut self, bound: &LineString, bound_epsilon: f64) -> MultiLineString {
         let mut merge_indecies = Vec::new();
         let mut needs_merging = Vec::with_capacity(8);
 
@@ -21,8 +21,12 @@ impl MapMultiLineString for MultiLineString {
 
         for (i, part) in self.0.iter().enumerate() {
             if !part.is_closed()
-                && (bound.on_edge_index(part.first_vertex(), epsilon).is_none()
-                    || bound.on_edge_index(part.last_vertex(), epsilon).is_none())
+                && (bound
+                    .on_edge_index(part.first_vertex(), bound_epsilon)
+                    .is_none()
+                    || bound
+                        .on_edge_index(part.last_vertex(), bound_epsilon)
+                        .is_none())
             {
                 merge_indecies.push(i);
             }
@@ -95,7 +99,7 @@ mod test {
             Coord { x: 0., y: 0. },
         ]);
 
-        let after = before.merge(&bound);
+        let after = before.merge(&bound, 0.5);
 
         let expected = MultiLineString::new(vec![LineString::new(vec![
             Coord { x: 0., y: 30. },

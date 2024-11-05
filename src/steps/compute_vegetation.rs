@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon};
 use crate::map::{AreaObject, MapObject, Omap, Symbol};
 use crate::raster::Dfm;
@@ -54,7 +56,7 @@ pub fn compute_vegetation(
         (None, None) => return,
     }
 
-    let veg_polygons = MultiPolygon::from_contours(
+    let mut veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
         symbol.min_size(),
@@ -62,7 +64,7 @@ pub fn compute_vegetation(
         veg_hint,
     );
 
-    let mut veg_polygons = cut_overlay.intersection(&veg_polygons);
+    veg_polygons = cut_overlay.intersection(&veg_polygons);
 
     if simplify_epsilon > 0. {
         veg_polygons = veg_polygons.simplify(&simplify_epsilon);
