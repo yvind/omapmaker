@@ -47,6 +47,6 @@ impl Symbol {
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{}", *self as isize)
+        write!(f, "{}", *self as u8)
     }
 }

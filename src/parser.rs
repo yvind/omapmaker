@@ -16,27 +16,25 @@ pub struct Args {
     #[arg(short, long, default_value_t = 5.)]
     pub contour_interval: f64,
 
+    /// Compute the contours without formlines
+    #[clap(short, long, action = clap::ArgAction::SetFalse)]
+    pub no_form_lines: bool,
+
     /// Contour interval in meters of basemap (analytic contours) min value 0.1, default no basemap
     #[arg(short, long, default_value_t = 0.)]
     pub basemap_contours: f64,
 
-    /// Write elevation, intensity and return_number and their gradients to Tiff-files
-    #[clap(short, long, action)]
-    pub write_tiff: bool,
-
-    /// Compute the contours without formlines
-    #[clap(short, long, action = clap::ArgAction::SetFalse)]
-    pub no_form_lines: bool,
+    /// Simplifies the geometries in the map, min value 0.1
+    #[arg(short, long, default_value_t = 0.1)]
+    pub simplification_distance: f64,
 
     /// Number of threads used in computation, defaults to all available threads
     #[arg(short, long, default_value_t = std::thread::available_parallelism().unwrap().get())]
     pub threads: usize,
 
-    /// Simplifies the geometries in the map, min value 0.1
-    /// For any set of three vertices in a row the middle vertex is removed
-    /// if the distance in meters to the line through the other two is less than this value
-    #[arg(short, long, action, default_value_t = 0.1)]
-    pub simplification_distance: f64,
+    /// Write elevation, intensity and return_number and their gradients to uncompressed Tiff-files
+    #[clap(short, long)]
+    pub write_tiff: bool,
 }
 
 impl Args {

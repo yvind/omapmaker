@@ -53,6 +53,9 @@ fn main() {
         println!("Subtiling file...");
 
         tiff_directory.push(laz_paths[fi].file_stem().unwrap());
+        if args.write_tiff {
+            fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
+        }
 
         // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
         // takes it sweet time reading the files, have not been able to make improvment on reading with multiple threads
