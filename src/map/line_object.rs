@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 
+use geo::BoundingRect;
+
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::{Line, Rectangle};
+use crate::geometry::{LineString, MapCoord, Rectangle};
 
 use std::{
     fs::File,
@@ -10,12 +12,12 @@ use std::{
 
 pub struct LineObject {
     symbol: Symbol,
-    coordinates: Line,
+    coordinates: LineString,
     tags: Vec<Tag>,
 }
 
 impl LineObject {
-    pub fn from_line(line: Line, symbol: Symbol) -> Self {
+    pub fn from_line_string(line: LineString, symbol: Symbol) -> Self {
         Self {
             symbol,
             coordinates: line,
@@ -29,10 +31,6 @@ impl MapObject for LineObject {
         self.tags.push(Tag::new(k, v));
     }
 
-    fn bounding_box(&self) -> Rectangle {
-        self.coordinates.bounding_box()
-    }
-
     fn write_to_map(&self, f: &mut BufWriter<File>) {
         f.write_all(format!("<object type=\"1\" symbol=\"{}\">", self.symbol).as_bytes())
             .expect("Could not write to map file");
@@ -43,11 +41,11 @@ impl MapObject for LineObject {
     }
 
     fn write_coords(&self, f: &mut BufWriter<File>) {
-        let num_coords = self.coordinates.len();
+        let num_coords = self.coordinates.0.len();
 
         f.write_all(format!("<coords count=\"{num_coords}\">").as_bytes())
             .expect("Could not write to map file");
-        for (i, coord) in self.coordinates.vertices.iter().enumerate() {
+        for (i, coord) in self.coordinates.coords().enumerate() {
             let c = coord.to_map_coordinates().unwrap();
 
             if i == num_coords - 1 && self.coordinates.is_closed() {

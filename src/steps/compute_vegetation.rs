@@ -1,76 +1,76 @@
-use crate::{
-    geometry::{Line, Polygon, PolygonTrigger},
-    map::{AreaObject, MapObject, Omap, Symbol},
-    raster::Dfm,
-};
+#![allow(clippy::too_many_arguments)]
 
-use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
-const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+use crate::geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon};
+use crate::map::{AreaObject, MapObject, Omap, Symbol};
+use crate::raster::Dfm;
+
+use geo::{BooleanOps, Simplify};
 
 use std::sync::{Arc, Mutex};
 
 pub fn compute_vegetation(
     dfm: &Dfm,
-    opt_lower_threshold: Option<f64>,
-    opt_upper_threshold: Option<f64>,
-    convex_hull: &Line,
+    opt_thresholds: (Option<f64>, Option<f64>),
+    convex_hull: &LineString,
+    cut_overlay: &Polygon,
     dist_to_hull_epsilon: f64,
     simplify_epsilon: f64,
     symbol: Symbol,
-    min_size: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
     let mut contours;
-    let hint_val = dfm[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)];
+    let hint_val = match dfm.hint_value() {
+        Some(f) => *f,
+        None => return,
+    };
+
     let veg_hint;
-    let polygon_trigger;
-    if let (Some(lower_threshold), Some(upper_threshold)) =
-        (opt_lower_threshold, opt_upper_threshold)
-    {
-        // Interested in a band of values
-        contours = dfm.marching_squares(lower_threshold).unwrap();
-        let mut upper_contours = dfm.marching_squares(upper_threshold).unwrap();
 
-        veg_hint = hint_val < upper_threshold && hint_val > lower_threshold;
+    match opt_thresholds {
+        (Some(lower_threshold), Some(upper_threshold)) => {
+            // Interested in a band of values
+            contours = dfm.marching_squares(lower_threshold).unwrap();
+            let mut upper_contours = dfm.marching_squares(upper_threshold).unwrap();
 
-        for c in upper_contours.iter_mut() {
-            c.vertices.reverse();
+            veg_hint = hint_val < upper_threshold && hint_val > lower_threshold;
+
+            for c in upper_contours.iter_mut() {
+                c.0.reverse();
+            }
+
+            contours.0.extend(upper_contours);
         }
-        polygon_trigger = PolygonTrigger::Above;
-
-        contours.extend(upper_contours);
-    } else if let Some(lower_threshold) = opt_lower_threshold {
-        // Only interested in area above lower threshold
-        contours = dfm.marching_squares(lower_threshold).unwrap();
-        veg_hint = hint_val > lower_threshold;
-        polygon_trigger = PolygonTrigger::Above;
-    } else if let Some(upper_threshold) = opt_upper_threshold {
-        // Only interested in area below upper threshold
-        contours = dfm.marching_squares(upper_threshold).unwrap();
-        veg_hint = hint_val < upper_threshold;
-        polygon_trigger = PolygonTrigger::Below;
-    } else {
-        // Both thresholds are None so we want nothing and just returns
-        return;
+        (Some(lower_threshold), None) => {
+            // Only interested in area above lower threshold
+            contours = dfm.marching_squares(lower_threshold).unwrap();
+            veg_hint = hint_val > lower_threshold;
+        }
+        (None, Some(upper_threshold)) => {
+            // Only interested in area below upper threshold
+            contours = dfm.marching_squares(upper_threshold).unwrap();
+            veg_hint = hint_val < upper_threshold;
+            for c in contours.iter_mut() {
+                c.0.reverse();
+            }
+        }
+        (None, None) => return,
     }
 
-    for vc in contours.iter_mut() {
-        vc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
-    }
-
-    let veg_polygons = Polygon::from_contours(
+    let mut veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
-        polygon_trigger,
-        min_size,
+        symbol.min_size(),
         dist_to_hull_epsilon,
         veg_hint,
     );
 
-    for mut polygon in veg_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
+    veg_polygons = cut_overlay.intersection(&veg_polygons);
+
+    if simplify_epsilon > 0. {
+        veg_polygons = veg_polygons.simplify(&simplify_epsilon);
+    }
+
+    for polygon in veg_polygons {
         let mut veg_object = AreaObject::from_polygon(polygon, symbol);
         veg_object.add_auto_tag();
 

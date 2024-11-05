@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::geometry::{Line, Point2D};
+use crate::geometry::{Coord, LineString, MapLineString, MultiLineString};
 use crate::{CELL_SIZE, INV_CELL_SIZE_USIZE, TILE_SIZE, TILE_SIZE_USIZE};
 
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
@@ -25,11 +25,18 @@ pub enum Edges {
 #[derive(Clone, Debug)]
 pub struct Dfm {
     pub field: [f64; SIDE_LENGTH * SIDE_LENGTH],
-    pub tl_coord: Point2D,
+    pub tl_coord: Coord,
 }
 
 impl Dfm {
-    pub fn new(tl_coord: Point2D) -> Dfm {
+    pub fn hint_value(&self) -> Option<&f64> {
+        if !self.field[self.field.len() / 2].is_nan() {
+            return Some(&self.field[self.field.len() / 2]);
+        }
+        self.field.iter().find(|f| !f.is_nan())
+    }
+
+    pub fn new(tl_coord: Coord) -> Dfm {
         Dfm {
             field: [f64::NAN; SIDE_LENGTH * SIDE_LENGTH],
             tl_coord,
@@ -46,11 +53,11 @@ impl Dfm {
         Ok(diff)
     }
 
-    pub fn index2coord(&self, xi: usize, yi: usize) -> Result<Point2D, &'static str> {
+    pub fn index2coord(&self, xi: usize, yi: usize) -> Result<Coord, &'static str> {
         assert!(xi < SIDE_LENGTH);
         assert!(yi < SIDE_LENGTH);
 
-        Ok(Point2D {
+        Ok(Coord {
             x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
             y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
         })
@@ -71,8 +78,11 @@ impl Dfm {
         Ok(())
     }
 
-    fn get_edge_index(&self, point: &Point2D) -> Result<usize, ()> {
-        let p0 = Point2D::new(point.x - self.tl_coord.x, self.tl_coord.y - point.y);
+    fn get_edge_index(&self, point: &Coord) -> Result<usize, ()> {
+        let p0 = Coord {
+            x: point.x - self.tl_coord.x,
+            y: self.tl_coord.y - point.y,
+        };
 
         assert!(p0.x >= 0.);
         assert!(p0.y >= 0.);
@@ -130,7 +140,7 @@ impl Dfm {
         }
     }
 
-    pub fn marching_squares(&self, level: f64) -> Result<Vec<Line>, &'static str> {
+    pub fn marching_squares(&self, level: f64) -> Result<MultiLineString, &'static str> {
         /*
             0       1
             *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
@@ -141,7 +151,7 @@ impl Dfm {
         */
 
         // should preallocate some memory, but how much? How many contours can be expected to be created?
-        let mut contours: Vec<Line> = Vec::with_capacity(32);
+        let mut contours: Vec<LineString> = Vec::with_capacity(32);
 
         // maps from edges to contour passing that edge in contours-vec, avoids
         // hashmap overhead at the expense of increased memory usage
@@ -210,7 +220,7 @@ impl Dfm {
                     edge_indices = lut[index].to_vec();
                 }
 
-                let mut vertex_coordinates: [Point2D; 2] = [Point2D { x: 0.0, y: 0.0 }; 2];
+                let mut vertex_coordinates: [Coord; 2] = [Coord { x: 0.0, y: 0.0 }; 2];
                 for (i, e) in edge_indices.iter().enumerate() {
                     let a = self[(ys[*e], xs[*e])];
                     let b = self[(ys[(*e + 1) % 4], xs[(*e + 1) % 4])];
@@ -256,7 +266,7 @@ impl Dfm {
                                     end_of_contour_index = start_of_contour_index;
                                 }
                                 // append the contour to the contour at end_contour_index
-                                contours[end_of_contour_index].append(contour);
+                                contours[end_of_contour_index].0.extend(contour);
 
                                 // get the index of the positions in the map that needs updating
                                 // only the edge indecies corresponding to the contours endpoints needs updating
@@ -293,17 +303,17 @@ impl Dfm {
                             }
                         } else if end_of_contour_index != usize::MAX {
                             // append to an existing contour
-                            contours[end_of_contour_index].push(vertex2);
+                            contours[end_of_contour_index].0.push(vertex2);
                             // update map
                             contour_map[key2] = end_of_contour_index;
                         } else if start_of_contour_index != usize::MAX {
                             // prepend to an existing contour
-                            contours[start_of_contour_index].prepend(vertex1);
+                            contours[start_of_contour_index].0.insert(0, vertex1);
                             // update map
                             contour_map[key1] = start_of_contour_index;
                         } else {
                             // start a new contour
-                            let contour: Line = Line::new(vertex1, vertex2);
+                            let contour = LineString::new(vec![vertex1, vertex2]);
                             contours.push(contour);
                             // update map
                             contour_map[key1] = contours.len() - 1;
@@ -313,10 +323,10 @@ impl Dfm {
                 }
             }
         }
-        Ok(contours)
+        Ok(MultiLineString::new(contours))
     }
 
-    pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Point2D) {
+    pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Coord) {
         let mut tiff_path = PathBuf::from(output_directory);
         tiff_path.push(filename);
         tiff_path.set_extension("tiff");

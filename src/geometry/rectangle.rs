@@ -1,186 +1,267 @@
-use std::ops::Add;
-
-#[allow(dead_code)]
-use super::{Point, Point2D};
+#![allow(dead_code)]
+use super::{Coord, Line, LineString, MultiLineString};
+pub use geo::Rect as Rectangle;
+use geo::{
+    line_intersection::line_intersection, Contains, Distance, Euclidean, Intersects,
+    LineIntersection,
+};
 use las::Bounds;
 
-#[derive(Clone, Debug)]
-pub struct Rectangle {
-    pub min: Point2D,
-    pub max: Point2D,
+pub trait MapRectangle {
+    fn shrink(&mut self, v: f64);
+    fn from_bounds(value: Bounds) -> Rectangle;
+    fn into_line_string(self) -> LineString;
+    fn touch_margin(&self, other: &Rectangle, margin: f64) -> bool;
+    // functions below become obsolete when i_overlay in geo is fixed
+    fn clip_multi_line_string(&self, lines: MultiLineString) -> MultiLineString;
+    fn clip_line_string(&self, line: LineString) -> Option<Vec<LineString>>;
+    fn rect_line_intersection(&self, line: &Line) -> Option<Coord>;
+    fn rect_line_intersections(&self, line: &Line) -> Option<(Coord, Coord)>;
+    fn lines(&self) -> Vec<Line>;
+    fn on_rect(&self, coord: &Coord, epsilon: f64) -> bool;
 }
 
-impl Rectangle {
-    pub fn default() -> Rectangle {
-        Rectangle {
-            min: Point2D::default(),
-            max: Point2D::default(),
-        }
+impl MapRectangle for Rectangle {
+    fn shrink(&mut self, v: f64) {
+        self.min().x += v;
+        self.min().y += v;
+        self.max().x -= v;
+        self.max().y -= v;
     }
 
-    pub fn contains(&self, point: &impl Point) -> bool {
-        point.get_x() >= self.min.x
-            && point.get_y() >= self.min.y
-            && point.get_x() <= self.max.x
-            && point.get_y() <= self.max.y
-    }
-
-    pub fn contains_rectangle(&self, other: &Rectangle) -> bool {
-        self.contains(&other.min) && self.contains(&other.max)
-    }
-
-    pub fn touch(&self, other: &Rectangle) -> bool {
-        !(self.max.x <= other.min.x
-            || self.min.x >= other.max.x
-            || self.max.y <= other.min.y
-            || self.min.y >= other.max.y)
-    }
-
-    pub fn touch_margin(&self, other: &Rectangle, margin: f64) -> bool {
-        !(self.max.x < other.min.x - margin
-            || self.min.x > other.max.x + margin
-            || self.max.y < other.min.y - margin
-            || self.min.y > other.max.y + margin)
-    }
-
-    pub fn shrink(&mut self, v: f64) {
-        self.min.x += v;
-        self.min.y += v;
-        self.max.x -= v;
-        self.max.y -= v;
-    }
-
-    fn find_intersection_parameter(p1: f64, p2: f64, boundary: f64) -> Option<f64> {
-        if p1 == p2 {
-            return None;
-        }
-        let t = (boundary - p1) / (p2 - p1);
-        if (0.0..=1.0).contains(&t) {
-            Some(t)
-        } else {
-            None
-        }
-    }
-
-    // Helper function to find intersection with a vertical or horizontal boundary
-    fn find_intersection_with_edge(
-        &self,
-        p1: &Point2D,
-        p2: &Point2D,
-        boundary: f64,
-        is_vertical: bool,
-    ) -> Option<Point2D> {
-        if is_vertical {
-            let t = (boundary - p1.x) / (p2.x - p1.x);
-            if (0.0..=1.0).contains(&t) {
-                let y = p1.y + t * (p2.y - p1.y);
-                Some(Point2D::new(boundary, y))
-            } else {
-                None
-            }
-        } else {
-            let t = (boundary - p1.y) / (p2.y - p1.y);
-            if (0.0..=1.0).contains(&t) {
-                let x = p1.x + t * (p2.x - p1.x);
-                Some(Point2D::new(x, boundary))
-            } else {
-                None
-            }
-        }
-    }
-
-    // Helper function to find intersection point of a line segment with rectangle boundary
-    pub fn find_intersection(&self, p1: &Point2D, p2: &Point2D) -> Option<Point2D> {
-        // Check intersections with vertical boundaries
-        if let Some(t) = Self::find_intersection_parameter(p1.x, p2.x, self.min.x) {
-            let y = p1.y + t * (p2.y - p1.y);
-            if y >= self.min.y && y <= self.max.y {
-                return Some(Point2D::new(self.min.x, y));
-            }
-        }
-        if let Some(t) = Self::find_intersection_parameter(p1.x, p2.x, self.max.x) {
-            let y = p1.y + t * (p2.y - p1.y);
-            if y >= self.min.y && y <= self.max.y {
-                return Some(Point2D::new(self.max.x, y));
-            }
-        }
-
-        // Check intersections with horizontal boundaries
-        if let Some(t) = Self::find_intersection_parameter(p1.y, p2.y, self.min.y) {
-            let x = p1.x + t * (p2.x - p1.x);
-            if x >= self.min.x && x <= self.max.x {
-                return Some(Point2D::new(x, self.min.y));
-            }
-        }
-        if let Some(t) = Self::find_intersection_parameter(p1.y, p2.y, self.max.y) {
-            let x = p1.x + t * (p2.x - p1.x);
-            if x >= self.min.x && x <= self.max.x {
-                return Some(Point2D::new(x, self.max.y));
-            }
-        }
-
-        None
-    }
-
-    // Helper function to find both intersection points of a line segment with rectangle
-    pub fn find_segment_intersections(
-        &self,
-        p1: &Point2D,
-        p2: &Point2D,
-    ) -> Option<(Point2D, Point2D)> {
-        let mut intersections = Vec::new();
-
-        // Find all intersections
-        let candidates = [
-            self.find_intersection_with_edge(p1, p2, self.min.x, true),
-            self.find_intersection_with_edge(p1, p2, self.max.x, true),
-            self.find_intersection_with_edge(p1, p2, self.min.y, false),
-            self.find_intersection_with_edge(p1, p2, self.max.y, false),
-        ];
-
-        for point in candidates.iter().flatten() {
-            if self.contains(point) {
-                intersections.push(point.clone());
-            }
-        }
-
-        // If we found exactly two intersections, return them
-        if intersections.len() == 2 {
-            Some((intersections[0].clone(), intersections[1].clone()))
-        } else {
-            None
-        }
-    }
-}
-
-impl From<Bounds> for Rectangle {
-    fn from(value: Bounds) -> Self {
-        Rectangle {
-            min: Point2D {
+    fn from_bounds(value: Bounds) -> Rectangle {
+        Rectangle::new(
+            Coord {
                 x: value.min.x,
                 y: value.min.y,
             },
-            max: Point2D {
+            Coord {
                 x: value.max.x,
                 y: value.max.y,
             },
+        )
+    }
+
+    fn into_line_string(self) -> LineString {
+        LineString::new(vec![
+            Coord {
+                x: self.min().x,
+                y: self.max().y,
+            },
+            self.min(),
+            Coord {
+                x: self.max().x,
+                y: self.min().y,
+            },
+            self.max(),
+            Coord {
+                x: self.min().x,
+                y: self.max().y,
+            },
+        ])
+    }
+
+    fn touch_margin(&self, other: &Rectangle, margin: f64) -> bool {
+        !(self.max().x < other.min().x - margin
+            || self.min().x > other.max().x + margin
+            || self.max().y < other.min().y - margin
+            || self.min().y > other.max().y + margin)
+    }
+
+    fn clip_multi_line_string(&self, lines: MultiLineString) -> MultiLineString {
+        let mut output = MultiLineString::new(vec![]);
+
+        for line in lines.into_iter() {
+            if self.contains(&line) {
+                output.0.push(line);
+            } else if let Some(parts) = self.clip_line_string(line) {
+                output.0.extend(parts)
+            }
         }
+        output
+    }
+
+    fn clip_line_string(&self, line: LineString) -> Option<Vec<LineString>> {
+        if self.intersects(&line) {
+            let mut parts = vec![];
+
+            let mut current_line = vec![];
+
+            for segment in line.lines() {
+                if self.contains(&segment) {
+                    // start and end inside
+                    if current_line.is_empty() {
+                        current_line.push(segment.start);
+                    }
+                    current_line.push(segment.end);
+                } else if self.contains(&segment.start) {
+                    // only start inside
+                    if current_line.is_empty() {
+                        current_line.push(segment.start);
+                    }
+                    current_line.push(
+                        self.rect_line_intersection(&segment)
+                            .expect("Line and rectangle do not intersect"),
+                    );
+                    parts.push(LineString::new(current_line));
+                    current_line = vec![];
+                } else if self.contains(&segment.end) {
+                    // only end inside
+                    current_line.push(
+                        self.rect_line_intersection(&segment)
+                            .expect("Line and rectangle do not intersect"),
+                    );
+                    current_line.push(segment.end);
+                } else {
+                    // neither start or end is inside, but might still intersect twice
+                    if let Some((i1, i2)) = self.rect_line_intersections(&segment) {
+                        assert!(current_line.is_empty());
+                        current_line.push(i1);
+                        current_line.push(i2);
+                        parts.push(LineString::new(current_line));
+                        current_line = vec![];
+                    }
+                }
+            }
+            if current_line.len() > 1 {
+                parts.push(LineString::new(current_line));
+            }
+
+            Some(parts)
+        } else {
+            None
+        }
+    }
+
+    fn rect_line_intersection(&self, line: &Line) -> Option<Coord> {
+        for segment in self.lines() {
+            if let Some(w_intersection) = line_intersection(segment, *line) {
+                match w_intersection {
+                    LineIntersection::SinglePoint {
+                        intersection: c,
+                        is_proper: _,
+                    } => return Some(c),
+                    LineIntersection::Collinear { intersection: _ } => {
+                        panic!("Collinear cutting!!");
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn rect_line_intersections(&self, line: &Line) -> Option<(Coord, Coord)> {
+        let mut is = [None, None];
+
+        for i in is.iter_mut() {
+            for segment in self.lines() {
+                if let Some(w_intersection) = line_intersection(segment, *line) {
+                    match w_intersection {
+                        LineIntersection::SinglePoint {
+                            intersection: c,
+                            is_proper: _,
+                        } => {
+                            *i = Some(c);
+                            break;
+                        }
+                        LineIntersection::Collinear { intersection: _ } => {
+                            panic!("Collinear cutting!!");
+                        }
+                    }
+                }
+            }
+        }
+        if is[0].is_none() || is[1].is_none() {
+            None
+        } else if Euclidean::distance(line.start, is[0].unwrap())
+            <= Euclidean::distance(line.start, is[1].unwrap())
+        {
+            Some((is[0].unwrap(), is[1].unwrap()))
+        } else {
+            Some((is[1].unwrap(), is[0].unwrap()))
+        }
+    }
+
+    fn lines(&self) -> Vec<Line> {
+        vec![
+            Line::new(
+                Coord {
+                    x: self.min().x,
+                    y: self.max().y,
+                },
+                Coord {
+                    x: self.min().x,
+                    y: self.min().y,
+                },
+            ),
+            Line::new(
+                Coord {
+                    x: self.min().x,
+                    y: self.min().y,
+                },
+                Coord {
+                    x: self.max().x,
+                    y: self.min().y,
+                },
+            ),
+            Line::new(
+                Coord {
+                    x: self.max().x,
+                    y: self.min().y,
+                },
+                Coord {
+                    x: self.max().x,
+                    y: self.max().y,
+                },
+            ),
+            Line::new(
+                Coord {
+                    x: self.max().x,
+                    y: self.max().y,
+                },
+                Coord {
+                    x: self.min().x,
+                    y: self.max().y,
+                },
+            ),
+        ]
+    }
+
+    fn on_rect(&self, point: &Coord, epsilon: f64) -> bool {
+        (point.x - self.min().x).abs() < epsilon
+            || (point.x - self.max().x).abs() < epsilon
+            || (point.y - self.min().y).abs() < epsilon
+            || (point.y - self.max().y).abs() < epsilon
     }
 }
 
-impl Add for &Rectangle {
-    type Output = Rectangle;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    fn add(self, rhs: Self) -> Self::Output {
-        Rectangle {
-            min: Point2D {
-                x: self.min.x + rhs.min.x,
-                y: self.min.y + rhs.min.y,
-            },
-            max: Point2D {
-                x: self.max.x + rhs.max.x,
-                y: self.max.y + rhs.max.y,
-            },
-        }
+    #[test]
+    fn test_clip_lines_closed_line() {
+        let bounds = Rectangle::new(Coord { x: 0., y: 0. }, Coord { x: 100., y: 100. });
+
+        let clip_line = LineString::new(vec![
+            Coord { x: 1., y: 40. },
+            Coord { x: -1., y: 40. },
+            Coord { x: -1., y: 30. },
+            Coord { x: 1., y: 30. },
+            Coord { x: 1., y: 40. },
+        ]);
+
+        let result = bounds.clip_line_string(clip_line).unwrap();
+
+        let expected = vec![
+            LineString::new(vec![Coord { x: 1., y: 40. }, Coord { x: 0., y: 40. }]),
+            LineString::new(vec![
+                Coord { x: 0., y: 30. },
+                Coord { x: 1., y: 30. },
+                Coord { x: 1., y: 40. },
+            ]),
+        ];
+
+        assert_eq!(expected, result);
     }
 }

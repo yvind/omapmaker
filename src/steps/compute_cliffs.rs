@@ -1,11 +1,10 @@
 use crate::{
-    geometry::{Line, Polygon, PolygonTrigger},
+    geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon},
     map::{AreaObject, MapObject, Omap, Symbol},
     raster::Dfm,
 };
 
-use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
-const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
+use geo::{BooleanOps, Simplify};
 
 use std::sync::{Arc, Mutex};
 
@@ -13,31 +12,35 @@ pub fn compute_cliffs(
     slope: &Dfm,
     cliff_threshold: f64,
     dist_to_hull_epsilon: f64,
-    convex_hull: &Line,
+    convex_hull: &LineString,
+    cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
-    let mut cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
+    let symbol = Symbol::GiganticBoulder;
+    let cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
 
-    for yc in cliff_contours.iter_mut() {
-        yc.fix_ends_to_line(convex_hull, dist_to_hull_epsilon);
-    }
+    let cliff_hint = match slope.hint_value() {
+        Some(v) => *v,
+        None => return,
+    } > cliff_threshold;
 
-    let cliff_hint = slope[(SIDE_LENGTH / 2, SIDE_LENGTH / 2)] > cliff_threshold;
-    let cliff_polygons = Polygon::from_contours(
+    let mut cliff_polygons = MultiPolygon::from_contours(
         cliff_contours,
         convex_hull,
-        PolygonTrigger::Above,
-        10.,
+        symbol.min_size(),
         dist_to_hull_epsilon,
         cliff_hint,
     );
 
-    for mut polygon in cliff_polygons {
-        if simplify_epsilon > 0. {
-            polygon.simplify(simplify_epsilon);
-        }
-        let mut cliff_object = AreaObject::from_polygon(polygon, Symbol::GiganticBoulder);
+    cliff_polygons = cut_overlay.intersection(&cliff_polygons);
+
+    if simplify_epsilon > 0. {
+        cliff_polygons = cliff_polygons.simplify(&simplify_epsilon);
+    }
+
+    for polygon in cliff_polygons.into_iter() {
+        let mut cliff_object = AreaObject::from_polygon(polygon, symbol);
         cliff_object.add_auto_tag();
 
         map.lock().unwrap().add_object(cliff_object);

@@ -1,7 +1,7 @@
-#![allow(dead_code)]
+use geo::BoundingRect;
 
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::{Polygon, Rectangle};
+use crate::geometry::{MapCoord, Polygon, Rectangle};
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -28,10 +28,6 @@ impl MapObject for AreaObject {
         self.tags.push(Tag::new(k, v));
     }
 
-    fn bounding_box(&self) -> Rectangle {
-        self.coordinates.bounding_box()
-    }
-
     fn write_to_map(&self, f: &mut BufWriter<File>) {
         f.write_all(format!("<object type=\"1\" symbol=\"{}\">", self.symbol).as_bytes())
             .expect("Could not write to map file");
@@ -42,17 +38,17 @@ impl MapObject for AreaObject {
     }
 
     fn write_coords(&self, f: &mut BufWriter<File>) {
-        let mut num_coords = self.coordinates.boundary.len();
+        let mut num_coords = self.coordinates.exterior().0.len();
         let boundary_length = num_coords;
 
-        for hole in self.coordinates.holes.iter() {
-            num_coords += hole.len();
+        for hole in self.coordinates.interiors().iter() {
+            num_coords += hole.0.len();
         }
 
         f.write_all(format!("<coords count=\"{}\">", num_coords).as_bytes())
             .expect("Could not write to map file");
 
-        for (i, coord) in self.coordinates.boundary.vertices.iter().enumerate() {
+        for (i, coord) in self.coordinates.exterior().coords().enumerate() {
             let c = coord.to_map_coordinates().unwrap();
 
             if i == boundary_length - 1 {
@@ -63,10 +59,10 @@ impl MapObject for AreaObject {
                     .expect("Could not write to map file");
             }
         }
-        for hole in self.coordinates.holes.iter() {
-            let hole_length = hole.len();
+        for hole in self.coordinates.interiors().iter() {
+            let hole_length = hole.0.len();
 
-            for (i, coord) in hole.vertices.iter().enumerate() {
+            for (i, coord) in hole.coords().enumerate() {
                 let c = coord.to_map_coordinates().unwrap();
 
                 if i == hole_length - 1 {

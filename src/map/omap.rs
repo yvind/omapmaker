@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::MapObject;
-use crate::geometry::{Point2D, Rectangle};
+use crate::geometry::Coord;
 
 use std::io::{BufWriter, Write};
 use std::{
@@ -11,12 +11,12 @@ use std::{
 };
 
 pub struct Omap {
-    ref_point: Point2D,
+    ref_point: Coord,
     objects: Vec<Box<dyn MapObject>>,
 }
 
 impl Omap {
-    pub fn new(georef_point: Point2D) -> Self {
+    pub fn new(georef_point: Coord) -> Self {
         Omap {
             ref_point: georef_point,
             objects: vec![],

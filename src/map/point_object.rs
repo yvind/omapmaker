@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use super::{MapObject, Symbol, Tag};
-use crate::geometry::{Point2D, Rectangle};
+use crate::geometry::{MapCoord, Point, Rectangle};
 use std::{
     fs::File,
     io::{BufWriter, Write},
@@ -9,13 +9,13 @@ use std::{
 
 pub struct PointObject {
     symbol: Symbol,
-    coordinates: Point2D,
+    coordinates: Point,
     rotation: f64,
     tags: Vec<Tag>,
 }
 
 impl PointObject {
-    fn from_point(coordinates: Point2D, symbol: Symbol, rotation: f64) -> Self {
+    fn from_point(coordinates: Point, symbol: Symbol, rotation: f64) -> Self {
         Self {
             symbol,
             coordinates,
@@ -26,13 +26,6 @@ impl PointObject {
 }
 
 impl MapObject for PointObject {
-    fn bounding_box(&self) -> Rectangle {
-        Rectangle {
-            min: self.coordinates,
-            max: self.coordinates,
-        }
-    }
-
     fn add_tag(&mut self, k: &str, v: &str) {
         self.tags.push(Tag::new(k, v));
     }
@@ -53,7 +46,7 @@ impl MapObject for PointObject {
     }
 
     fn write_coords(&self, f: &mut BufWriter<File>) {
-        let c = self.coordinates.to_map_coordinates().unwrap();
+        let c = self.coordinates.0.to_map_coordinates().unwrap();
         f.write_all(format!("<coords count=\"1\">{} {};</coords>", c.0, c.1).as_bytes())
             .expect("Could not write to map file");
     }

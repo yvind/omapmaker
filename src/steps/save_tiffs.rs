@@ -1,4 +1,4 @@
-use crate::{geometry::Point2D, raster::Dfm};
+use crate::{geometry::Coord, raster::Dfm};
 
 use std::{ffi::OsStr, ffi::OsString, path::Path};
 
@@ -7,7 +7,7 @@ pub fn save_tiffs(
     grad_dem: Dfm,
     dim: Dfm,
     drm: Dfm,
-    ref_point: &Point2D,
+    ref_point: &Coord,
     file_stem: &OsStr,
     output_directory: &Path,
 ) {

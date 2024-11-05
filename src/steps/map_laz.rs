@@ -3,9 +3,9 @@ use las::Reader;
 
 use std::{fs, path::PathBuf};
 
-use crate::geometry::{Point2D, Rectangle};
+use crate::geometry::{Coord, MapRectangle, Rectangle};
 
-pub fn map_laz(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
+pub fn map_laz(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
     if input.is_file() {
         single_file(input)
     } else {
@@ -37,7 +37,7 @@ fn lidar_in_directory(input: PathBuf) -> Vec<PathBuf> {
     paths
 }
 
-fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
+fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
     let las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",
@@ -46,10 +46,10 @@ fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2
     });
     let bounds = las_reader.header().bounds();
 
-    let ref_point = Point2D::new(
-        ((bounds.max.x + bounds.min.x) / 20.).round() * 10.,
-        ((bounds.max.y + bounds.min.y) / 20.).round() * 10.,
-    );
+    let ref_point = Coord {
+        x: ((bounds.max.x + bounds.min.x) / 20.).round() * 10.,
+        y: ((bounds.max.y + bounds.min.y) / 20.).round() * 10.,
+    };
 
     (
         vec![[Some(0), None, None, None, None, None, None, None, None]],
@@ -58,7 +58,7 @@ fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2
     )
 }
 
-fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Point2D) {
+fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
     let mut tile_names = Vec::with_capacity(paths.len());
@@ -67,7 +67,7 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
         if let Ok(las_reader) = Reader::from_path(&las_path) {
             let b = las_reader.header().bounds();
             tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
-            tile_bounds.push(Rectangle::from(b));
+            tile_bounds.push(Rectangle::from_bounds(b));
             tile_names.push(las_path);
         }
     }
@@ -82,13 +82,13 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
         return (
             vec![[Some(0), None, None, None, None, None, None, None, None]],
             tile_names,
-            Point2D::from(center_point),
+            Coord::from(center_point),
         );
     }
 
     let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds);
 
-    let mut ref_point = Point2D::default();
+    let mut ref_point: Coord<f64> = Coord::default();
     tile_centers.iter().for_each(|tc| {
         ref_point.x += tc[0];
         ref_point.y += tc[1]
@@ -108,10 +108,10 @@ fn neighbouring_tiles(
     let mut avg_tile_size = 0.;
     tile_bounds
         .iter()
-        .for_each(|r| avg_tile_size += r.max.x - r.min.x + r.max.y - r.min.y);
+        .for_each(|r| avg_tile_size += r.max().x - r.min().x + r.max().y - r.min().y);
     avg_tile_size /= (2 * tile_bounds.len()) as f64;
 
-    let margin = 0.5 * avg_tile_size;
+    let margin = 0.1 * avg_tile_size;
 
     let mut tile_neighbours = Vec::with_capacity(tile_centers.len());
     for (i, point) in tile_centers.iter().enumerate() {
@@ -136,28 +136,28 @@ fn neighbouring_tiles(
 }
 
 fn get_neighbour_side(bounds: &Rectangle, tile_center: [f64; 2]) -> Option<usize> {
-    if tile_center[0] < bounds.min.x && tile_center[1] > bounds.max.y {
+    if tile_center[0] < bounds.min().x && tile_center[1] > bounds.max().y {
         return Some(1);
     }
-    if tile_center[0] > bounds.max.x && tile_center[1] > bounds.max.y {
+    if tile_center[0] > bounds.max().x && tile_center[1] > bounds.max().y {
         return Some(3);
     }
-    if tile_center[0] > bounds.max.x && tile_center[1] < bounds.min.y {
+    if tile_center[0] > bounds.max().x && tile_center[1] < bounds.min().y {
         return Some(5);
     }
-    if tile_center[0] < bounds.min.x && tile_center[1] < bounds.min.y {
+    if tile_center[0] < bounds.min().x && tile_center[1] < bounds.min().y {
         return Some(7);
     }
-    if tile_center[1] > bounds.max.y {
+    if tile_center[1] > bounds.max().y {
         return Some(2);
     }
-    if tile_center[0] > bounds.max.x {
+    if tile_center[0] > bounds.max().x {
         return Some(4);
     }
-    if tile_center[1] < bounds.min.y {
+    if tile_center[1] < bounds.min().y {
         return Some(6);
     }
-    if tile_center[0] < bounds.min.x {
+    if tile_center[0] < bounds.min().x {
         return Some(8);
     }
     None
