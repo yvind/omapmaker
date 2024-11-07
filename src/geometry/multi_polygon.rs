@@ -35,7 +35,7 @@ impl MapMultiPolygon for MultiPolygon {
         // snap all line ends to the convex hull before polygon building
         contours.fix_ends_to_line(convex_hull, epsilon);
 
-        // filter out all unclosed contours
+        // filter out all unclosed contours and remove closed contours of only 3 vertices
         let mut i: usize = 0;
         while i < contours.0.len() {
             if !contours.0[i].is_closed() {

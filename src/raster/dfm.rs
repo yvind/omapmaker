@@ -156,25 +156,27 @@ impl Dfm {
         // maps from edges to contour passing that edge in contours-vec, avoids
         // hashmap overhead at the expense of increased memory usage
         // is ~1 MiB for SIDE_LENGTH = 256, needs to increase thread stack size
+        // could probably be a u16 or even u8 to reduce memory usage, but at the cost of conversion when indexing
         let mut contour_map = [usize::MAX; NUM_EDGES];
 
-        let lut: [[usize; 2]; 16] = [
-            [0, 0],
-            [3, 0],
-            [0, 1],
-            [3, 1],
-            [1, 2],
-            [0, 0],
-            [0, 2],
-            [3, 2],
-            [2, 3],
-            [2, 0],
-            [0, 0],
-            [2, 1],
-            [1, 3],
-            [1, 0],
-            [0, 3],
-            [0, 0],
+        // 5s are only filler values, need four spaces for the special cases 5 and 10
+        let lut: [[usize; 4]; 16] = [
+            [0, 0, 0, 0],
+            [3, 0, 5, 5],
+            [0, 1, 5, 5],
+            [3, 1, 5, 5],
+            [1, 2, 5, 5],
+            [0, 0, 0, 0],
+            [0, 2, 5, 5],
+            [3, 2, 5, 5],
+            [2, 3, 5, 5],
+            [2, 0, 5, 5],
+            [0, 0, 0, 0],
+            [2, 1, 5, 5],
+            [1, 3, 5, 5],
+            [1, 0, 5, 5],
+            [0, 3, 5, 5],
+            [0, 0, 0, 0],
         ];
 
         for yi in 0..SIDE_LENGTH - 1 {
@@ -195,47 +197,52 @@ impl Dfm {
                     + 4 * (self[(ys[2], xs[2])] >= level) as usize
                     + 8 * (self[(ys[3], xs[3])] >= level) as usize;
 
-                let edge_indices: Vec<usize>;
-                if index == 0 || index == 15 {
-                    continue;
-                } else if index == 5 {
-                    let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // above
-                    let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // below
+                let edge_indices;
+                let len;
+                match index {
+                    0 | 15 => continue,
+                    5 => {
+                        len = 4;
+                        let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // above
+                        let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // below
 
-                    if (dr - level).abs() > (dl - level).abs() {
-                        edge_indices = vec![3, 0, 1, 2];
-                    } else {
-                        edge_indices = vec![1, 0, 3, 2];
+                        if (dr - level).abs() > (dl - level).abs() {
+                            edge_indices = [3, 0, 1, 2];
+                        } else {
+                            edge_indices = [1, 0, 3, 2];
+                        }
                     }
-                } else if index == 10 {
-                    let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // below
-                    let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // above
+                    10 => {
+                        len = 4;
+                        let dr = (self[(ys[0], xs[0])] + self[(ys[2], xs[2])]) / 2.; // below
+                        let dl = (self[(ys[1], xs[1])] + self[(ys[3], xs[3])]) / 2.; // above
 
-                    if (dr - level).abs() > (dl - level).abs() {
-                        edge_indices = vec![0, 3, 2, 1];
-                    } else {
-                        edge_indices = vec![0, 1, 2, 3];
+                        if (dr - level).abs() > (dl - level).abs() {
+                            edge_indices = [0, 3, 2, 1];
+                        } else {
+                            edge_indices = [0, 1, 2, 3];
+                        }
                     }
-                } else {
-                    edge_indices = lut[index].to_vec();
+                    _ => {
+                        edge_indices = lut[index];
+                        len = 2;
+                    }
                 }
 
                 let mut vertex_coordinates: [Coord; 2] = [Coord { x: 0.0, y: 0.0 }; 2];
-                for (i, e) in edge_indices.iter().enumerate() {
-                    let a = self[(ys[*e], xs[*e])];
-                    let b = self[(ys[(*e + 1) % 4], xs[(*e + 1) % 4])];
+                for i in 0..len {
+                    let e = edge_indices[i];
 
-                    let a_coord = self.index2coord(xs[*e], ys[*e])?;
+                    let a = self[(ys[e], xs[e])];
+                    let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
+
+                    let a_coord = self.index2coord(xs[e], ys[e])?;
 
                     vertex_coordinates[i % 2].x = a_coord.x
-                        + CELL_SIZE
-                            * (xs[(*e + 1) % 4] as i32 - xs[*e] as i32) as f64
-                            * (level - a)
+                        + CELL_SIZE * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * (level - a)
                             / (b - a);
                     vertex_coordinates[i % 2].y = a_coord.y
-                        + CELL_SIZE
-                            * (ys[*e] as i32 - ys[(*e + 1) % 4] as i32) as f64
-                            * (level - a)
+                        + CELL_SIZE * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * (level - a)
                             / (b - a);
 
                     if i % 2 == 1 {
@@ -253,8 +260,28 @@ impl Dfm {
                         {
                             // join two existing contours
                             if end_of_contour_index == start_of_contour_index {
-                                // close the contour (joining a contour with itself)
-                                contours[end_of_contour_index].close();
+                                // discard degenerate contours
+                                if contours[end_of_contour_index].0.len() < 3 {
+                                    contours.swap_remove(end_of_contour_index);
+
+                                    // update map
+                                    let end_key = self
+                                        .get_edge_index(
+                                            contours[end_of_contour_index].last_vertex(),
+                                        )
+                                        .unwrap();
+                                    let start_key = self
+                                        .get_edge_index(
+                                            contours[end_of_contour_index].first_vertex(),
+                                        )
+                                        .unwrap();
+
+                                    contour_map[end_key] = end_of_contour_index;
+                                    contour_map[start_key] = end_of_contour_index;
+                                } else {
+                                    // close the contour (joining a contour with itself)
+                                    contours[end_of_contour_index].close();
+                                }
                             } else {
                                 // join two different contours
                                 // do a swap remove on the start_contour_index and update map
@@ -281,25 +308,28 @@ impl Dfm {
                                 contour_map[end_key] = end_of_contour_index;
                                 contour_map[start_key] = end_of_contour_index;
 
-                                // if the last element was removed or has already been dealt with no other update needs to be done
-                                if start_of_contour_index == contours.len()
-                                    || end_of_contour_index == start_of_contour_index
+                                // if the last element was not removed or has not already been dealt with
+                                if !(start_of_contour_index == contours.len()
+                                    || end_of_contour_index == start_of_contour_index)
                                 {
-                                    continue;
+                                    // get the index of the other affect contour in the map that needs updating
+                                    // only the edge indecies corresponding to the contours endpoints needs updating
+                                    // as the "inner" edges a contour crosses should never be encountered again
+
+                                    let end_key = self
+                                        .get_edge_index(
+                                            contours[start_of_contour_index].last_vertex(),
+                                        )
+                                        .unwrap();
+                                    let start_key = self
+                                        .get_edge_index(
+                                            contours[start_of_contour_index].first_vertex(),
+                                        )
+                                        .unwrap();
+
+                                    contour_map[end_key] = start_of_contour_index;
+                                    contour_map[start_key] = start_of_contour_index;
                                 }
-                                // get the index of the other affect contour in the map that needs updating
-                                // only the edge indecies corresponding to the contours endpoints needs updating
-                                // as the "inner" edges a contour crosses should never be encountered again
-
-                                let end_key = self
-                                    .get_edge_index(contours[start_of_contour_index].last_vertex())
-                                    .unwrap();
-                                let start_key = self
-                                    .get_edge_index(contours[start_of_contour_index].first_vertex())
-                                    .unwrap();
-
-                                contour_map[end_key] = start_of_contour_index;
-                                contour_map[start_key] = start_of_contour_index;
                             }
                         } else if end_of_contour_index != usize::MAX {
                             // append to an existing contour

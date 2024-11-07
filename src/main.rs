@@ -41,6 +41,7 @@ fn main() {
 
     // step 0: figure out lidar files spatial relationships, assuming they are divided from a big lidar-project by a square-ish grid
     let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(args.in_file.clone());
+    let laz_paths = Arc::new(laz_paths);
 
     // create map
     let map = Arc::new(Mutex::new(Omap::new(ref_point)));
@@ -50,33 +51,44 @@ fn main() {
         println!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len());
         println!("\t{:?}", laz_paths[fi].file_name().unwrap());
         println!("-----------------------------------------------");
-        println!("Subtiling file...");
 
         tiff_directory.push(laz_paths[fi].file_stem().unwrap());
         if args.write_tiff {
             fs::create_dir_all(&tiff_directory).expect("Could not create output folder");
         }
 
+        println!("Subtiling file...");
         // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
-        // takes it sweet time reading the files, have not been able to make improvment on reading with multiple threads
-        let (tile_paths, tile_cut_bounds) =
-            steps::retile_laz(args.threads, &laz_neighbour_map[fi], &laz_paths);
 
-        println!("Computing map features...");
-
-        let pb = ProgressBar::new(tile_paths.len() as u64);
+        let pb = ProgressBar::new(args.threads as u64 * 3 + 1);
         pb.set_style(
             ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] [{bar:40.white/gray}] ({eta})")
+                .template("[{elapsed_precise}] [{bar:30.white/gray}] ({eta})")
                 .unwrap()
                 .progress_chars("=>."),
         );
         let pb = Arc::new(Mutex::new(pb));
 
-        // refactor so that it returns a laz-file map where all tiles are cut, merged and
-        // filtered for too small objects except those that touch the bounds of the laz
-        // only merge polygons across tile boundaries if they are too small to be
-        // on their own
+        let (tile_paths, tile_cut_bounds) = steps::retile_laz(
+            args.threads,
+            &laz_neighbour_map[fi],
+            laz_paths.clone(),
+            pb.clone(),
+        );
+        {
+            pb.lock().unwrap().finish();
+        }
+        println!("Computing map features...");
+
+        let pb = ProgressBar::new(tile_paths.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] [{bar:30.white/gray}] ({eta})")
+                .unwrap()
+                .progress_chars("=>."),
+        );
+        let pb = Arc::new(Mutex::new(pb));
+
         steps::compute_map_objects(
             map.clone(),
             &args,
@@ -90,15 +102,14 @@ fn main() {
         // delete all sub-tiles
         fs::remove_dir_all(laz_paths[fi].with_extension(""))
             .expect("Could not remove dir with sub-tiled las-file");
-
-        pb.lock().unwrap().finish();
+        {
+            pb.lock().unwrap().finish();
+        }
 
         tiff_directory.pop();
     }
-    // refactor:
-    // merge all laz-file maps and filter out everything that's too small
-    // only merge polygons across boundaries if they are too small to be
-    // on their own
+
+    // todo!: merge all line objects across boundaries
 
     // save map to file
     println!("\nWriting omap file...");
