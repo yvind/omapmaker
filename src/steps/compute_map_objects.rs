@@ -1,9 +1,10 @@
 use crate::geometry::{Coord, MapLineString, MapRectangle, Rectangle};
 use crate::map::{LineObject, Omap, Symbol};
 use crate::parser::Args;
+use crate::raster::Threshold;
 use crate::steps;
 
-use crate::CELL_SIZE;
+use crate::{CELL_SIZE, STACK_SIZE};
 
 use indicatif::ProgressBar;
 
@@ -39,7 +40,7 @@ pub fn compute_map_objects(
 
         thread_handles.push(
             thread::Builder::new()
-                .stack_size(10 * 1024 * 1024) // needs to increase thread stack size to accomodate marching squares wo hashmaps
+                .stack_size(STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
                 .spawn(move || {
                     let mut current_index = thread_i;
 
@@ -83,9 +84,7 @@ pub fn compute_map_objects(
                                 &dem,
                                 (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z),
                                 args.basemap_contours,
-                                &current_cut_bounds,
                                 &cut_overlay,
-                                dist_to_hull_epsilon,
                                 args.simplification_distance,
                                 &map_ref,
                             );
@@ -95,10 +94,9 @@ pub fn compute_map_objects(
                         // step 5: compute vegetation
                         steps::compute_vegetation(
                             &drm,
-                            (None, Some(1.2)),
+                            Threshold::Upper(1.2),
                             &convex_hull,
                             &cut_overlay,
-                            dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::RoughOpenLand,
                             &map_ref,
@@ -106,10 +104,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            (Some(2.1), None), //Some(3.0),
+                            Threshold::Lower(2.1),
                             &convex_hull,
                             &cut_overlay,
-                            dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::LightGreen,
                             &map_ref,
@@ -117,10 +114,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            (Some(3.0), None), //Some(4.0),
+                            Threshold::Lower(3.0),
                             &convex_hull,
                             &cut_overlay,
-                            dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::MediumGreen,
                             &map_ref,
@@ -128,10 +124,9 @@ pub fn compute_map_objects(
 
                         steps::compute_vegetation(
                             &drm,
-                            (Some(4.0), None),
+                            Threshold::Lower(4.0),
                             &convex_hull,
                             &cut_overlay,
-                            dist_to_hull_epsilon,
                             args.simplification_distance,
                             Symbol::DarkGreen,
                             &map_ref,
@@ -141,7 +136,6 @@ pub fn compute_map_objects(
                         steps::compute_cliffs(
                             &grad_dem,
                             0.7,
-                            dist_to_hull_epsilon,
                             &convex_hull,
                             &cut_overlay,
                             args.simplification_distance,

@@ -28,7 +28,7 @@ pub fn compute_dfms(
 
     for y_index in 0..SIDE_LENGTH {
         for x_index in 0..SIDE_LENGTH {
-            let coords = dem.index2coord(x_index, y_index).unwrap();
+            let coords = dem.index2coord(x_index, y_index);
 
             if !pch.contains(&coords) {
                 continue;

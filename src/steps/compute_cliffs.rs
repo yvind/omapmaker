@@ -11,33 +11,25 @@ use std::sync::{Arc, Mutex};
 pub fn compute_cliffs(
     slope: &Dfm,
     cliff_threshold: f64,
-    dist_to_hull_epsilon: f64,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
     let symbol = Symbol::GiganticBoulder;
-    let cliff_contours = slope.marching_squares(cliff_threshold).unwrap();
+    let cliff_contours = slope.marching_squares(cliff_threshold);
 
     let cliff_hint = match slope.hint_value() {
         Some(v) => *v,
         None => return,
     } > cliff_threshold;
 
-    let mut cliff_polygons = MultiPolygon::from_contours(
-        cliff_contours,
-        convex_hull,
-        symbol.min_size(),
-        dist_to_hull_epsilon,
-        cliff_hint,
-    );
+    let mut cliff_polygons =
+        MultiPolygon::from_contours(cliff_contours, convex_hull, symbol.min_size(), cliff_hint);
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
-    if simplify_epsilon > 0. {
-        cliff_polygons = cliff_polygons.simplify(&simplify_epsilon);
-    }
+    cliff_polygons = cliff_polygons.simplify(&simplify_epsilon);
 
     for polygon in cliff_polygons.into_iter() {
         let mut cliff_object = AreaObject::from_polygon(polygon, symbol);

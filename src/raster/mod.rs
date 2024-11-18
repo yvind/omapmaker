@@ -7,3 +7,8 @@ pub enum FieldType {
     Intensity,
     ReturnNumber,
 }
+
+pub enum Threshold {
+    Upper(f64),
+    Lower(f64),
+}
