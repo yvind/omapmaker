@@ -21,13 +21,6 @@ pub struct Dfm {
 }
 
 impl Dfm {
-    pub fn hint_value(&self) -> Option<&f64> {
-        if self.field[self.field.len() / 2] > f64::MIN {
-            return Some(&self.field[self.field.len() / 2]);
-        }
-        self.field.iter().find(|&f| f > &f64::MIN)
-    }
-
     pub fn new(tl_coord: Coord) -> Dfm {
         Dfm {
             field: [f64::MIN; SIDE_LENGTH * SIDE_LENGTH],
@@ -118,7 +111,7 @@ impl Dfm {
             [5, 5, 5, 5], // nothing
         ];
 
-        // make a padded proxy of self to avoid edge problems and close all contours
+        // make a f64::MIN-padded proxy of self to avoid edge problems and close all contours
         let padded = DfmPaddedProxy::new(self);
 
         for yi in 0..SIDE_LENGTH + 1 {

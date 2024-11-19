@@ -1,7 +1,7 @@
 use crate::{
     geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon},
     map::{AreaObject, MapObject, Omap, Symbol},
-    raster::Dfm,
+    raster::{Dfm, Threshold},
 };
 
 use geo::{BooleanOps, Simplify};
@@ -10,22 +10,21 @@ use std::sync::{Arc, Mutex};
 
 pub fn compute_cliffs(
     slope: &Dfm,
-    cliff_threshold: f64,
+    cliff_threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
     simplify_epsilon: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
     let symbol = Symbol::GiganticBoulder;
-    let cliff_contours = slope.marching_squares(cliff_threshold);
+    let cliff_contours = slope.marching_squares(cliff_threshold.inner());
 
-    let cliff_hint = match slope.hint_value() {
-        Some(v) => *v,
-        None => return,
-    } > cliff_threshold;
-
-    let mut cliff_polygons =
-        MultiPolygon::from_contours(cliff_contours, convex_hull, symbol.min_size(), cliff_hint);
+    let mut cliff_polygons = MultiPolygon::from_contours(
+        cliff_contours,
+        convex_hull,
+        symbol.min_size(),
+        cliff_threshold.is_upper(),
+    );
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 

@@ -135,7 +135,7 @@ pub fn compute_map_objects(
                         // step 6: compute cliffs
                         steps::compute_cliffs(
                             &grad_dem,
-                            0.7,
+                            Threshold::Lower(0.7),
                             &convex_hull,
                             &cut_overlay,
                             args.simplification_distance,

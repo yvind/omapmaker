@@ -17,32 +17,14 @@ pub fn compute_vegetation(
     symbol: Symbol,
     map: &Arc<Mutex<Omap>>,
 ) {
-    let mut contours;
-    let hint_val = match dfm.hint_value() {
-        Some(f) => *f,
-        None => return,
-    };
+    let contours = dfm.marching_squares(threshold.inner());
 
-    let veg_hint;
-
-    match threshold {
-        Threshold::Lower(threshold) => {
-            // Interested in area above lower threshold
-            contours = dfm.marching_squares(threshold);
-            veg_hint = hint_val > threshold;
-        }
-        Threshold::Upper(threshold) => {
-            // Interested in area below upper threshold
-            contours = dfm.marching_squares(threshold);
-            veg_hint = hint_val < threshold;
-            for c in contours.iter_mut() {
-                c.0.reverse();
-            }
-        }
-    }
-
-    let mut veg_polygons =
-        MultiPolygon::from_contours(contours, convex_hull, symbol.min_size(), veg_hint);
+    let mut veg_polygons = MultiPolygon::from_contours(
+        contours,
+        convex_hull,
+        symbol.min_size(),
+        threshold.is_upper(),
+    );
 
     veg_polygons = cut_overlay.intersection(&veg_polygons);
 
