@@ -14,9 +14,9 @@ impl MapLineString for LineString {
         }
         let mut area: f64 = 0.;
         for i in 0..self.0.len() - 1 {
-            area += 0.5 * (self.0[i].x * self.0[i + 1].y - self.0[i].y * self.0[i + 1].x);
+            area += self.0[i].x * self.0[i + 1].y - self.0[i].y * self.0[i + 1].x;
         }
-        Some(area)
+        Some(0.5 * area)
     }
 
     fn inner_line(&self, other: &LineString) -> Option<Polygon> {

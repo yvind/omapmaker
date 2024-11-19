@@ -40,7 +40,7 @@ fn main() {
 
     println!("Running on {} threads", args.threads);
 
-    // step 0: figure out lidar files spatial relationships, assuming they are divided from a big lidar-project by a square-ish grid
+    // step 0: figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
     let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(args.in_file.clone());
     let laz_paths = Arc::new(laz_paths);
 
@@ -59,7 +59,8 @@ fn main() {
         }
 
         println!("Subtiling file...");
-        // step 1: preprocess lidar-file, retile into 128mx128m tiles with 14m overlap on all sides
+        // step 1: preprocess lidar-file, retile into TILE_SIZExTILE_SIZEm tiles
+        //         with at least MIN_NEIGHBOUR_MARGINm overlap on all sides
 
         let pb = ProgressBar::new(args.threads as u64 * 3 + 1);
         pb.set_style(
