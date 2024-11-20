@@ -59,7 +59,7 @@ impl MapMultiPolygon for MultiPolygon {
         // invert the polygons with respect to the convex hull if we want area below the contours
         if invert {
             let hull = Polygon::new(convex_hull.clone(), vec![]);
-            polygons = hull.xor(&polygons);
+            polygons = hull.difference(&polygons);
 
             // some edge connected polygons makes
             // it through the size filter for some reason

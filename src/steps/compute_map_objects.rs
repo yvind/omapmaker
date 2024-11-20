@@ -4,7 +4,7 @@ use crate::parser::Args;
 use crate::raster::Threshold;
 use crate::steps;
 
-use crate::{CELL_SIZE, STACK_SIZE};
+use crate::STACK_SIZE;
 
 use indicatif::ProgressBar;
 
@@ -21,8 +21,6 @@ pub fn compute_map_objects(
     tiff_directory: &Path,
     pb: Arc<Mutex<ProgressBar>>,
 ) {
-    let dist_to_hull_epsilon = 2. * CELL_SIZE;
-
     let mut thread_handles = vec![];
 
     let tile_paths = Arc::new(tile_paths);
@@ -47,13 +45,12 @@ pub fn compute_map_objects(
                     while current_index < tile_paths_ref.len() {
                         let tile_path = &tile_paths_ref[current_index];
 
-                        // step 2: read each laz file and its neighbours and build point-cloud
-                        let (ground_cloud, ground_tree, convex_hull, tl) =
-                            steps::read_laz(tile_path, dist_to_hull_epsilon, ref_point);
+                        // step 2: read each laz file and its neighbours and build point-cloud(s)
+                        let (ground_cloud, convex_hull, tl) = steps::read_laz(tile_path, ref_point);
 
                         // step 3: compute the DFMs
                         let (dem, grad_dem, drm, _, dim, _) =
-                            steps::compute_dfms(&ground_tree, &ground_cloud, &convex_hull, tl);
+                            steps::compute_dfms(&ground_cloud, &convex_hull, tl);
 
                         // figure out the cut-overlay (intersect of cut-bounds and convex hull)
                         let mut current_cut_bounds = cut_bounds[current_index];

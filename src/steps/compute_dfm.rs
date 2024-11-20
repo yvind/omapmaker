@@ -9,18 +9,15 @@ const SIDE_LENGTH: usize = TILE_SIZE_USIZE * INV_CELL_SIZE_USIZE;
 use geo::Contains;
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 
-pub fn compute_dfms(
-    pt: &ImmutableKdTree<f64, usize, 2, 32>,
-    pc: &PointCloud,
-    ch: &LineString,
-    tl: Coord,
-) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
+pub fn compute_dfms(pc: &PointCloud, ch: &LineString, tl: Coord) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
     let mut dem = Dfm::new(tl);
     let mut grad_dem = dem.clone();
     let mut drm = dem.clone();
     let mut grad_drm = dem.clone();
     let mut dim = dem.clone();
     let mut grad_dim = dem.clone();
+
+    let pt: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(&pc.to_2d_slice());
 
     let num_neighbours = 32;
 

@@ -1,20 +1,10 @@
 use crate::geometry::{Coord, LineString, PointCloud};
 
 use fastrand::f64 as random;
-use kiddo::immutable::float::kdtree::ImmutableKdTree;
 use las::{point::Classification, Reader};
 use std::path::PathBuf;
 
-pub fn read_laz(
-    las_path: &PathBuf,
-    dist_to_hull_epsilon: f64,
-    ref_point: Coord,
-) -> (
-    PointCloud,
-    ImmutableKdTree<f64, usize, 2, 32>,
-    LineString,
-    Coord,
-) {
+pub fn read_laz(las_path: &PathBuf, ref_point: Coord) -> (PointCloud, LineString, Coord) {
     // read first and main laz file
     let mut las_reader = Reader::from_path(las_path).unwrap_or_else(|_| {
         panic!(
@@ -31,6 +21,8 @@ pub fn read_laz(
     las_bounds.max.y -= ref_point.y;
     las_bounds.min.y -= ref_point.y;
 
+    // read only ground points into a cloud so that
+    // the convex hull only contains the ground points
     let mut ground_cloud = PointCloud::new(
         las_reader
             .points()
@@ -52,8 +44,9 @@ pub fn read_laz(
         x: map_bounds.min.x,
         y: map_bounds.max.y,
     };
-    let convex_hull = ground_cloud.bounded_convex_hull(&map_bounds, dist_to_hull_epsilon);
+    let convex_hull = ground_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE);
 
+    // add the water points to the ground cloud
     let mut las_reader = Reader::from_path(las_path).unwrap();
     ground_cloud.add(
         las_reader
@@ -70,8 +63,5 @@ pub fn read_laz(
             .collect::<Vec<_>>(),
     );
 
-    let ground_tree: ImmutableKdTree<f64, usize, 2, 32> =
-        ImmutableKdTree::new_from_slice(&ground_cloud.to_2d_slice());
-
-    (ground_cloud, ground_tree, convex_hull, tl)
+    (ground_cloud, convex_hull, tl)
 }
