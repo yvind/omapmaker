@@ -5,7 +5,6 @@ use las::{point::Classification, Reader};
 use std::path::PathBuf;
 
 pub fn read_laz(las_path: &PathBuf, ref_point: Coord) -> (PointCloud, LineString, Coord) {
-    // read first and main laz file
     let mut las_reader = Reader::from_path(las_path).unwrap_or_else(|_| {
         panic!(
             "Could not read given laz/las file with path: {}",

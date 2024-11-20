@@ -11,7 +11,6 @@ pub use self::multi_polygon::{MapMultiPolygon, MultiPolygon};
 pub use self::point_cloud::PointCloud;
 pub use self::point_lidar::{PointLaz, PointTrait};
 pub use self::rectangle::{MapRectangle, Rectangle};
-pub use geo::Line;
 pub use geo::MultiLineString;
 pub use geo::Point;
 pub use geo::Polygon;

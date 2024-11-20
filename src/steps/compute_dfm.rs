@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::geometry::{Coord, LineString, PointCloud, Polygon};
 use crate::raster::{Dfm, FieldType};
 use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};

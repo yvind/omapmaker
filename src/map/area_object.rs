@@ -1,5 +1,3 @@
-use geo::BoundingRect;
-
 use super::{MapObject, Symbol, Tag};
 use crate::geometry::{MapCoord, Polygon, Rectangle};
 use std::{

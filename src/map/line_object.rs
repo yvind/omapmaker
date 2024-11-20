@@ -1,7 +1,3 @@
-#![allow(dead_code)]
-
-use geo::BoundingRect;
-
 use super::{MapObject, Symbol, Tag};
 use crate::geometry::{LineString, MapCoord, Rectangle};
 
