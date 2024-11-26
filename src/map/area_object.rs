@@ -103,7 +103,7 @@ impl AreaObject {
                         let h1 = segment.0 .1.unwrap().to_map_coordinates().unwrap();
                         let h2 = segment.0 .2.unwrap().to_map_coordinates().unwrap();
                         f.write_all(
-                            format!("{} {} 1; {} {}; {} {}", c.0, c.1, h1.0, h1.1, h2.0, h2.1)
+                            format!("{} {} 1;{} {};{} {};", c.0, c.1, h1.0, h1.1, h2.0, h2.1)
                                 .as_bytes(),
                         )
                         .expect("Could not write to map file");
@@ -118,7 +118,7 @@ impl AreaObject {
                     let c1 = final_segment.0 .0.to_map_coordinates().unwrap();
                     let c2 = final_segment.0 .3.to_map_coordinates().unwrap();
 
-                    f.write_all(format!("{} {}; {} {} 18;", c1.0, c1.1, c2.0, c2.0).as_bytes())
+                    f.write_all(format!("{} {};{} {} 18;", c1.0, c1.1, c2.0, c2.1).as_bytes())
                         .expect("Could not write to map file");
                 }
                 BezierSegmentType::Bezier => {
@@ -129,7 +129,7 @@ impl AreaObject {
 
                     f.write_all(
                         format!(
-                            "{} {} 1; {} {}; {} {}; {} {} 18;",
+                            "{} {} 1;{} {};{} {};{} {} 18;",
                             c1.0, c1.1, h1.0, h1.1, h2.0, h2.1, c2.0, c2.1
                         )
                         .as_bytes(),
@@ -138,6 +138,8 @@ impl AreaObject {
                 }
             }
         }
+        f.write_all(b"</coords>")
+            .expect("Could not write to map file");
     }
 }
 
