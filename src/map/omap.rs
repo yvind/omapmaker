@@ -27,17 +27,17 @@ impl Omap {
         self.objects.push(Box::new(obj));
     }
 
-    pub fn write_to_file(&self, filename: &OsStr, dir: &Path) {
+    pub fn write_to_file(self, filename: &OsStr, dir: &Path, as_bezier: bool) {
         let mut filepath = PathBuf::from(dir);
         filepath.push(filename);
         filepath.set_extension("omap");
 
-        let f = File::create(&filepath).expect("Unable to create omap file");
+        let f = File::create(&filepath).expect("Unable to create omap file at the given filepath");
         let mut f = BufWriter::new(f);
 
         self.write_header(&mut f);
         self.write_colors_symbols(&mut f);
-        self.write_objects(&mut f);
+        self.write_objects(&mut f, as_bezier);
         self.write_end_of_file(&mut f);
     }
 
@@ -51,7 +51,7 @@ impl Omap {
             .expect("Could not write to map file");
     }
 
-    fn write_objects(&self, f: &mut BufWriter<File>) {
+    fn write_objects(&self, f: &mut BufWriter<File>, as_bezier: bool) {
         f.write_all(
             format!(
                 "<parts count=\"1\" current=\"0\">\n<part name=\"map\"><objects count=\"{}\">\n",
@@ -62,7 +62,7 @@ impl Omap {
         .expect("Could not write to map file");
 
         for object in self.objects.iter() {
-            object.write_to_map(f);
+            object.write_to_map(f, as_bezier);
         }
 
         f.write_all(b"</objects></part>\n</parts>\n")

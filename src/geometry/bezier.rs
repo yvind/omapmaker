@@ -2,7 +2,7 @@ use super::{Coord, LineString};
 use geo::Vector2DOps;
 
 #[derive(Clone, Debug)]
-pub struct BezierSegment((Coord, Option<Coord>, Option<Coord>, Coord));
+pub struct BezierSegment(pub (Coord, Option<Coord>, Option<Coord>, Coord));
 
 pub enum BezierSegmentType {
     Polyline,
@@ -26,10 +26,22 @@ impl From<[Coord; 4]> for BezierSegment {
 }
 
 #[derive(Debug)]
-pub struct BezierString(Vec<BezierSegment>);
+pub struct BezierString(pub Vec<BezierSegment>);
 
 impl BezierString {
-    pub fn polyline_to_bezier(polyline: LineString, error: f64) -> BezierString {
+    pub fn num_points(&self) -> usize {
+        let mut num_points = 0;
+
+        for segment in self.0.iter() {
+            match segment.line_type() {
+                BezierSegmentType::Polyline => num_points += 1,
+                BezierSegmentType::Bezier => num_points += 3,
+            }
+        }
+        num_points + 1
+    }
+
+    pub fn from_polyline(polyline: &LineString, error: f64) -> BezierString {
         let n_pts = polyline.0.len();
         if n_pts < 2 {
             panic!("Degenerate line");
@@ -150,14 +162,14 @@ impl BezierString {
         let mut c = [0.0, 0.0, 0.0];
         let mut x = [0.0, 0.0];
 
-        for i in 0..n_pts {
+        for (i, &t) in ts.iter().enumerate() {
             c[0] += a[i][0].dot_product(a[i][0]);
             c[1] += a[i][0].dot_product(a[i][1]);
             c[2] += a[i][1].dot_product(a[i][1]);
 
             let tmp = polyline[first + i]
-                - (polyline[first] * (Self::b0(ts[i]) + Self::b1(ts[i]))
-                    + polyline[last] * (Self::b2(ts[i]) + Self::b3(ts[i])));
+                - (polyline[first] * (Self::b0(t) + Self::b1(t))
+                    + polyline[last] * (Self::b2(t) + Self::b3(t)));
 
             x[0] += a[i][0].dot_product(tmp);
             x[1] += a[i][1].dot_product(tmp);
@@ -311,6 +323,7 @@ impl BezierString {
         t - (numerator / denominator)
     }
 
+    // max of distance between polyline points and the fitted curve
     fn compute_max_error(
         d: &[Coord],
         first: usize,
@@ -340,10 +353,7 @@ impl BezierString {
         // De Casteljau algorithm, just lerp-ing between lower degree beziers
         for i in 1..=degree {
             for j in 0..=(degree - i) {
-                v_temp[j] = Coord {
-                    x: (1.0 - t) * v_temp[j].x + t * v_temp[j + 1].x,
-                    y: (1.0 - t) * v_temp[j].y + t * v_temp[j + 1].y,
-                };
+                v_temp[j] = v_temp[j] * (1. - t) + v_temp[j + 1] * t;
             }
         }
         v_temp[0]

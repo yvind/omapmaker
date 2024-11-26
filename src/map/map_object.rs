@@ -8,9 +8,9 @@ pub trait MapObject: 'static + Sync + Send {
         self.add_tag("generator", "laz2omap");
     }
 
-    fn write_to_map(&self, f: &mut BufWriter<File>);
+    fn write_to_map(&self, f: &mut BufWriter<File>, as_bezier: bool);
 
-    fn write_coords(&self, f: &mut BufWriter<File>);
+    fn write_coords(&self, f: &mut BufWriter<File>, as_bezier: bool);
 
     fn write_tags(&self, f: &mut BufWriter<File>);
 }

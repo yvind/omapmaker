@@ -6,7 +6,7 @@ pub mod point_cloud;
 pub mod point_lidar;
 pub mod rectangle;
 
-pub use self::bezier::BezierString;
+pub use self::bezier::{BezierSegmentType, BezierString};
 pub use self::coord::{Coord, MapCoord};
 pub use self::line_string::{LineString, MapLineString};
 pub use self::multi_polygon::{MapMultiPolygon, MultiPolygon};

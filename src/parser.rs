@@ -32,6 +32,10 @@ pub struct Args {
     #[arg(short, long, default_value_t = std::thread::available_parallelism().unwrap().get())]
     pub threads: usize,
 
+    /// Write the geometries as polylines instead of bezier curves
+    #[arg(long="no-bezier", action = clap::ArgAction::SetFalse)]
+    pub bezier: bool,
+
     /// Write elevation, intensity and return_number and their gradients to uncompressed Tiff-files
     #[clap(short, long)]
     pub write_tiff: bool,

@@ -19,6 +19,7 @@ use std::{
 const TILE_SIZE_USIZE: usize = 128;
 const MIN_NEIGHBOUR_MARGIN_USIZE: usize = 14;
 const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
+const BEZIER_ERROR: f64 = 0.01;
 const STACK_SIZE: usize = 10; // thread stack size in MiB
 
 const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
@@ -119,6 +120,6 @@ fn main() {
         .expect("Could not get inner value of arc, stray refrence somewhere")
         .into_inner()
         .expect("Map mutex poisoned, a thread paniced while holding mutex")
-        .write_to_file(file_stem, &args.output_directory);
+        .write_to_file(file_stem, &args.output_directory, args.bezier);
     println!("Done!");
 }
