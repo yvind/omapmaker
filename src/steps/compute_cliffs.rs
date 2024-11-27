@@ -1,6 +1,7 @@
 use crate::{
     geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon},
     map::{AreaObject, MapObject, Omap, Symbol},
+    parser::Args,
     raster::{Dfm, Threshold},
 };
 
@@ -13,7 +14,7 @@ pub fn compute_cliffs(
     cliff_threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    simplify_epsilon: f64,
+    args: &Args,
     map: &Arc<Mutex<Omap>>,
 ) {
     let symbol = Symbol::GiganticBoulder;
@@ -28,7 +29,7 @@ pub fn compute_cliffs(
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
-    cliff_polygons = cliff_polygons.simplify(&simplify_epsilon);
+    cliff_polygons = cliff_polygons.simplify(&args.simplification_distance);
 
     for polygon in cliff_polygons.into_iter() {
         let mut cliff_object = AreaObject::from_polygon(polygon, symbol);

@@ -86,7 +86,7 @@ impl BezierString {
             return;
         }
 
-        // Parameterize points and attempt to fit curve
+        // Parameterize points and attempt to fit curve,
         let mut ts = Self::chord_length_parameterize(polyline, first, last);
         let mut bez_curve =
             Self::generate_bezier(polyline, first, last, &ts, &tangent_start, &tangent_end);
@@ -115,14 +115,14 @@ impl BezierString {
         }
 
         // Fitting failed, split at the point of max error and fit each part recursively
-        let t_hat_center = Self::compute_center_tangent(polyline, split_point);
-        let t_hat_center_neg = -t_hat_center;
+        let tangent_center = Self::compute_center_tangent(polyline, split_point);
+        let tangent_center_neg = -tangent_center;
         Self::fit_cubic(
             polyline,
             first,
             split_point,
             tangent_start,
-            t_hat_center,
+            tangent_center_neg,
             error,
             bezier_string,
         );
@@ -130,7 +130,7 @@ impl BezierString {
             polyline,
             split_point,
             last,
-            t_hat_center_neg,
+            tangent_center,
             tangent_end,
             error,
             bezier_string,
@@ -215,35 +215,42 @@ impl BezierString {
     }
 
     // Bezier basis functions
+    #[inline]
     fn b0(t: f64) -> f64 {
         (1.0 - t).powi(3)
     }
 
+    #[inline]
     fn b1(t: f64) -> f64 {
         3.0 * t * (1.0 - t).powi(2)
     }
 
+    #[inline]
     fn b2(t: f64) -> f64 {
         3.0 * t.powi(2) * (1.0 - t)
     }
 
+    #[inline]
     fn b3(t: f64) -> f64 {
         t.powi(3)
     }
 
     // Vertex tangent functions
+    #[inline]
     fn compute_right_tangent(polyline: &[Coord], end: usize) -> Coord {
         (polyline[end + 1] - polyline[end]).try_normalize().unwrap()
     }
 
+    #[inline]
     fn compute_left_tangent(polyline: &[Coord], end: usize) -> Coord {
         (polyline[end - 1] - polyline[end]).try_normalize().unwrap()
     }
 
+    #[inline]
     fn compute_center_tangent(polyline: &[Coord], center: usize) -> Coord {
-        let v1 = polyline[center - 1] - polyline[center];
-        let v2 = polyline[center] - polyline[center + 1];
-        (v1 + v2).try_normalize().unwrap()
+        (polyline[center + 1] - polyline[center - 1])
+            .try_normalize()
+            .unwrap()
     }
 
     // normalized length along linestring from start of segment to every vertex in segment
@@ -280,7 +287,7 @@ impl BezierString {
         new_ts
     }
 
-    // bez_curve Q(t) at time t is supposed to be p, refine t
+    // bez_curve Q(u) at time t is supposed to be p, refine t
     fn newton_raphson(bez_curve: &[Coord], p: Coord, t: f64) -> f64 {
         // Q(t)
         let bez_t = Self::evaluate_bezier(3, bez_curve, t);
@@ -324,22 +331,30 @@ impl BezierString {
     }
 
     // max of distance between polyline points and the fitted curve
+    // checks even the halfway point of every line segment
     fn compute_max_error(
-        d: &[Coord],
+        polyline: &[Coord],
         first: usize,
         last: usize,
         bez_curve: &[Coord],
         ts: &[f64],
     ) -> (f64, usize) {
-        let mut split_point = (last - first + 1) / 2;
+        let mut split_point = (last + first + 1) / 2;
         let mut max_dist = 0.0;
-        for i in (first + 1)..last {
+        for i in first..last {
             let p = Self::evaluate_bezier(3, bez_curve, ts[i - first]);
-            let dist = (p - d[i]).magnitude_squared();
+            let dist = (p - polyline[i]).magnitude_squared();
 
             if dist >= max_dist {
                 max_dist = dist;
                 split_point = i;
+            }
+
+            let p = Self::evaluate_bezier(3, bez_curve, (ts[i - first] + ts[i - first + 1]) / 2.);
+            let dist = (p - (polyline[i] + polyline[i + 1]) / 2.).magnitude_squared();
+            if dist >= max_dist {
+                max_dist = dist;
+                split_point = i.max(first + 1); //if i == first { i + 1 } else { i };
             }
         }
         (max_dist, split_point)

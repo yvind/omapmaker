@@ -2,6 +2,7 @@
 
 use crate::geometry::{LineString, MapMultiPolygon, MultiPolygon, Polygon};
 use crate::map::{AreaObject, MapObject, Omap, Symbol};
+use crate::parser::Args;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, Simplify};
@@ -13,7 +14,7 @@ pub fn compute_vegetation(
     threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    simplify_epsilon: f64,
+    args: &Args,
     symbol: Symbol,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -28,7 +29,7 @@ pub fn compute_vegetation(
 
     veg_polygons = cut_overlay.intersection(&veg_polygons);
 
-    veg_polygons = veg_polygons.simplify(&simplify_epsilon);
+    veg_polygons = veg_polygons.simplify(&args.simplification_distance);
 
     for polygon in veg_polygons {
         let mut veg_object = AreaObject::from_polygon(polygon, symbol);
