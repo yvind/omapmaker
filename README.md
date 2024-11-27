@@ -4,26 +4,26 @@ A command line application to generate an orienteering map (.omap file) directly
 
 Implemented:
 
-    Basemap-contour
+    Basemap-contours
 
     Vegetation
 
     Writes to Omap-file
 
+    Supports both bezier and polyline output
+
 To do:
 
-    building detection
+    Smart contour generation
 
-    water detection
+    Building detection
 
-    stream detection
+    Water detection
 
-    marsh detection
+    Stream detection
 
-    boulder detection
+    Marsh detection
 
-    smart contour generation
+    Boulder detection
 
-    road/path detection
-
-    support for bezier output
+    Road/path detection

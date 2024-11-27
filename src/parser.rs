@@ -5,7 +5,7 @@ use clap::Parser;
 #[derive(Parser, Clone)]
 pub struct Args {
     /// Path to input, accepts .las/.laz-files or a folder containing .las/.laz-files
-    #[arg(short, long, value_name = "[DIR, file.laz, file.las]")]
+    #[arg(short, long, value_name = "[DIR | file.laz | file.las]")]
     pub in_file: PathBuf,
 
     /// Path to output directory, creates a new dir if given path doesn't exist, defaults to current working directory
@@ -28,10 +28,6 @@ pub struct Args {
     #[arg(short, long, default_value_t = 0.1)]
     pub simplification_distance: f64,
 
-    /// Number of threads used in computation, defaults to all available threads
-    #[arg(short, long, default_value_t = std::thread::available_parallelism().unwrap().get())]
-    pub threads: usize,
-
     /// Write the geometries as polylines instead of bezier curves
     #[arg(long="no-bezier", action = clap::ArgAction::SetFalse)]
     pub bezier: bool,
@@ -39,6 +35,10 @@ pub struct Args {
     /// Write elevation, intensity and return_number and their gradients to uncompressed Tiff-files
     #[clap(short, long)]
     pub write_tiff: bool,
+
+    /// Number of threads used in computation, defaults to all available threads
+    #[arg(short, long, default_value_t = std::thread::available_parallelism().unwrap().get())]
+    pub threads: usize,
 }
 
 impl Args {
