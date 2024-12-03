@@ -15,7 +15,7 @@ pub fn compute_basemap(
 ) {
     let basemap_interval = args.basemap_contours;
 
-    let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize;
+    let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / basemap_interval).floor() * basemap_interval;
 
     for c_index in 0..bm_levels {
@@ -25,7 +25,7 @@ pub fn compute_basemap(
 
         bm_contours = bm_contours.simplify(&args.simplification_distance);
 
-        bm_contours = cut_overlay.clip(&bm_contours, false); // randomly reverses some LineStrings, will be fixed soon
+        bm_contours = cut_overlay.clip(&bm_contours, false);
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);

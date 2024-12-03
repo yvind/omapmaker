@@ -43,8 +43,17 @@ impl BezierString {
 
     pub fn from_polyline(polyline: &LineString, error: f64) -> BezierString {
         let n_pts = polyline.0.len();
-        if n_pts < 2 {
-            panic!("Degenerate line");
+        if n_pts <= 2 || (n_pts <= 3 && polyline.is_closed()) {
+            //panic!("Degenerate line");
+            let mut segments = vec![];
+
+            let mut prev_coord = polyline.0[0];
+            for p in polyline.0.iter().skip(1) {
+                segments.push(BezierSegment((prev_coord, None, None, *p)));
+                prev_coord = *p;
+            }
+
+            return BezierString(segments);
         }
 
         let mut bezier_segments = vec![];

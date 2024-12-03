@@ -63,7 +63,7 @@ impl Dfm {
 
     pub fn marching_squares(&self, level: f64) -> MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
-        let mut contours: Vec<LineString> = Vec::with_capacity(32);
+        let mut contours: Vec<LineString> = Vec::with_capacity(8);
 
         // maps from cell edges to the contour passing that edge in contours-vec
         // including edges added due to padding
