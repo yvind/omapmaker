@@ -1,16 +1,58 @@
 [package]
-name = "laz2omap"
+name = "omap_maker"
 version = "0.1.0"
 edition = "2021"
+authors = ["Øyvind Hjermstad"]
+description = "An application for generating orienteering maps from lidar data using AI"
+repository = "https://github.com/oyhj1801/omapmaker"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "laz2omap"
+path = "laz2omap/src/lib.rs"
+
+[[bin]]
+name = "OmapMaker"
+path = "gui/src/bin.rs"
 
 [dependencies]
+# for cli
 clap = { version = "4.5.20", features = ["derive"] }
-fastrand = "2.1.1"
+
+# for gui
+eframe = "0.30.0"
+egui_autocomplete = "9.0.0"
+# choose files
+rfd = "0.15.1"
+# slippy map tiles
+walkers = {path = "../walkers"}#{git = "https://github.com/oyhj1801/walkers"}
+# projections
+crs-definitions = { version = "0.3.0", features = ["wkt"] }
+proj4rs = { version = "0.1.5", features = ["crs-definitions"] }
+
+# for kd-tree
 kiddo = { version = "4.2.1", features = ["immutable"] }
-las = { version = "0.9.1", features = ["laz"] }
+# randomness for kd-tree stability
+fastrand = "2.1.1"
+
+# delauney and interpolation
 spade = "2.12.1"
+
+# writing tiff
 tiff = "0.9.1"
+
+# progress bar  
 indicatif = "0.17.8"
+
+# geometry
 geo = "0.29.3"
+
+# read/write las/laz/copc
+las = { version = "0.9.3", features = ["laz"] }
+las-crs = {git = "https://github.com/oyhj1801/las-crs"}
+copc-rs = {git = "https://github.com/oyhj1801/copc-rs"}
+
+# omap-writing
+omap = {git = "https://github.com/oyhj1801/omap-rs"}
+
+# better error enums
+thiserror = "2.0.8"

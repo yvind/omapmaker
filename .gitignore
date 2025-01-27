@@ -2,6 +2,7 @@
 /in*
 /out*
 /laz
+/.cache
 *.omap
 *.tfw
 *.tiff
