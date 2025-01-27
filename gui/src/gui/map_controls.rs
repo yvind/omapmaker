@@ -116,7 +116,7 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
                         .on_hover_cursor(egui::CursorIcon::Alias);
                     } else {
                         ui.label(format!(
-                            "Map position: x{:.4}, y{:.4}",
+                            "Map position: {:.4}, {:.4}",
                             position.x(),
                             position.y()
                         ))
