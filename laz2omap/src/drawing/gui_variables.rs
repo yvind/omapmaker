@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use walkers::Position;
 
 use super::DrawableOmap;
+use super::TerminalLike;
 
 #[derive(Clone)]
 pub struct GuiVariables {
@@ -47,14 +48,10 @@ pub struct GuiVariables {
     pub bezier_bool: bool,
 
     // logging to in app console
-    // change this to a custom type that implements
-    // both egui::textbuffer and indicatif::termlike
-    pub log_string: String,
+    pub log_string: TerminalLike,
 
     // for storing the generated map tile for drawing
-    // every polygon is pre split into triangles (convex shapes)
-    // so that every shape can be drawn with ui.painter()
-    pub triangulated_map_tile: Option<DrawableOmap>,
+    pub map_tile: Option<Box<DrawableOmap>>,
 }
 
 impl Default for GuiVariables {
@@ -91,7 +88,7 @@ impl Default for GuiVariables {
             bezier_bool: true,
 
             log_string: Default::default(),
-            triangulated_map_tile: None,
+            map_tile: None,
         }
     }
 }
@@ -150,5 +147,9 @@ impl GuiVariables {
             self.crs_epsg.remove(drop_file);
             self.boundaries.remove(drop_file);
         }
+    }
+
+    pub fn update_map(&mut self, map: Box<DrawableOmap>) {
+        self.map_tile = Some(map);
     }
 }

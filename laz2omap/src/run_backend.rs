@@ -1,4 +1,5 @@
 use crate::comms::{messages::*, OmapComms};
+use crate::MapParams;
 
 use las::Reader;
 use proj4rs::{proj::Proj, transform::transform};
@@ -6,12 +7,16 @@ use std::{path::PathBuf, time::Duration};
 
 pub struct OmapGenerator {
     comms: OmapComms<FrontEndTask, BackendTask>,
+    map_params: MapParams,
 }
 
 impl OmapGenerator {
     pub fn boot(comms: OmapComms<FrontEndTask, BackendTask>) {
         std::thread::spawn(move || {
-            let mut backend = OmapGenerator { comms };
+            let mut backend = OmapGenerator {
+                comms,
+                map_params: Default::default(),
+            };
 
             backend.run();
         });

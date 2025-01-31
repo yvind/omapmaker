@@ -5,7 +5,7 @@ use crate::parser::Args;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, MapObject, Omap, Symbol};
+use omap::{AreaObject, MapObject, Omap, Symbol, TagTrait};
 
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +23,7 @@ pub fn compute_vegetation(
     let mut veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
-        symbol.min_size(),
+        symbol.min_size(omap::Scale::S15_000),
         threshold.is_upper(),
     );
 
@@ -32,9 +32,11 @@ pub fn compute_vegetation(
     veg_polygons = veg_polygons.simplify(&args.simplification_distance);
 
     for polygon in veg_polygons {
-        let mut veg_object = AreaObject::from_polygon(polygon, symbol);
+        let mut veg_object = AreaObject::from_symbol(symbol);
         veg_object.add_auto_tag();
 
-        map.lock().unwrap().add_object(veg_object);
+        map.lock()
+            .unwrap()
+            .add_object(MapObject::AreaObject(veg_object));
     }
 }

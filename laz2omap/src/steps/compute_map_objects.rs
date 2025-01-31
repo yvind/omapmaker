@@ -6,7 +6,6 @@ use crate::steps;
 use crate::STACK_SIZE;
 
 use geo::{Coord, Rect};
-use indicatif::ProgressBar;
 use omap::{LineObject, Omap, Symbol};
 
 use std::path::{Path, PathBuf};

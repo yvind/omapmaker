@@ -138,6 +138,7 @@ impl OmapMaker {
                 self.reset();
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
+            FrontEndTask::UpdateMap(drawable_omap) => todo!(),
         }
     }
 }
@@ -164,7 +165,9 @@ impl OmapMaker {
         match task {
             Task::RegenerateMap => {
                 self.comms
-                    .send(BackendTask::RegenerateMap(self.gui_variables.clone()))
+                    .send(BackendTask::RegenerateMap(Box::new(
+                        self.gui_variables.clone(),
+                    )))
                     .unwrap();
             }
             Task::Reset => self.reset(),
@@ -262,8 +265,9 @@ impl OmapMaker {
                     .unwrap();
             }
             ProcessStage::MakeMap => {
-                let args = ();
-                self.comms.send(BackendTask::MakeMap(args)).unwrap();
+                self.comms
+                    .send(BackendTask::MakeMap(Box::new(self.gui_variables.clone())))
+                    .unwrap();
             }
             ProcessStage::ExportDone => self.open_modal = OmapModal::WaiverModal,
             ProcessStage::ChooseSquare => self.map_memory.follow_my_position(),

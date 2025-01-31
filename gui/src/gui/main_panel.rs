@@ -12,7 +12,31 @@ impl OmapMaker {
             self.render_local_map(ui);
         } else {
             self.render_walkers_map(ui);
+            map_controls::render_acknowledge(ui, self.http_tiles.attribution(), rect);
         }
+
+        // Draw utility windows.
+        match self.state {
+            ProcessStage::ChooseSquare => map_controls::render_draw_button(
+                ui,
+                true,
+                rect,
+                &mut self.gui_variables.polygon_filter,
+                &mut self.state,
+            ),
+            ProcessStage::DrawPolygon => map_controls::render_draw_button(
+                ui,
+                false,
+                rect,
+                &mut self.gui_variables.polygon_filter,
+                &mut self.state,
+            ),
+            _ => (),
+        }
+
+        map_controls::render_zoom(ui, &mut self.map_memory);
+        map_controls::render_home(ui, &mut self.map_memory, self.home_zoom);
+        map_controls::render_scale_pos_label(ui, &self.map_memory, self.home);
     }
 
     fn render_local_map(&mut self, ui: &mut egui::Ui) {
@@ -46,9 +70,9 @@ impl OmapMaker {
                     &mut self.state,
                 ))
             }
-            ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
-                &self.gui_variables.triangulated_map_tile,
-            )),
+            ProcessStage::AdjustSliders => {
+                map.with_plugin(map_plugins::OmapDrawer::new(&self.gui_variables.map_tile))
+            }
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
@@ -69,28 +93,6 @@ impl OmapMaker {
         };
         let rect = ui.ctx().available_rect();
         ui.put(rect, map);
-
-        // Draw utility windows.
-        match self.state {
-            ProcessStage::ChooseSquare => map_controls::render_draw_button(
-                ui,
-                true,
-                rect,
-                &mut self.gui_variables.polygon_filter,
-                &mut self.state,
-            ),
-            ProcessStage::DrawPolygon => map_controls::render_draw_button(
-                ui,
-                false,
-                rect,
-                &mut self.gui_variables.polygon_filter,
-                &mut self.state,
-            ),
-            _ => (),
-        }
-        map_controls::render_zoom(ui, &mut self.map_memory);
-        map_controls::render_home(ui, &mut self.map_memory, self.home_zoom);
-        map_controls::render_scale_pos_label(ui, &mut self.map_memory, self.home);
     }
 
     fn render_walkers_map(&mut self, ui: &mut egui::Ui) {
@@ -157,9 +159,9 @@ impl OmapMaker {
                     &mut self.state,
                 ))
             }
-            ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
-                &self.gui_variables.triangulated_map_tile,
-            )),
+            ProcessStage::AdjustSliders => {
+                map.with_plugin(map_plugins::OmapDrawer::new(&self.gui_variables.map_tile))
+            }
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
@@ -186,29 +188,6 @@ impl OmapMaker {
         // Draw the map widget over the label, so that the label is visible only if the map doesn't load
         let rect = ui.ctx().available_rect();
         ui.put(rect, map);
-
-        // Draw utility windows.
-        match self.state {
-            ProcessStage::ChooseSquare => map_controls::render_draw_button(
-                ui,
-                true,
-                rect,
-                &mut self.gui_variables.polygon_filter,
-                &mut self.state,
-            ),
-            ProcessStage::DrawPolygon => map_controls::render_draw_button(
-                ui,
-                false,
-                rect,
-                &mut self.gui_variables.polygon_filter,
-                &mut self.state,
-            ),
-            _ => (),
-        }
-        map_controls::render_zoom(ui, &mut self.map_memory);
-        map_controls::render_home(ui, &mut self.map_memory, self.home_zoom);
-        map_controls::render_scale_pos_label(ui, &mut self.map_memory, self.home);
-        map_controls::render_acknowledge(ui, self.http_tiles.attribution(), rect);
     }
 
     pub fn render_console(&mut self, ui: &mut egui::Ui) {

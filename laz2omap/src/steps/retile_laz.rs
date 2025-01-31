@@ -10,7 +10,6 @@ use std::{
 };
 
 use geo::{Contains, Coord, Rect};
-use indicatif::ProgressBar;
 use las::{point::Classification, raw, Builder, Point, Reader, Writer};
 
 pub fn retile_laz(

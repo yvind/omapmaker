@@ -1,6 +1,6 @@
 use crate::parser::Args;
 use crate::raster::Dfm;
-use omap::{LineObject, MapObject, Omap, Symbol};
+use omap::{LineObject, MapObject, Omap, Symbol, TagTrait};
 
 use geo::{BooleanOps, Polygon, Simplify};
 use std::sync::{Arc, Mutex};
@@ -27,11 +27,15 @@ pub fn compute_basemap(
         bm_contours = cut_overlay.clip(&bm_contours, false);
 
         for c in bm_contours {
-            let mut c_object = LineObject::from_line_string(c, Symbol::BasemapContour);
+            let symbol = Symbol::BasemapContour(c);
+
+            let mut c_object = LineObject::from_symbol(symbol);
             c_object.add_auto_tag();
             c_object.add_tag("Elevation", format!("{:.2}", bm_level).as_str());
 
-            map.lock().unwrap().add_object(c_object);
+            map.lock()
+                .unwrap()
+                .add_object(MapObject::LineObject(c_object));
         }
     }
 }

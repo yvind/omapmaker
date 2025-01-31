@@ -1,6 +1,6 @@
 use crate::parser::Args;
 use crate::steps;
-use omap::Omap;
+use omap::{Omap, Scale};
 
 use indicatif::{ProgressBar, ProgressStyle};
 use std::{
@@ -28,11 +28,7 @@ pub fn run_cli() {
     let laz_paths = Arc::new(laz_paths);
 
     // create map
-    let map = Arc::new(Mutex::new(Omap::new(
-        ref_point,
-        Some(crate::BEZIER_ERROR),
-        None,
-    )));
+    let map = Arc::new(Mutex::new(Omap::new(ref_point, None, Scale::S15_000)));
 
     for fi in 0..laz_paths.len() {
         println!("\n***********************************************");
@@ -106,6 +102,6 @@ pub fn run_cli() {
         .expect("Could not get inner value of arc, stray refrence somewhere")
         .into_inner()
         .expect("Map mutex poisoned, a thread paniced while holding mutex")
-        .write_to_file(file_stem, &args.output_directory);
+        .write_to_file(file_stem, &args.output_directory, Some(crate::BEZIER_ERROR));
     println!("Done!");
 }
