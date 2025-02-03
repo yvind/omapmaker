@@ -1,5 +1,6 @@
 use eframe::egui::TextBuffer;
 
+// must be used with a monospace font for the progress bar to look ok
 #[derive(Clone)]
 pub struct TerminalLike {
     string: String,
@@ -16,10 +17,6 @@ impl Default for TerminalLike {
 }
 
 impl<'a> TerminalLike {
-    pub fn print(&mut self, s: impl Into<&'a str>) {
-        self.string.push_str(s.into());
-    }
-
     pub fn println(&mut self, s: impl Into<&'a str>) {
         self.string.push('\n');
         self.string.push_str(s.into());
@@ -41,16 +38,13 @@ impl<'a> TerminalLike {
             pb.inc(1.);
             pb.draw_to_string(&mut self.string);
             self.progress_bar = None;
+            self.string.push('\n'); // we want space after the progress bar
         }
     }
 
     pub fn start_progress_bar(&mut self, width: u32) {
         self.string.push('\n');
         self.progress_bar = Some(ProgressBar::new(self.string.len(), width));
-    }
-
-    pub fn progress_bar_is_active(&self) -> bool {
-        self.progress_bar.is_some()
     }
 }
 
@@ -113,6 +107,7 @@ impl ProgressBar {
     }
 
     fn inc(&mut self, delta: f32) {
-        self.progress = 1.0_f32.min(self.progress + delta);
+        // clamp progress between 0 and 1
+        self.progress = 1.0_f32.min(self.progress + delta).max(0.0_f32);
     }
 }

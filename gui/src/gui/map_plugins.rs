@@ -1,4 +1,5 @@
 use eframe::egui::{self, Color32, Response, Ui};
+use geo::{LineString, Polygon, TriangulateEarcut};
 use walkers::{Plugin, Position, Projector};
 
 use super::ProcessStage;
@@ -120,11 +121,11 @@ impl Plugin for LasBoundaryPainter<'_> {
 
 pub struct PolygonDrawer<'a> {
     state: &'a mut ProcessStage,
-    area_of_interest: &'a mut Vec<Position>,
+    area_of_interest: &'a mut LineString,
 }
 
 impl<'a> PolygonDrawer<'a> {
-    pub fn new(area_of_interest: &'a mut Vec<Position>, state: &'a mut ProcessStage) -> Self {
+    pub fn new(area_of_interest: &'a mut LineString, state: &'a mut ProcessStage) -> Self {
         PolygonDrawer {
             state,
             area_of_interest,
@@ -137,14 +138,19 @@ impl Plugin for PolygonDrawer<'_> {
         // register clicks
         if *self.state == ProcessStage::DrawPolygon && !response.changed() {
             if response.double_clicked() {
-                if self.area_of_interest.len() < 3 {
-                    self.area_of_interest.clear();
+                if self.area_of_interest.0.len() < 3 {
+                    self.area_of_interest.0.clear();
                 } else {
-                    self.area_of_interest.push(self.area_of_interest[0]);
+                    self.area_of_interest.close();
                 }
 
+                // TODO!
                 // check for self intersections, if so clear the area_of_interest
                 // validation trait is added to the next release of geo
+                // let valid_check = Polygon::new(self.area_of_interest.clone(), vec![]);
+                // if !valid_check.is_valid() {
+                //   self.area_of_interest.0.clear();
+                // }
 
                 *self.state = ProcessStage::ChooseSquare;
             } else if response.clicked_by(egui::PointerButton::Primary) {
@@ -153,31 +159,59 @@ impl Plugin for PolygonDrawer<'_> {
                     .map(|p| projector.unproject(p));
 
                 if let Some(cp) = clicked_pos {
-                    self.area_of_interest.push(cp);
+                    self.area_of_interest.0.push(cp);
                 }
             }
         }
 
         // draw the polygon
-        if !self.area_of_interest.is_empty() {
-            let mut points = Vec::with_capacity(self.area_of_interest.len());
-            for pos in self.area_of_interest.iter() {
-                points.push(projector.project(*pos));
-            }
-
+        if !self.area_of_interest.0.is_empty() {
+            let mut line = self.area_of_interest.clone();
             if *self.state == ProcessStage::DrawPolygon && response.hovered() {
                 if let Some(pos) = response.hover_pos() {
-                    points.push(pos);
+                    line.0.push(projector.unproject(pos));
+                }
+            }
+            line.close();
+
+            let poly = Polygon::new(line, vec![]);
+
+            if poly.exterior().0.len() > 2 {
+                // does the triangulation WGS84 coordinates, but the earth is locally almost flat so it's almost ok
+                let tri = poly.earcut_triangles_raw();
+
+                let points: Vec<egui::epaint::Vertex> = tri
+                    .vertices
+                    .chunks(2)
+                    .map(|c| egui::epaint::Vertex {
+                        pos: projector.project(geo::Coord { x: c[0], y: c[1] }),
+                        uv: egui::epaint::WHITE_UV,
+                        color: egui::Color32::ORANGE.gamma_multiply(0.5),
+                    })
+                    .collect();
+
+                let mesh = egui::Mesh {
+                    indices: tri.triangle_indices.into_iter().map(|i| i as u32).collect(),
+                    vertices: points,
+                    texture_id: egui::epaint::TextureId::Managed(0),
+                };
+
+                ui.painter().add(mesh);
+            }
+
+            let mut outline: Vec<egui::Pos2> = self
+                .area_of_interest
+                .coords()
+                .map(|p| projector.project(*p))
+                .collect();
+            if *self.state == ProcessStage::DrawPolygon && response.hovered() {
+                if let Some(pos) = response.hover_pos() {
+                    outline.push(pos);
                 }
             }
 
-            ui.painter().add(egui::Shape::convex_polygon(
-                points.clone(),
-                egui::Color32::ORANGE.gamma_multiply(0.2),
-                egui::Stroke::NONE,
-            ));
             ui.painter()
-                .line(points, egui::Stroke::new(2., egui::Color32::ORANGE));
+                .line(outline, egui::Stroke::new(2., egui::Color32::ORANGE));
         }
     }
 }

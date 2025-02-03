@@ -1,11 +1,12 @@
 use std::time::Duration;
 
-use walkers::{LocalMap, Map, Tiles};
+use laz2omap::DrawableOmap;
+use walkers::{LocalMap, Map, Maps, Position, Tiles};
 
 use super::{map_controls, map_plugins, OmapMaker, ProcessStage};
 use eframe::egui;
 
-impl OmapMaker {
+impl<'a> OmapMaker {
     pub fn render_map(&mut self, ui: &mut egui::Ui) {
         let rect = if self.state != ProcessStage::Welcome
             && self.gui_variables.map_params.output_epsg.is_none()
@@ -43,57 +44,18 @@ impl OmapMaker {
     }
 
     fn render_local_map(&mut self, ui: &mut egui::Ui) -> egui::Rect {
-        let map = LocalMap::new(&mut self.map_memory, self.home);
+        let map = Maps::LocalMap(LocalMap::new(&mut self.map_memory, self.home));
 
         // add different plugins based on state
-        let map = match self.state {
-            ProcessStage::ChooseSquare => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
-                    true,
-                ));
-                let map = map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.boundaries,
-                    &mut self.gui_variables.file_params.selected_file,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::DrawPolygon => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
-                    false,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::AdjustSliders => {
-                map.with_plugin(map_plugins::OmapDrawer::new(&self.gui_variables.map_tile))
-            }
-            ProcessStage::ExportDone => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    None,
-                    false,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::Welcome => map,
-            ProcessStage::ShowComponents => map.with_plugin(map_plugins::LasComponentPainter::new(
-                &self.gui_variables.boundaries,
-                &self.gui_variables.connected_components,
-            )),
-            _ => unreachable!("The render_map fn should not be called for this state"),
-        };
+        let map = Self::add_plugins(
+            map,
+            &self.gui_variables.boundaries,
+            &mut self.gui_variables.file_params.selected_file,
+            &mut self.state,
+            &mut self.gui_variables.polygon_filter,
+            &self.gui_variables.connected_components,
+            &self.gui_variables.map_tile,
+        );
         let rect = ui.ctx().available_rect();
         ui.put(rect, map);
         rect
@@ -133,61 +95,24 @@ impl OmapMaker {
             }
         }
 
-        let map = Map::new(Some(&mut self.http_tiles), &mut self.map_memory, self.home);
-
-        // add different plugins based on state
-        let map = match self.state {
-            ProcessStage::ChooseSquare => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
-                    true,
-                ));
-                let map = map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.boundaries,
-                    &mut self.gui_variables.file_params.selected_file,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::DrawPolygon => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
-                    false,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::AdjustSliders => {
-                map.with_plugin(map_plugins::OmapDrawer::new(&self.gui_variables.map_tile))
-            }
-            ProcessStage::ExportDone => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    None,
-                    false,
-                ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
-                    &mut self.state,
-                ))
-            }
-            ProcessStage::Welcome => map,
-            ProcessStage::ShowComponents => map.with_plugin(map_plugins::LasComponentPainter::new(
-                &self.gui_variables.boundaries,
-                &self.gui_variables.connected_components,
-            )),
-            _ => unreachable!("The render_map fn should not be called for this state"),
-        };
+        let map = Maps::Map(Map::new(
+            Some(&mut self.http_tiles),
+            &mut self.map_memory,
+            self.home,
+        ));
+        let map = Self::add_plugins(
+            map,
+            &self.gui_variables.boundaries,
+            &mut self.gui_variables.file_params.selected_file,
+            &mut self.state,
+            &mut self.gui_variables.polygon_filter,
+            &self.gui_variables.connected_components,
+            &self.gui_variables.map_tile,
+        );
 
         ui.colored_label(
             egui::Color32::RED,
-            "If you see this the OSM background-map did not load.\nThe app still works, just not as nice too look at.",
+            "If you see this the OSM background-map did not load.\nThe app still works, just not as nice to look at.",
         );
         // Draw the map widget over the label, so that the label is visible only if the map doesn't load
         let rect = ui.ctx().available_rect();
@@ -195,12 +120,56 @@ impl OmapMaker {
         rect
     }
 
+    fn add_plugins(
+        map: Maps<'a, 'a, 'a>,
+        boundaries: &'a Vec<[Position; 4]>,
+        selected_file: &'a mut Option<usize>,
+        state: &'a mut ProcessStage,
+        polygon_filter: &'a mut geo::LineString,
+        connected_components: &'a Vec<Vec<usize>>,
+        map_tile: &'a Option<Box<DrawableOmap>>,
+    ) -> Maps<'a, 'a, 'a> {
+        match state {
+            ProcessStage::ChooseSquare => {
+                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
+                    boundaries,
+                    *selected_file,
+                    true,
+                ));
+                let map =
+                    map.with_plugin(map_plugins::ClickListener::new(boundaries, selected_file));
+                map.with_plugin(map_plugins::PolygonDrawer::new(polygon_filter, state))
+            }
+            ProcessStage::DrawPolygon => {
+                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
+                    boundaries,
+                    *selected_file,
+                    false,
+                ));
+                map.with_plugin(map_plugins::PolygonDrawer::new(polygon_filter, state))
+            }
+            ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(map_tile)),
+            ProcessStage::ExportDone => {
+                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
+                    boundaries, None, false,
+                ));
+                map.with_plugin(map_plugins::PolygonDrawer::new(polygon_filter, state))
+            }
+            ProcessStage::Welcome => map,
+            ProcessStage::ShowComponents => map.with_plugin(map_plugins::LasComponentPainter::new(
+                boundaries,
+                connected_components,
+            )),
+            _ => unreachable!("The render_map fn should not be called for this state"),
+        }
+    }
+
     pub fn render_console(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::both()
             .stick_to_bottom(true)
             .show(ui, |ui| {
                 egui::TextEdit::multiline(&mut self.gui_variables.log_terminal)
-                    .code_editor()
+                    .font(egui::FontSelection::Style(egui::TextStyle::Monospace))
                     .min_size(ui.available_size())
                     .desired_width(f32::INFINITY)
                     .interactive(false)

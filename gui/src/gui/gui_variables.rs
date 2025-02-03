@@ -1,14 +1,16 @@
+use geo::LineString;
 use laz2omap::params::{FileParams, MapParams};
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
 use laz2omap::DrawableOmap;
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct GuiVariables {
     // lidar file overlay
     pub boundaries: Vec<[Position; 4]>,
-    pub polygon_filter: Vec<Position>,
+
+    pub polygon_filter: LineString,
 
     // lidar crs's
     pub crs_less_search_strings: Vec<String>,
@@ -32,6 +34,25 @@ pub struct GuiVariables {
 
     // for storing the generated map tile for drawing
     pub map_tile: Option<Box<DrawableOmap>>,
+}
+
+impl Default for GuiVariables {
+    fn default() -> Self {
+        Self {
+            boundaries: Default::default(),
+            polygon_filter: LineString::new(vec![]),
+            crs_less_search_strings: Default::default(),
+            unique_crs: Default::default(),
+            output_crs_string: Default::default(),
+            connected_components: Default::default(),
+            drop_checkboxes: Default::default(),
+            save_tiffs: Default::default(),
+            log_terminal: Default::default(),
+            map_params: Default::default(),
+            file_params: Default::default(),
+            map_tile: Default::default(),
+        }
+    }
 }
 
 impl GuiVariables {

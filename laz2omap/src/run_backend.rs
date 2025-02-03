@@ -2,6 +2,7 @@ use crate::comms::{messages::*, OmapComms};
 use crate::params::{FileParams, MapParams};
 
 use las::Reader;
+use omap::OmapResult;
 use proj4rs::{proj::Proj, transform::transform};
 use std::{path::PathBuf, time::Duration};
 
@@ -69,7 +70,15 @@ impl OmapGenerator {
                 "Building Lidar Neighbour Graph".to_string(),
             ))
             .unwrap();
-        let (boundaries, mid_point) = read_boundaries(paths, crs_epsg);
+        let (boundaries, mid_point, components) = match read_boundaries(paths, crs_epsg) {
+            Ok(bm) => bm,
+            Err(e) => {
+                self.comms
+                    .send(FrontEndTask::BackendError(e.to_string(), true))
+                    .unwrap();
+                return;
+            }
+        };
 
         self.comms
             .send(FrontEndTask::SetVariable(Variable::Boundaries(
@@ -81,11 +90,9 @@ impl OmapGenerator {
             .send(FrontEndTask::SetVariable(Variable::Home(mid_point)))
             .unwrap();
 
-        let parts = connected_component_analysis(boundaries);
-
         self.comms
             .send(FrontEndTask::SetVariable(Variable::ConnectedComponents(
-                parts,
+                components,
             )))
             .unwrap();
         self.comms
@@ -105,7 +112,7 @@ impl OmapGenerator {
 
         let mut crs_epsg = vec![];
 
-        let mut crs_less = 0;
+        let mut num_crs_less = 0;
 
         let inc_size = 1. / paths.len() as f32;
         for path in paths.iter() {
@@ -116,7 +123,7 @@ impl OmapGenerator {
                 crs_epsg.push(epsg.0);
             } else {
                 crs_epsg.push(u16::MAX);
-                crs_less += 1;
+                num_crs_less += 1;
             }
             self.comms
                 .send(FrontEndTask::IncrementProgressBar(inc_size))
@@ -126,7 +133,7 @@ impl OmapGenerator {
 
         self.comms
             .send(FrontEndTask::Log(format!(
-                "{crs_less} out of {} lidar files have no CRS detected",
+                "{num_crs_less} out of {} lidar files have no CRS detected",
                 paths.len()
             )))
             .unwrap();
@@ -135,15 +142,17 @@ impl OmapGenerator {
             .send(FrontEndTask::SetVariable(Variable::CrsEPSG(crs_epsg)))
             .unwrap();
         self.comms
-            .send(FrontEndTask::SetVariable(Variable::CrsLessString(crs_less)))
+            .send(FrontEndTask::SetVariable(Variable::CrsLessString(
+                num_crs_less,
+            )))
             .unwrap();
         self.comms
             .send(FrontEndTask::SetVariable(Variable::CrsLessCheckBox(
-                crs_less,
+                num_crs_less,
             )))
             .unwrap();
 
-        if crs_less == 0 {
+        if num_crs_less == 0 {
             self.comms
                 .send(FrontEndTask::TaskComplete(TaskDone::ParseCrs(SetCrs::Auto)))
                 .unwrap();
@@ -153,37 +162,38 @@ impl OmapGenerator {
     }
 }
 
-fn connected_component_analysis(boundaries: Vec<[walkers::Position; 4]>) -> Vec<Vec<usize>> {
-    vec![(0..boundaries.len()).collect()]
-}
-
 fn read_boundaries(
     paths: Vec<PathBuf>,
     crs_epsg: Option<Vec<u16>>,
-) -> (Vec<[walkers::Position; 4]>, walkers::Position) {
-    let mut boundaries = vec![];
+) -> OmapResult<(
+    Vec<[walkers::Position; 4]>,
+    walkers::Position,
+    Vec<Vec<usize>>,
+)> {
+    let (_neighbour_graph, readable_paths, bounds, _ref_point, components) =
+        crate::steps::map_laz(paths);
 
     let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
 
     let global_coords = crs_epsg.is_some();
 
-    for (i, path) in paths.iter().enumerate() {
-        let reader = Reader::from_path(path).unwrap();
-        let bounds = reader.header().bounds();
+    let mut walkers_boundaries = Vec::with_capacity(bounds.len());
 
+    for i in 0..readable_paths.len() {
+        let bound = bounds[i];
         let mut points = [
-            (bounds.min.x, bounds.max.y),
-            (bounds.min.x, bounds.min.y),
-            (bounds.max.x, bounds.min.y),
-            (bounds.max.x, bounds.max.y),
+            (bound.min().x, bound.max().y),
+            (bound.min().x, bound.min().y),
+            (bound.max().x, bound.min().y),
+            (bound.max().x, bound.max().y),
         ];
 
         if global_coords {
             // transform bounds to lat lon
             let to = Proj::from_user_string("WGS84").unwrap();
-            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i]).unwrap();
+            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
 
-            transform(&from, &to, points.as_mut_slice()).unwrap();
+            transform(&from, &to, points.as_mut_slice())?;
 
             for (x, y) in points.iter_mut() {
                 *x = x.to_degrees();
@@ -191,7 +201,7 @@ fn read_boundaries(
             }
         }
 
-        boundaries.push([
+        walkers_boundaries.push([
             walkers::pos_from_lon_lat(points[0].0, points[0].1),
             walkers::pos_from_lon_lat(points[1].0, points[1].1),
             walkers::pos_from_lon_lat(points[2].0, points[2].1),
@@ -215,5 +225,5 @@ fn read_boundaries(
         (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
         (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
     );
-    (boundaries, mid_point)
+    Ok((walkers_boundaries, mid_point, components))
 }

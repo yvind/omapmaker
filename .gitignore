@@ -2,7 +2,7 @@
 /in*
 /out*
 /laz
-/.cache
+/.osm_cache
 *.omap
 *.tfw
 *.tiff

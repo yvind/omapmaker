@@ -1,66 +1,21 @@
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::Reader;
 
-use std::{fs, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf};
 
 use crate::geometry::MapRect;
 
 use geo::{Coord, Rect};
 
-pub fn map_laz(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
-    if input.is_file() {
-        single_file(input)
-    } else {
-        // check if dir contains more than 1 las/laz file
-        let mut paths = lidar_in_directory(input);
-        if paths.is_empty() {
-            panic!("No laz/las files were found in the given directory");
-        } else if paths.len() == 1 {
-            single_file(paths.swap_remove(0))
-        } else {
-            multiple_files(paths)
-        }
-    }
-}
-
-fn lidar_in_directory(input: PathBuf) -> Vec<PathBuf> {
-    let extensions = ["las", "laz"];
-
-    let paths = fs::read_dir(input)
-        .expect("Could not read input directory")
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.path().is_file()
-                && (entry.path().extension().and_then(|e| e.to_str()) == Some(extensions[0])
-                    || entry.path().extension().and_then(|e| e.to_str()) == Some(extensions[1]))
-        })
-        .map(|lf| lf.path())
-        .collect();
-    paths
-}
-
-fn single_file(input: PathBuf) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
-    let las_reader = Reader::from_path(&input).unwrap_or_else(|_| {
-        panic!(
-            "Could not read given laz/las file with path: {}",
-            &input.to_string_lossy()
-        )
-    });
-    let bounds = las_reader.header().bounds();
-
-    let ref_point = Coord {
-        x: ((bounds.max.x + bounds.min.x) / 20.).round() * 10.,
-        y: ((bounds.max.y + bounds.min.y) / 20.).round() * 10.,
-    };
-
-    (
-        vec![[Some(0), None, None, None, None, None, None, None, None]],
-        vec![input],
-        ref_point,
-    )
-}
-
-fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>, Coord) {
+pub fn map_laz(
+    paths: Vec<PathBuf>,
+) -> (
+    Vec<[Option<usize>; 9]>,
+    Vec<PathBuf>,
+    Vec<Rect>,
+    Coord,
+    Vec<Vec<usize>>,
+) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
     let mut tile_names = Vec::with_capacity(paths.len());
@@ -75,7 +30,7 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
     }
 
     if tile_names.is_empty() {
-        panic!("Unable to read the las/laz-files found in the input directory");
+        panic!("Unable to read the input las/laz-files");
     } else if tile_names.len() == 1 {
         let mut center_point = tile_centers.swap_remove(0); // round ref_point to nearest 10m
         center_point[0] = (center_point[0] / 10.).round() * 10.;
@@ -84,11 +39,15 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
         return (
             vec![[Some(0), None, None, None, None, None, None, None, None]],
             tile_names,
+            tile_bounds,
             Coord::from(center_point),
+            vec![vec![0]],
         );
     }
 
     let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds);
+
+    let components = connected_components(&neighbours);
 
     let mut ref_point: Coord<f64> = Coord::default();
     tile_centers.iter().for_each(|tc| {
@@ -98,7 +57,7 @@ fn multiple_files(paths: Vec<PathBuf>) -> (Vec<[Option<usize>; 9]>, Vec<PathBuf>
     ref_point.x = (ref_point.x / (10 * tile_centers.len()) as f64).round() * 10.;
     ref_point.y = (ref_point.y / (10 * tile_centers.len()) as f64).round() * 10.;
 
-    (neighbours, tile_names, ref_point)
+    (neighbours, tile_names, tile_bounds, ref_point, components)
 }
 
 fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[Option<usize>; 9]> {
@@ -131,6 +90,67 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
         tile_neighbours.push(orderd_neighbours);
     }
     tile_neighbours
+}
+
+fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
+    let mut cc: Vec<HashSet<usize>> = vec![];
+
+    for node in graph {
+        let middle = node[0].unwrap();
+        let mut belongs_to = usize::MAX;
+
+        for (i, component) in cc.iter().enumerate() {
+            if component.contains(&middle) {
+                belongs_to = i;
+                break;
+            }
+        }
+
+        if belongs_to != usize::MAX {
+            // the main node belongs to a component and so all
+            // of its neighbours also belong to that component
+            for neighbour in node.iter().skip(1) {
+                if let Some(ni) = neighbour {
+                    let _ = cc[belongs_to].insert(*ni);
+                }
+            }
+        } else {
+            // the main node does not belong to a component
+            // create a new component and add it and all of its neighbours to that component
+            let mut new_component = HashSet::new();
+
+            for neighbour in node.iter() {
+                if let Some(ni) = neighbour {
+                    let _ = new_component.insert(*ni);
+                }
+            }
+            cc.push(new_component);
+        }
+
+        // check for overlaps, i.e. that some node exists in
+        // multiple components if so merge those components
+        let mut i = 0;
+        while i < cc.len() {
+            // the components that should be merged to component i
+            let mut merge = vec![];
+            for j in i + 1..cc.len() {
+                if !cc[i].is_disjoint(&cc[j]) {
+                    // component i and j are connected
+                    // mark them for mergeing
+                    merge.push(j);
+                }
+            }
+
+            // walk through backwards to not affect the marked indecies with the swap_remove
+            for j in merge.iter().rev() {
+                let com = cc.swap_remove(*j);
+
+                cc[i].extend(com);
+            }
+            i += 1;
+        }
+    }
+    cc.into_iter().map(|mut h| h.drain().collect()).collect()
 }
 
 fn get_neighbour_side(bounds: &Rect, tile_center: [f64; 2]) -> Option<usize> {

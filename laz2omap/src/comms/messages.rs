@@ -8,7 +8,7 @@ pub enum Task {
     ShowComponents,
     QueryDropComponents,
     DropComponents,
-    Error(String),
+    Error(String, bool),
     GetOutputCRS,
     DoConnectedComponentAnalysis,
 }
@@ -25,7 +25,7 @@ pub enum FrontEndTask {
     UpdateMap(Box<DrawableOmap>),
     NextState,
     PrevState,
-    BackendError(String),
+    BackendError(String, bool),
 }
 
 pub enum BackendTask {

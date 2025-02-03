@@ -102,7 +102,7 @@ impl OmapMaker {
         let http_tiles = HttpTiles::with_options(
             sources::OpenStreetMap,
             HttpOptions {
-                cache: Some(".cache".into()),
+                cache: None, //Some(".osm_cache".into()),
                 ..Default::default()
             },
             egui_ctx,
@@ -131,9 +131,10 @@ impl OmapMaker {
             FrontEndTask::DelegateTask(task) => self.start_task(task),
             FrontEndTask::NextState => self.next_state(),
             FrontEndTask::PrevState => self.prev_state(),
-            FrontEndTask::BackendError(s) => {
-                self.restart_backend();
-                self.reset();
+            FrontEndTask::BackendError(s, fatal) => {
+                if fatal {
+                    self.reset();
+                }
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
             FrontEndTask::UpdateMap(drawable_omap) => self.gui_variables.update_map(drawable_omap),
@@ -178,8 +179,10 @@ impl OmapMaker {
             Task::Reset => self.reset(),
             Task::SetCrs(s) => self.update_crs(s),
             Task::ShowComponents => self.state = ProcessStage::ShowComponents,
-            Task::Error(s) => {
-                self.reset();
+            Task::Error(s, fatal) => {
+                if fatal {
+                    self.reset();
+                }
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
             Task::DropComponents => {
@@ -402,7 +405,10 @@ impl OmapMaker {
         );
 
         if self.gui_variables.file_params.paths.is_empty() {
-            self.start_task(Task::Error("All Lidar files were dropped.".to_string()));
+            self.start_task(Task::Error(
+                "All Lidar files were dropped.".to_string(),
+                true,
+            ));
         } else {
             self.gui_variables.crs_less_search_strings.clear();
             self.gui_variables.drop_checkboxes.clear();

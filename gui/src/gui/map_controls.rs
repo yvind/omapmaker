@@ -56,7 +56,7 @@ pub fn render_draw_button(
     ui: &mut egui::Ui,
     active: bool,
     rect: egui::Rect,
-    polygon: &mut Vec<Position>,
+    polygon: &mut geo::LineString,
     state: &mut ProcessStage,
 ) {
     egui::Window::new("Draw Polygon")
@@ -67,9 +67,9 @@ pub fn render_draw_button(
         .enabled(active)
         .show(ui.ctx(), |ui| {
             if active {
-                if !polygon.is_empty() {
+                if !polygon.0.is_empty() {
                     if ui.button("Clear polygon").clicked() {
-                        polygon.clear();
+                        polygon.0.clear();
                     };
                 } else if ui.button("Draw polygon").clicked() {
                     *state = ProcessStage::DrawPolygon;
