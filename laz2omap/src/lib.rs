@@ -1,9 +1,9 @@
 //mod c2hm;
 pub mod comms;
-pub mod drawing;
+mod drawable_omap;
 pub mod geometry;
-mod map_params;
 mod matrix;
+pub mod params;
 mod raster;
 mod run_backend;
 mod steps;
@@ -19,5 +19,5 @@ const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
 const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;
 const MIN_NEIGHBOUR_MARGIN: f64 = MIN_NEIGHBOUR_MARGIN_USIZE as f64;
 
-pub use map_params::MapParams;
+pub use drawable_omap::DrawableOmap;
 pub use run_backend::OmapGenerator;

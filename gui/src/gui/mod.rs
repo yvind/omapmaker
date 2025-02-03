@@ -1,10 +1,13 @@
+mod gui_variables;
 mod main_panel;
 mod map_controls;
 mod map_plugins;
 mod modals;
 mod omap_maker;
 mod side_panel;
+mod terminal_like;
 
+pub use gui_variables::GuiVariables;
 pub use omap_maker::OmapMaker;
 
 #[derive(PartialEq, Eq)]

@@ -108,17 +108,17 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
                     if map_memory.is_global() {
                         ui.label(format!(
                             "Map position: {}{:.4}, {}{:.4}",
-                            if position.lat() >= 0. { 'N' } else { 'S' },
-                            position.lat().abs(),
-                            if position.lon() >= 0. { 'E' } else { 'W' },
-                            position.lon().abs()
+                            if position.y >= 0. { 'N' } else { 'S' },
+                            position.y.abs(),
+                            if position.x >= 0. { 'E' } else { 'W' },
+                            position.x.abs()
                         ))
                         .on_hover_cursor(egui::CursorIcon::Alias);
                     } else {
                         ui.label(format!(
                             "Map position: {:.4}, {:.4}",
-                            position.x(),
-                            position.y()
+                            position.x,
+                            position.y
                         ))
                         .on_hover_cursor(egui::CursorIcon::Alias);
                     }

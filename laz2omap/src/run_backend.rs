@@ -1,5 +1,5 @@
 use crate::comms::{messages::*, OmapComms};
-use crate::MapParams;
+use crate::params::{FileParams, MapParams};
 
 use las::Reader;
 use proj4rs::{proj::Proj, transform::transform};
@@ -7,6 +7,7 @@ use std::{path::PathBuf, time::Duration};
 
 pub struct OmapGenerator {
     comms: OmapComms<FrontEndTask, BackendTask>,
+    file_params: FileParams,
     map_params: MapParams,
 }
 
@@ -16,6 +17,7 @@ impl OmapGenerator {
             let mut backend = OmapGenerator {
                 comms,
                 map_params: Default::default(),
+                file_params: Default::default(),
             };
 
             backend.run();
@@ -99,28 +101,29 @@ impl OmapGenerator {
                 "Detecting CRS of all provided files...".to_string(),
             ))
             .unwrap();
+        self.comms.send(FrontEndTask::StartProgressBar).unwrap();
+
         let mut crs_epsg = vec![];
 
         let mut crs_less = 0;
+
+        let inc_size = 1. / paths.len() as f32;
         for path in paths.iter() {
             let reader = Reader::from_path(path).unwrap();
             let crs_res = las_crs::parse_las_crs(reader.header());
 
             if let Ok(epsg) = crs_res {
-                self.comms
-                    .send(FrontEndTask::Log(format!("CRS detected: EPSG_{}", epsg.0)))
-                    .unwrap();
-
                 crs_epsg.push(epsg.0);
             } else {
-                self.comms
-                    .send(FrontEndTask::Log("No CRS detected".to_string()))
-                    .unwrap();
-
                 crs_epsg.push(u16::MAX);
                 crs_less += 1;
             }
+            self.comms
+                .send(FrontEndTask::IncrementProgressBar(inc_size))
+                .unwrap();
         }
+        self.comms.send(FrontEndTask::FinishProgrssBar).unwrap();
+
         self.comms
             .send(FrontEndTask::Log(format!(
                 "{crs_less} out of {} lidar files have no CRS detected",
@@ -189,10 +192,10 @@ fn read_boundaries(
         }
 
         boundaries.push([
-            walkers::Position::from_lon_lat(points[0].0, points[0].1),
-            walkers::Position::from_lon_lat(points[1].0, points[1].1),
-            walkers::Position::from_lon_lat(points[2].0, points[2].1),
-            walkers::Position::from_lon_lat(points[3].0, points[3].1),
+            walkers::pos_from_lon_lat(points[0].0, points[0].1),
+            walkers::pos_from_lon_lat(points[1].0, points[1].1),
+            walkers::pos_from_lon_lat(points[2].0, points[2].1),
+            walkers::pos_from_lon_lat(points[3].0, points[3].1),
         ]);
 
         if all_lidar_bounds[0].0 > points[0].0 {
@@ -208,7 +211,7 @@ fn read_boundaries(
             all_lidar_bounds[1].1 = points[2].1;
         }
     }
-    let mid_point = walkers::Position::from_lon_lat(
+    let mid_point = walkers::pos_from_lon_lat(
         (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
         (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
     );

@@ -16,7 +16,6 @@ pub fn retile_laz(
     num_threads: usize,
     neighbour_map: &[Option<usize>; 9],
     paths: Arc<Vec<PathBuf>>,
-    pb: Arc<Mutex<ProgressBar>>,
 ) -> (Vec<PathBuf>, Vec<Rect>) {
     assert!(!paths.is_empty());
 
@@ -76,7 +75,7 @@ pub fn retile_laz(
     );
     let (bb, cb, num_x_tiles, num_y_tiles) = retile_bounds(&bounds, &push_bounds);
     {
-        pb.lock().unwrap().inc(1);
+        //pb.lock().unwrap().inc(1);
     }
 
     let point_buckets = Arc::new(Mutex::new(vec![
@@ -95,7 +94,6 @@ pub fn retile_laz(
         let bb = bb.clone();
         let neighbour_map = *neighbour_map;
         let paths = paths.clone();
-        let pb = pb.clone();
         thread_handles.push(thread::spawn(move || {
             let mut neighbour_index = ti;
             while neighbour_index < neighbour_map.len() {
@@ -130,7 +128,7 @@ pub fn retile_laz(
                     *tni_lock += 1;
                 } // release mutex
             }
-            pb.lock().unwrap().inc(2);
+            //pb.lock().unwrap().inc(2);
         }));
     }
     for t in thread_handles {
@@ -158,7 +156,6 @@ pub fn retile_laz(
         num_x_tiles,
         num_y_tiles,
         header,
-        pb,
     )
 }
 
@@ -171,7 +168,6 @@ fn write_tiles_to_file(
     num_x_tiles: usize,
     num_y_tiles: usize,
     header: raw::Header,
-    pb: Arc<Mutex<ProgressBar>>,
 ) -> (Vec<PathBuf>, Vec<Rect>) {
     let paths = Arc::new(Mutex::new(vec![
         PathBuf::default();
@@ -190,7 +186,6 @@ fn write_tiles_to_file(
         let header = header.clone();
         let paths = paths.clone();
         let remove_index = remove_index.clone();
-        let pb = pb.clone();
 
         thread_handles.push(thread::spawn(move || {
             let mut yi = ti;
@@ -239,7 +234,7 @@ fn write_tiles_to_file(
                 }
                 yi += num_threads;
             }
-            pb.lock().unwrap().inc(1);
+            //pb.lock().unwrap().inc(1);
         }))
     }
     for t in thread_handles {

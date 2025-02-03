@@ -1,12 +1,12 @@
 use crate::geometry::{MapLineString, MapRect};
-use crate::parser::Args;
+use crate::params::MapParams;
 use crate::raster::Threshold;
 use crate::steps;
 
 use crate::STACK_SIZE;
 
 use geo::{Coord, Rect};
-use omap::{LineObject, Omap, Symbol};
+use omap::{AreaSymbol, LineObject, LineSymbol, MapObject, Omap};
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -14,25 +14,26 @@ use std::thread;
 
 pub fn compute_map_objects(
     map: Arc<Mutex<Omap>>,
-    args: &Args,
+    args: &MapParams,
     tile_paths: Vec<PathBuf>,
     ref_point: Coord,
     cut_bounds: Vec<Rect>,
     tiff_directory: &Path,
-    pb: Arc<Mutex<ProgressBar>>,
+    threads: usize,
+    write_tiff: bool,
 ) {
     let mut thread_handles = vec![];
 
     let tile_paths = Arc::new(tile_paths);
+
     let tiff_directory = Arc::new(tiff_directory.to_owned());
     let args = Arc::new(args.clone());
     let cut_bounds = Arc::new(cut_bounds);
 
-    for thread_i in 0..args.threads {
+    for thread_i in 0..threads {
         let map_ref = map.clone();
         let tile_paths_ref = tile_paths.clone();
         let tiff_directory = tiff_directory.clone();
-        let pb = pb.clone();
         let args = args.clone();
         let cut_bounds = cut_bounds.clone();
 
@@ -61,22 +62,21 @@ pub fn compute_map_objects(
                             match convex_hull.inner_line(&current_cut_bounds.into_line_string()) {
                                 Some(l) => l,
                                 None => {
-                                    pb.lock().unwrap().inc(1);
-                                    current_index += args.threads;
+                                    // send inc message
+                                    current_index += threads;
                                     continue;
                                 }
                             };
 
-                        map_ref
-                            .lock()
-                            .unwrap()
-                            .add_object(LineObject::from_line_string(
+                        map_ref.lock().unwrap().add_object(MapObject::LineObject(
+                            LineObject::from_line_string(
                                 cut_overlay.exterior().clone(),
-                                Symbol::Formline,
-                            ));
+                                LineSymbol::Formline,
+                            ),
+                        ));
 
                         // step 4: contour generation
-                        if args.basemap_contours >= 0.1 {
+                        if args.basemap_interval >= 0.1 {
                             steps::compute_basemap(
                                 &dem,
                                 (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z),
@@ -94,7 +94,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             &args,
-                            Symbol::RoughOpenLand,
+                            AreaSymbol::RoughOpenLand,
                             &map_ref,
                         );
 
@@ -104,7 +104,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             &args,
-                            Symbol::LightGreen,
+                            AreaSymbol::LightGreen,
                             &map_ref,
                         );
 
@@ -114,7 +114,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             &args,
-                            Symbol::MediumGreen,
+                            AreaSymbol::MediumGreen,
                             &map_ref,
                         );
 
@@ -124,7 +124,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             &args,
-                            Symbol::DarkGreen,
+                            AreaSymbol::DarkGreen,
                             &map_ref,
                         );
 
@@ -139,7 +139,7 @@ pub fn compute_map_objects(
                         );
 
                         // step 7: save dfms
-                        if args.write_tiff {
+                        if write_tiff {
                             steps::save_tiffs(
                                 dem,
                                 grad_dem,
@@ -151,9 +151,9 @@ pub fn compute_map_objects(
                             );
                         }
 
-                        pb.lock().unwrap().inc(1);
+                        //pb.lock().unwrap().inc(1); send inc message
 
-                        current_index += args.threads;
+                        current_index += threads;
                     }
                 })
                 .unwrap(),

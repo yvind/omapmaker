@@ -1,8 +1,7 @@
-use super::{modals::OmapModal, ProcessStage};
+use super::{modals::OmapModal, GuiVariables, ProcessStage};
 use eframe::egui;
 use laz2omap::{
     comms::{messages::*, OmapComms},
-    drawing::GuiVariables,
     OmapGenerator,
 };
 use walkers::{sources, HttpOptions, HttpTiles, MapMemory, Position};
@@ -115,7 +114,7 @@ impl OmapMaker {
             state: ProcessStage::Welcome,
             comms: frontend_comms,
             open_modal: OmapModal::None,
-            home: Position::from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
+            home: walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
             home_zoom: 16.,
             gui_variables: Default::default(),
         }
@@ -124,8 +123,7 @@ impl OmapMaker {
     pub fn on_frontend_task(&mut self, event: FrontEndTask) {
         match event {
             FrontEndTask::Log(s) => {
-                self.gui_variables.log_string.push('\n');
-                self.gui_variables.log_string.push_str(s.as_str());
+                self.gui_variables.log_terminal.println(s.as_str());
             }
             FrontEndTask::SetVariable(variable) => self.on_update_variable(variable),
             FrontEndTask::TaskComplete(task) => self.on_task_complete(task),
@@ -138,7 +136,14 @@ impl OmapMaker {
                 self.reset();
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
-            FrontEndTask::UpdateMap(drawable_omap) => todo!(),
+            FrontEndTask::UpdateMap(drawable_omap) => self.gui_variables.update_map(drawable_omap),
+            FrontEndTask::StartProgressBar => {
+                self.gui_variables.log_terminal.start_progress_bar(40)
+            }
+            FrontEndTask::IncrementProgressBar(delta) => {
+                self.gui_variables.log_terminal.inc_progress_bar(delta)
+            }
+            FrontEndTask::FinishProgrssBar => self.gui_variables.log_terminal.finish_progress_bar(),
         }
     }
 }
@@ -150,7 +155,7 @@ impl OmapMaker {
             Variable::Boundaries(vec) => self.gui_variables.boundaries = vec,
             Variable::Home(position) => self.home = position,
             Variable::CrsEPSG(vec) => {
-                self.gui_variables.crs_epsg = vec;
+                self.gui_variables.file_params.crs_epsg = vec;
                 self.gui_variables.update_unique_crs();
             }
             Variable::CrsLessString(num) => {
@@ -166,7 +171,7 @@ impl OmapMaker {
             Task::RegenerateMap => {
                 self.comms
                     .send(BackendTask::RegenerateMap(Box::new(
-                        self.gui_variables.clone(),
+                        self.gui_variables.map_params.clone(),
                     )))
                     .unwrap();
             }
@@ -186,9 +191,9 @@ impl OmapMaker {
                 self.open_modal = OmapModal::OutputCRS(majority);
             }
             Task::QueryDropComponents => {
-                self.gui_variables.log_string.push_str(
+                self.gui_variables.log_terminal.println(
                     format!(
-                        "\nThe lidar files are not all connected and form {} parts",
+                        "The lidar files are not all connected and form {} parts",
                         self.gui_variables.connected_components.len()
                     )
                     .as_str(),
@@ -196,17 +201,17 @@ impl OmapMaker {
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
             Task::DoConnectedComponentAnalysis => {
-                if self.gui_variables.output_epsg.is_some() {
+                if self.gui_variables.map_params.output_epsg.is_some() {
                     self.comms
                         .send(BackendTask::ConnectedComponentAnalysis(
-                            self.gui_variables.paths.clone(),
-                            Some(self.gui_variables.crs_epsg.clone()),
+                            self.gui_variables.file_params.paths.clone(),
+                            Some(self.gui_variables.file_params.crs_epsg.clone()),
                         ))
                         .unwrap();
                 } else {
                     self.comms
                         .send(BackendTask::ConnectedComponentAnalysis(
-                            self.gui_variables.paths.clone(),
+                            self.gui_variables.file_params.paths.clone(),
                             None,
                         ))
                         .unwrap();
@@ -233,8 +238,8 @@ impl OmapMaker {
             }
             TaskDone::DropComponents => {
                 self.gui_variables
-                    .log_string
-                    .push_str("\nThe remaining lidar files are all connected.");
+                    .log_terminal
+                    .println("The remaining lidar files are all connected.");
                 self.next_state();
             }
             TaskDone::OutputCrs => {
@@ -254,19 +259,25 @@ impl OmapMaker {
 
         match self.state {
             ProcessStage::CheckLidar => {
-                self.gui_variables.selected_file = None;
+                self.gui_variables.file_params.selected_file = None;
                 self.comms
-                    .send(BackendTask::ParseCrs(self.gui_variables.paths.clone()))
+                    .send(BackendTask::ParseCrs(
+                        self.gui_variables.file_params.paths.clone(),
+                    ))
                     .unwrap();
             }
             ProcessStage::ConvertingCOPC => {
                 self.comms
-                    .send(BackendTask::ConvertCopc(self.gui_variables.output_epsg))
+                    .send(BackendTask::ConvertCopc(
+                        self.gui_variables.map_params.output_epsg,
+                    ))
                     .unwrap();
             }
             ProcessStage::MakeMap => {
                 self.comms
-                    .send(BackendTask::MakeMap(Box::new(self.gui_variables.clone())))
+                    .send(BackendTask::MakeMap(Box::new(
+                        self.gui_variables.map_params.clone(),
+                    )))
                     .unwrap();
             }
             ProcessStage::ExportDone => self.open_modal = OmapModal::WaiverModal,
@@ -279,7 +290,7 @@ impl OmapMaker {
         match self.state {
             ProcessStage::AdjustSliders => (),
             ProcessStage::ShowComponents => {
-                self.gui_variables.selected_file = None;
+                self.gui_variables.file_params.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
             _ => unimplemented!("Should not have been called on this state"),
@@ -289,9 +300,12 @@ impl OmapMaker {
     }
 
     fn reset(&mut self) {
-        self.comms.send(BackendTask::Reset).unwrap();
+        match self.comms.send(BackendTask::Reset) {
+            Ok(_) => (),
+            Err(_) => self.restart_backend(),
+        }
         self.state = ProcessStage::Welcome;
-        self.home = Position::from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
+        self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
         self.open_modal = OmapModal::None;
         self.home_zoom = 16.;
@@ -308,7 +322,9 @@ impl OmapMaker {
                         break;
                     }
                 }
-                Err(_) => panic!("The comms channel has collapsed!"),
+                Err(_) => {
+                    self.restart_backend();
+                }
             }
         }
     }
@@ -319,12 +335,13 @@ impl OmapMaker {
                 let a = self.gui_variables.crs_less_search_strings[0]
                     .parse::<u16>()
                     .unwrap();
-                self.gui_variables.crs_epsg = vec![a; self.gui_variables.paths.len()];
+                self.gui_variables.file_params.crs_epsg =
+                    vec![a; self.gui_variables.file_params.paths.len()];
             }
             SetCrs::SetEachCrs => {
                 let mut drop_list = vec![];
                 let mut crs_less_indecies = vec![];
-                for (i, crs) in self.gui_variables.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
                     if crs == &u16::MAX {
                         crs_less_indecies.push(i);
                     }
@@ -339,18 +356,18 @@ impl OmapMaker {
                         drop_list.push(crs_less_indecies[i]);
                     } else {
                         let crs = s.parse::<u16>().unwrap();
-                        self.gui_variables.crs_epsg[crs_less_indecies[i]] = crs;
+                        self.gui_variables.file_params.crs_epsg[crs_less_indecies[i]] = crs;
                     }
                 }
                 drop_list.sort_by(|a, b| b.cmp(a));
                 for i in drop_list {
-                    self.gui_variables.paths.remove(i);
-                    self.gui_variables.crs_epsg.remove(i);
+                    self.gui_variables.file_params.paths.remove(i);
+                    self.gui_variables.file_params.crs_epsg.remove(i);
                 }
             }
             SetCrs::Default => {
                 let mut default_crs = u16::MAX;
-                for a in self.gui_variables.crs_epsg.iter() {
+                for a in self.gui_variables.file_params.crs_epsg.iter() {
                     if a != &u16::MAX {
                         default_crs = *a;
                     }
@@ -360,27 +377,31 @@ impl OmapMaker {
                     "Defult crs button available but should not have been"
                 );
 
-                self.gui_variables.crs_epsg = vec![default_crs; self.gui_variables.paths.len()];
+                self.gui_variables.file_params.crs_epsg =
+                    vec![default_crs; self.gui_variables.file_params.paths.len()];
             }
             SetCrs::DropAll => {
                 let mut drop_list = vec![];
-                for (i, crs) in self.gui_variables.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
                     if crs == &u16::MAX {
                         drop_list.push(i);
                     }
                 }
                 drop_list.sort_by(|a, b| b.cmp(a));
                 for i in drop_list {
-                    self.gui_variables.paths.remove(i);
-                    self.gui_variables.crs_epsg.remove(i);
+                    self.gui_variables.file_params.paths.remove(i);
+                    self.gui_variables.file_params.crs_epsg.remove(i);
                 }
             }
             _ => (),
         }
 
-        assert!(self.gui_variables.paths.len() == self.gui_variables.crs_epsg.len());
+        assert!(
+            self.gui_variables.file_params.paths.len()
+                == self.gui_variables.file_params.crs_epsg.len()
+        );
 
-        if self.gui_variables.paths.is_empty() {
+        if self.gui_variables.file_params.paths.is_empty() {
             self.start_task(Task::Error("All Lidar files were dropped.".to_string()));
         } else {
             self.gui_variables.crs_less_search_strings.clear();

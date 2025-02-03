@@ -1,9 +1,18 @@
 use eframe::egui::TextBuffer;
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct TerminalLike {
     string: String,
     progress_bar: Option<ProgressBar>,
+}
+
+impl Default for TerminalLike {
+    fn default() -> Self {
+        Self {
+            string: String::from("PROGRESS LOG\n"),
+            progress_bar: Default::default(),
+        }
+    }
 }
 
 impl<'a> TerminalLike {

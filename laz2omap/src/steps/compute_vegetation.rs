@@ -1,11 +1,11 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::geometry::MapMultiPolygon;
-use crate::parser::Args;
+use crate::params::MapParams;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, MapObject, Omap, Symbol, TagTrait};
+use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
 
 use std::sync::{Arc, Mutex};
 
@@ -14,8 +14,8 @@ pub fn compute_vegetation(
     threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    args: &Args,
-    symbol: Symbol,
+    args: &MapParams,
+    symbol: AreaSymbol,
     map: &Arc<Mutex<Omap>>,
 ) {
     let contours = dfm.marching_squares(threshold.inner());
@@ -32,7 +32,7 @@ pub fn compute_vegetation(
     veg_polygons = veg_polygons.simplify(&args.simplification_distance);
 
     for polygon in veg_polygons {
-        let mut veg_object = AreaObject::from_symbol(symbol);
+        let mut veg_object = AreaObject::from_polygon(polygon, symbol);
         veg_object.add_auto_tag();
 
         map.lock()

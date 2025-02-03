@@ -28,25 +28,25 @@ impl OmapMaker {
                         if let Some(ext) = file.extension() {
                             if (ext.to_ascii_lowercase().to_string_lossy() == "laz"
                                 || ext.to_ascii_lowercase().to_string_lossy() == "las")
-                                && !self.gui_variables.paths.contains(&file)
+                                && !self.gui_variables.file_params.paths.contains(&file)
                             {
-                                self.gui_variables.paths.push(file);
+                                self.gui_variables.file_params.paths.push(file);
                             }
                         }
                     }
                 }
             }
             if ui.button("Clear Lidar").clicked() {
-                self.gui_variables.paths.clear();
-                self.gui_variables.selected_file = None;
+                self.gui_variables.file_params.paths.clear();
+                self.gui_variables.file_params.selected_file = None;
             }
             if ui.button("Remove selected").clicked() {
-                if let Some(i) = self.gui_variables.selected_file {
-                    self.gui_variables.paths.remove(i);
-                    if self.gui_variables.paths.is_empty() {
-                        self.gui_variables.selected_file = None;
-                    } else if self.gui_variables.paths.len() <= i {
-                        self.gui_variables.selected_file = Some(i - 1);
+                if let Some(i) = self.gui_variables.file_params.selected_file {
+                    self.gui_variables.file_params.paths.remove(i);
+                    if self.gui_variables.file_params.paths.is_empty() {
+                        self.gui_variables.file_params.selected_file = None;
+                    } else if self.gui_variables.file_params.paths.len() <= i {
+                        self.gui_variables.file_params.selected_file = Some(i - 1);
                     }
                 }
             }
@@ -58,46 +58,46 @@ impl OmapMaker {
 
         egui::ScrollArea::both()
             .max_height(ui.available_height() / 3.)
+            .max_width(f32::INFINITY)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.selected_file == Some(index),
+                            self.gui_variables.file_params.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.selected_file {
-                            self.gui_variables.selected_file = None;
+                        if Some(index) == self.gui_variables.file_params.selected_file {
+                            self.gui_variables.file_params.selected_file = None;
                         } else {
-                            self.gui_variables.selected_file = Some(index);
+                            self.gui_variables.file_params.selected_file = Some(index);
                         }
                     }
                 }
             });
         ui.label(format!(
             "Number of files: {}",
-            self.gui_variables.paths.len()
+            self.gui_variables.file_params.paths.len()
         ));
 
         ui.add_space(20.);
 
         ui.label("Choose where to save the resulting omap-file.");
         if ui.button("Choose save location and name").clicked() {
-            self.gui_variables.save_location = rfd::FileDialog::new()
+            if let Some(path) = rfd::FileDialog::new()
                 .add_filter("OpenOrienteering Mapper (*.omap)", &["omap"])
-                .save_file();
+                .save_file()
+            {
+                self.gui_variables.file_params.save_location = path;
+            };
         }
-        let text = if self.gui_variables.save_location.is_some() {
-            self.gui_variables
-                .save_location
-                .as_ref()
-                .unwrap()
-                .to_str()
-                .unwrap()
-        } else {
-            ""
-        };
+        let text = self
+            .gui_variables
+            .file_params
+            .save_location
+            .to_str()
+            .unwrap();
         ui.label(text);
 
         egui::CollapsingHeader::new("Advanced settings").show(ui, |ui| {
@@ -108,10 +108,12 @@ impl OmapMaker {
             ui.add_enabled_ui(self.gui_variables.save_tiffs, |ui| {
                 ui.label("Choose where to save the resulting tiff-files.");
                 if ui.button("Choose which folder to save tiffs to").clicked() {
-                    self.gui_variables.tiff_location = rfd::FileDialog::new().pick_folder();
+                    self.gui_variables.file_params.tiff_location =
+                        rfd::FileDialog::new().pick_folder();
                 }
-                let text = if self.gui_variables.tiff_location.is_some() {
+                let text = if self.gui_variables.file_params.tiff_location.is_some() {
                     self.gui_variables
+                        .file_params
                         .tiff_location
                         .as_ref()
                         .unwrap()
@@ -126,13 +128,21 @@ impl OmapMaker {
 
         if ui
             .add_enabled(
-                !(self.gui_variables.paths.is_empty()
-                    || self.gui_variables.save_location.is_none()),
+                !(self.gui_variables.file_params.paths.is_empty()
+                    || self
+                        .gui_variables
+                        .file_params
+                        .save_location
+                        .as_os_str()
+                        .is_empty()),
                 egui::Button::new("Next step"),
             )
             .clicked()
         {
             self.on_frontend_task(FrontEndTask::NextState);
+            if !self.gui_variables.save_tiffs {
+                self.gui_variables.file_params.tiff_location = None;
+            }
         }
 
         egui::Window::new("text size")
@@ -192,24 +202,24 @@ impl OmapMaker {
         egui::ScrollArea::both()
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.selected_file == Some(index),
+                            self.gui_variables.file_params.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.selected_file {
-                            self.gui_variables.selected_file = None;
+                        if Some(index) == self.gui_variables.file_params.selected_file {
+                            self.gui_variables.file_params.selected_file = None;
                         } else {
-                            self.gui_variables.selected_file = Some(index);
-                            let center = walkers::Position::from_lat_lon(
-                                (self.gui_variables.boundaries[index][0].lat()
-                                    + self.gui_variables.boundaries[index][1].lat())
+                            self.gui_variables.file_params.selected_file = Some(index);
+                            let center = walkers::pos_from_lat_lon(
+                                (self.gui_variables.boundaries[index][0].y
+                                    + self.gui_variables.boundaries[index][1].y)
                                     / 2.,
-                                (self.gui_variables.boundaries[index][0].lon()
-                                    + self.gui_variables.boundaries[index][1].lon())
+                                (self.gui_variables.boundaries[index][0].x
+                                    + self.gui_variables.boundaries[index][1].x)
                                     / 2.,
                             );
                             self.map_memory.center_at(center);
@@ -224,7 +234,7 @@ impl OmapMaker {
     }
 
     pub fn render_copc_panel(&mut self, ui: &mut egui::Ui) {
-        if self.gui_variables.output_epsg.is_some() {
+        if self.gui_variables.map_params.output_epsg.is_some() {
             ui.heading("Writing files to COPC and transforming CRS");
         } else {
             ui.heading("Writing files to COPC");
@@ -239,7 +249,7 @@ impl OmapMaker {
         This step is performed on all files not alreday in the .copc.laz format and is non-destructive. \
         Any modern lidar-reader can read points from .copc.laz files, but specialized readers are needed to utilize the octree structure.");
 
-        if self.gui_variables.output_epsg.is_some() {
+        if self.gui_variables.map_params.output_epsg.is_some() {
             ui.add_space(20.);
             ui.label("Any file not given in the previously chosen CRS is transformed to the chosen CRS during writing. \
             If the file is transformed \"_EPSG_*\" is appended to the filename. \
@@ -258,18 +268,18 @@ impl OmapMaker {
         egui::ScrollArea::both()
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.selected_file == Some(index),
+                            self.gui_variables.file_params.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.selected_file {
-                            self.gui_variables.selected_file = None;
+                        if Some(index) == self.gui_variables.file_params.selected_file {
+                            self.gui_variables.file_params.selected_file = None;
                         } else {
-                            self.gui_variables.selected_file = Some(index);
+                            self.gui_variables.file_params.selected_file = Some(index);
                         }
                     }
                 }
@@ -290,7 +300,7 @@ impl OmapMaker {
             }
             if ui
                 .add_enabled(
-                    self.gui_variables.selected_file.is_some() && enabled,
+                    self.gui_variables.file_params.selected_file.is_some() && enabled,
                     egui::Button::new("Next step"),
                 )
                 .clicked()
@@ -308,27 +318,27 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label(egui::RichText::new("Contour parameters").strong());
         ui.checkbox(
-            &mut self.gui_variables.formlines,
+            &mut self.gui_variables.map_params.formlines,
             "Add formlines to the map.",
         );
         ui.horizontal(|ui| {
             ui.label("Contour interval: ");
             ui.add(
-                egui::widgets::DragValue::new(&mut self.gui_variables.contour_interval)
+                egui::widgets::DragValue::new(&mut self.gui_variables.map_params.contour_interval)
                     .fixed_decimals(1)
                     .range(1.0..=20.),
             );
         });
         ui.checkbox(
-            &mut self.gui_variables.basemap_contour,
+            &mut self.gui_variables.map_params.basemap_contour,
             "Add basemap contours to the map.",
         );
-        ui.add_enabled_ui(self.gui_variables.basemap_contour, |ui| {
+        ui.add_enabled_ui(self.gui_variables.map_params.basemap_contour, |ui| {
             ui.label("Basemap interval: ");
             ui.add(
-                egui::widgets::DragValue::new(&mut self.gui_variables.basemap_interval)
+                egui::widgets::DragValue::new(&mut self.gui_variables.map_params.basemap_interval)
                     .fixed_decimals(1)
-                    .range(0.1..=self.gui_variables.contour_interval),
+                    .range(0.1..=self.gui_variables.map_params.contour_interval),
             );
         });
 
@@ -337,68 +347,74 @@ impl OmapMaker {
         ui.label(egui::RichText::new("Vegetation parameters").strong());
         ui.label("Yellow threshold");
         ui.add(
-            egui::Slider::new(&mut self.gui_variables.yellow, 0.0..=1.0)
+            egui::Slider::new(&mut self.gui_variables.map_params.yellow, 0.0..=1.0)
                 .text("Yellow 403")
                 .show_value(true),
         );
         ui.add_space(20.);
         ui.label("Green thresholds");
         ui.add(
-            egui::Slider::new(&mut self.gui_variables.green.0, 0.0..=1.0)
+            egui::Slider::new(&mut self.gui_variables.map_params.green.0, 0.0..=1.0)
                 .text("Green 406")
                 .show_value(true),
         );
         ui.add(
-            egui::Slider::new(&mut self.gui_variables.green.1, 0.0..=1.0)
+            egui::Slider::new(&mut self.gui_variables.map_params.green.1, 0.0..=1.0)
                 .text("Green 408")
                 .show_value(true),
         );
         ui.add(
-            egui::Slider::new(&mut self.gui_variables.green.2, 0.0..=1.0)
+            egui::Slider::new(&mut self.gui_variables.map_params.green.2, 0.0..=1.0)
                 .text("Green 410")
                 .show_value(true),
         );
 
         // clamp the greens to the correct order
-        self.gui_variables.green.0 = self
+        self.gui_variables.map_params.green.0 = self
             .gui_variables
+            .map_params
             .green
             .0
-            .min(self.gui_variables.green.1)
-            .min(self.gui_variables.green.2);
-        self.gui_variables.green.1 = self
+            .min(self.gui_variables.map_params.green.1)
+            .min(self.gui_variables.map_params.green.2);
+        self.gui_variables.map_params.green.1 = self
             .gui_variables
+            .map_params
             .green
             .0
-            .max(self.gui_variables.green.1)
-            .min(self.gui_variables.green.2);
-        self.gui_variables.green.2 = self
+            .max(self.gui_variables.map_params.green.1)
+            .min(self.gui_variables.map_params.green.2);
+        self.gui_variables.map_params.green.2 = self
             .gui_variables
+            .map_params
             .green
             .0
-            .max(self.gui_variables.green.1)
-            .max(self.gui_variables.green.2);
+            .max(self.gui_variables.map_params.green.1)
+            .max(self.gui_variables.map_params.green.2);
 
         ui.add_space(20.);
         ui.label(egui::RichText::new("Geometry simplification parameters").strong());
         ui.checkbox(
-            &mut self.gui_variables.bezier_bool,
+            &mut self.gui_variables.map_params.bezier_bool,
             "Output map geometries in bezier curves.",
         );
 
-        if self.gui_variables.bezier_bool {
+        if self.gui_variables.map_params.bezier_bool {
             ui.label("Bezier simplification error\n(smaller value gives less simplification, but larger files):");
             ui.add(
-                egui::Slider::new(&mut self.gui_variables.bezier_error, 0.1..=5.0)
+                egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.1..=5.0)
                     .fixed_decimals(1)
                     .show_value(true),
             );
         } else {
             ui.label("Polyline simplification distance\n(smaller value gives less simplification, but larger files):");
             ui.add(
-                egui::Slider::new(&mut self.gui_variables.simplification_distance, 0.1..=2.0)
-                    .fixed_decimals(1)
-                    .show_value(true),
+                egui::Slider::new(
+                    &mut self.gui_variables.map_params.simplification_distance,
+                    0.1..=2.0,
+                )
+                .fixed_decimals(1)
+                .show_value(true),
             );
         }
         ui.add_space(20.);
@@ -406,13 +422,19 @@ impl OmapMaker {
         egui::CollapsingHeader::new("Contour Algo Debug Params").show(ui, |ui| {
             ui.label("Number of steps to perform in Contour Algo");
             ui.add(
-                egui::Slider::new(&mut self.gui_variables.contour_algo_steps, 0..=20)
-                    .show_value(true),
+                egui::Slider::new(
+                    &mut self.gui_variables.map_params.contour_algo_steps,
+                    0..=20,
+                )
+                .show_value(true),
             );
             ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
             ui.add(
-                egui::Slider::new(&mut self.gui_variables.contour_algo_lambda, 0.0..=10.)
-                    .show_value(true),
+                egui::Slider::new(
+                    &mut self.gui_variables.map_params.contour_algo_lambda,
+                    0.0..=10.,
+                )
+                .show_value(true),
             );
         });
 
@@ -444,7 +466,7 @@ impl OmapMaker {
         ui.label("The map is saved at: ");
         ui.label(format!(
             "{:?}.",
-            self.gui_variables.save_location.as_ref().unwrap()
+            self.gui_variables.file_params.save_location
         ));
         ui.label("The map can be opened in OpenOrienteering Mapper for editing.");
 

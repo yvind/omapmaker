@@ -2,7 +2,7 @@ use eframe::egui::{self, Color32, Response, Ui};
 use walkers::{Plugin, Position, Projector};
 
 use super::ProcessStage;
-use laz2omap::drawing::DrawableOmap;
+use laz2omap::DrawableOmap;
 
 const COLOR_LIST: [egui::Color32; 9] = [
     egui::Color32::ORANGE,
@@ -144,12 +144,13 @@ impl Plugin for PolygonDrawer<'_> {
                 }
 
                 // check for self intersections, if so clear the area_of_interest
+                // validation trait is added to the next release of geo
 
                 *self.state = ProcessStage::ChooseSquare;
             } else if response.clicked_by(egui::PointerButton::Primary) {
                 let clicked_pos = response
                     .interact_pointer_pos()
-                    .map(|p| projector.unproject((p - response.rect.center()).to_pos2()));
+                    .map(|p| projector.unproject(p));
 
                 if let Some(cp) = clicked_pos {
                     self.area_of_interest.push(cp);
@@ -200,7 +201,7 @@ impl Plugin for ClickListener<'_> {
         if !response.changed() && response.clicked_by(egui::PointerButton::Primary) {
             let clicked_pos = response
                 .interact_pointer_pos()
-                .map(|p| projector.unproject((p - response.rect.center()).to_pos2()));
+                .map(|p| projector.unproject(p));
 
             if let Some(cp) = clicked_pos {
                 for (i, bound) in self.boundaries.iter().enumerate() {
@@ -219,7 +220,7 @@ impl Plugin for ClickListener<'_> {
 }
 
 fn rectangle_contains(b: &[Position; 4], p: &Position) -> bool {
-    b[0].lat() >= p.lat() && b[0].lon() <= p.lon() && b[2].lat() <= p.lat() && b[2].lon() >= p.lon()
+    b[0].y >= p.y && b[0].x <= p.x && b[2].y <= p.y && b[2].x >= p.x
 }
 
 fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
@@ -227,11 +228,11 @@ fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
 }
 
 pub struct OmapDrawer<'a> {
-    map: &'a Option<DrawableOmap>,
+    map: &'a Option<Box<DrawableOmap>>,
 }
 
 impl<'a> OmapDrawer<'a> {
-    pub fn new(map: &'a Option<DrawableOmap>) -> Self {
+    pub fn new(map: &'a Option<Box<DrawableOmap>>) -> Self {
         Self { map }
     }
 }

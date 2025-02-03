@@ -1,19 +1,22 @@
 use std::time::Duration;
 
-use walkers::{LocalMap, Map, Position, Tiles};
+use walkers::{LocalMap, Map, Tiles};
 
 use super::{map_controls, map_plugins, OmapMaker, ProcessStage};
 use eframe::egui;
 
 impl OmapMaker {
     pub fn render_map(&mut self, ui: &mut egui::Ui) {
-        if self.state != ProcessStage::Welcome && self.gui_variables.output_epsg.is_none() {
+        let rect = if self.state != ProcessStage::Welcome
+            && self.gui_variables.map_params.output_epsg.is_none()
+        {
             // Local coordinates
-            self.render_local_map(ui);
+            self.render_local_map(ui)
         } else {
-            self.render_walkers_map(ui);
+            let rect = self.render_walkers_map(ui);
             map_controls::render_acknowledge(ui, self.http_tiles.attribution(), rect);
-        }
+            rect
+        };
 
         // Draw utility windows.
         match self.state {
@@ -39,7 +42,7 @@ impl OmapMaker {
         map_controls::render_scale_pos_label(ui, &self.map_memory, self.home);
     }
 
-    fn render_local_map(&mut self, ui: &mut egui::Ui) {
+    fn render_local_map(&mut self, ui: &mut egui::Ui) -> egui::Rect {
         let map = LocalMap::new(&mut self.map_memory, self.home);
 
         // add different plugins based on state
@@ -47,12 +50,12 @@ impl OmapMaker {
             ProcessStage::ChooseSquare => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
-                    self.gui_variables.selected_file,
+                    self.gui_variables.file_params.selected_file,
                     true,
                 ));
                 let map = map.with_plugin(map_plugins::ClickListener::new(
                     &self.gui_variables.boundaries,
-                    &mut self.gui_variables.selected_file,
+                    &mut self.gui_variables.file_params.selected_file,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
                     &mut self.gui_variables.polygon_filter,
@@ -62,7 +65,7 @@ impl OmapMaker {
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
-                    self.gui_variables.selected_file,
+                    self.gui_variables.file_params.selected_file,
                     false,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
@@ -93,9 +96,10 @@ impl OmapMaker {
         };
         let rect = ui.ctx().available_rect();
         ui.put(rect, map);
+        rect
     }
 
-    fn render_walkers_map(&mut self, ui: &mut egui::Ui) {
+    fn render_walkers_map(&mut self, ui: &mut egui::Ui) -> egui::Rect {
         // clamp zoom
         if self.map_memory.zoom() > 21. {
             self.map_memory.set_zoom(21.).unwrap();
@@ -105,27 +109,27 @@ impl OmapMaker {
 
         // clamp position
         if let Some(pos) = self.map_memory.detached() {
-            let mut new_pos = (pos.lat(), pos.lon());
+            let mut new_pos = (pos.y, pos.x);
             let mut oob = false;
-            if pos.lon() > 180. {
+            if pos.x > 180. {
                 oob = true;
                 new_pos.1 = 180.;
-            } else if pos.lon() < -180. {
+            } else if pos.x < -180. {
                 oob = true;
                 new_pos.1 = -180.;
             }
 
-            if pos.lat() > 85. {
+            if pos.y > 85. {
                 oob = true;
                 new_pos.0 = 85.;
-            } else if pos.lat() < -85. {
+            } else if pos.y < -85. {
                 oob = true;
                 new_pos.0 = -85.;
             }
 
             if oob {
                 self.map_memory
-                    .center_at(Position::from_lat_lon(new_pos.0, new_pos.1));
+                    .center_at(walkers::pos_from_lat_lon(new_pos.0, new_pos.1));
             }
         }
 
@@ -136,12 +140,12 @@ impl OmapMaker {
             ProcessStage::ChooseSquare => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
-                    self.gui_variables.selected_file,
+                    self.gui_variables.file_params.selected_file,
                     true,
                 ));
                 let map = map.with_plugin(map_plugins::ClickListener::new(
                     &self.gui_variables.boundaries,
-                    &mut self.gui_variables.selected_file,
+                    &mut self.gui_variables.file_params.selected_file,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
                     &mut self.gui_variables.polygon_filter,
@@ -151,7 +155,7 @@ impl OmapMaker {
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,
-                    self.gui_variables.selected_file,
+                    self.gui_variables.file_params.selected_file,
                     false,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
@@ -188,13 +192,15 @@ impl OmapMaker {
         // Draw the map widget over the label, so that the label is visible only if the map doesn't load
         let rect = ui.ctx().available_rect();
         ui.put(rect, map);
+        rect
     }
 
     pub fn render_console(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::both()
             .stick_to_bottom(true)
             .show(ui, |ui| {
-                egui::TextEdit::multiline(&mut self.gui_variables.log_string)
+                egui::TextEdit::multiline(&mut self.gui_variables.log_terminal)
+                    .code_editor()
                     .min_size(ui.available_size())
                     .desired_width(f32::INFINITY)
                     .interactive(false)

@@ -1,11 +1,11 @@
 use crate::{
     geometry::MapMultiPolygon,
-    parser::Args,
+    params::MapParams,
     raster::{Dfm, Threshold},
 };
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, MapObject, Omap, Symbol, TagTrait};
+use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
 
 use std::sync::{Arc, Mutex};
 
@@ -14,10 +14,10 @@ pub fn compute_cliffs(
     cliff_threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    args: &Args,
+    args: &MapParams,
     map: &Arc<Mutex<Omap>>,
 ) {
-    let symbol = Symbol::GiganticBoulder(geo::Polygon::new(geo::line_string![], vec![]));
+    let symbol = AreaSymbol::GiganticBoulder;
     let cliff_contours = slope.marching_squares(cliff_threshold.inner());
 
     let mut cliff_polygons = MultiPolygon::from_contours(
@@ -32,9 +32,7 @@ pub fn compute_cliffs(
     cliff_polygons = cliff_polygons.simplify(&args.simplification_distance);
 
     for polygon in cliff_polygons.into_iter() {
-        let symbol = Symbol::GiganticBoulder(polygon);
-
-        let mut cliff_object = AreaObject::from_symbol(symbol);
+        let mut cliff_object = AreaObject::from_polygon(polygon, symbol);
         cliff_object.add_auto_tag();
 
         map.lock()

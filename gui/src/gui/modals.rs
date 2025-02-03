@@ -102,7 +102,7 @@ impl OmapMaker {
 
     pub fn set_one_crs_for_each_modal(&mut self, ctx: &egui::Context) {
         let mut crs_less_files = vec![];
-        for (i, crs) in self.gui_variables.crs_epsg.iter().enumerate() {
+        for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
             if *crs == u16::MAX {
                 crs_less_files.push(i);
             }
@@ -121,7 +121,9 @@ impl OmapMaker {
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "{:?}",
-                            self.gui_variables.paths[*crs_less].file_name().unwrap()
+                            self.gui_variables.file_params.paths[*crs_less]
+                                .file_name()
+                                .unwrap()
                         ));
                         ui.vertical(|ui| {
                             ui.checkbox(
@@ -274,12 +276,12 @@ impl OmapMaker {
                 |_ui| {},
                 |ui| {
                 if ui.button(format!("Majority Vote (EPSG: {majority_epsg})")).clicked() {
-                    self.gui_variables.output_epsg = Some(majority_epsg);
+                    self.gui_variables.map_params.output_epsg = Some(majority_epsg);
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::OutputCrs));
                 }
                 if ui.add_enabled(transform_crs.is_some(), egui::Button::new("Select the given CRS")).clicked() {
-                    self.gui_variables.output_epsg = transform_crs;
+                    self.gui_variables.map_params.output_epsg = transform_crs;
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::OutputCrs));
                 }

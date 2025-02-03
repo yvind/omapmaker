@@ -1,4 +1,4 @@
-use crate::drawing::{DrawableOmap, GuiVariables};
+use crate::{params::MapParams, DrawableOmap};
 use std::path::PathBuf;
 
 pub enum Task {
@@ -14,6 +14,9 @@ pub enum Task {
 }
 
 pub enum FrontEndTask {
+    StartProgressBar,
+    IncrementProgressBar(f32),
+    FinishProgrssBar,
     Log(String),
     SetVariable(Variable),
     TaskComplete(TaskDone),
@@ -29,9 +32,9 @@ pub enum BackendTask {
     ParseCrs(Vec<PathBuf>),
     ConnectedComponentAnalysis(Vec<PathBuf>, Option<Vec<u16>>),
     ConvertCopc(Option<u16>),
-    RegenerateMap(Box<GuiVariables>), // boxed to keep the enum variant small
+    RegenerateMap(Box<MapParams>), // boxed to keep the enum variant small
     Reset,
-    MakeMap(Box<GuiVariables>),
+    MakeMap(Box<MapParams>),
     HeartBeat,
 }
 

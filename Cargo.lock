@@ -2970,7 +2970,6 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "geo-types",
- "log",
  "polyline2bezier",
  "proj4rs",
  "thiserror 2.0.11",
