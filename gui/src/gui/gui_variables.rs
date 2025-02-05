@@ -25,6 +25,8 @@ pub struct GuiVariables {
     // checkboxes
     pub drop_checkboxes: Vec<bool>,
     pub save_tiffs: bool,
+    // true when the backend is busy generating a map tile
+    pub generating_map_tile: bool,
 
     // logging to the in app "console"
     pub log_terminal: TerminalLike,
@@ -51,6 +53,7 @@ impl Default for GuiVariables {
             map_params: Default::default(),
             file_params: Default::default(),
             map_tile: Default::default(),
+            generating_map_tile: Default::default(),
         }
     }
 }
@@ -81,7 +84,7 @@ impl GuiVariables {
         }
     }
 
-    pub fn drop_small_graph_components(&mut self) {
+    pub fn drop_small_graph_components(&mut self) -> Position {
         let mut drop_files = vec![];
 
         let mut biggest_component_index = 0;
@@ -109,6 +112,16 @@ impl GuiVariables {
             self.file_params.crs_epsg.remove(drop_file);
             self.boundaries.remove(drop_file);
         }
+
+        let mut new_home = (0., 0.);
+        for bound in self.boundaries.iter() {
+            new_home.0 += (bound[0].x + bound[2].x) / 2.;
+            new_home.1 += (bound[0].y + bound[2].y) / 2.;
+        }
+        new_home.0 /= self.boundaries.len() as f64;
+        new_home.1 /= self.boundaries.len() as f64;
+
+        walkers::pos_from_lon_lat(new_home.0, new_home.1)
     }
 
     pub fn update_map(&mut self, map: Box<DrawableOmap>) {

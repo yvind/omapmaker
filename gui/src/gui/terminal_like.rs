@@ -43,8 +43,11 @@ impl<'a> TerminalLike {
     }
 
     pub fn start_progress_bar(&mut self, width: u32) {
-        self.string.push('\n');
-        self.progress_bar = Some(ProgressBar::new(self.string.len(), width));
+        self.string.push_str("\n\n");
+        let pb = ProgressBar::new(self.string.len(), width);
+        pb.draw_to_string(&mut self.string);
+
+        self.progress_bar = Some(pb);
     }
 }
 

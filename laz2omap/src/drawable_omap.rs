@@ -2,7 +2,7 @@ use eframe::egui;
 use geo::{Coord, TriangulateEarcut};
 use proj4rs::{transform::transform, Proj};
 
-use omap::MapObject;
+use omap::{MapObject, Omap};
 
 trait Drawable {
     /// what fill to use for drawing symbol equals the stroke of a line or
@@ -73,29 +73,67 @@ impl Drawable for MapObject {
 }
 
 #[derive(Clone)]
-pub struct DrawableOmap(Vec<DrawableGeometry>);
+pub struct DrawableOmap {
+    convex_hull: Vec<walkers::Position>,
+    map_objects: Vec<DrawableGeometry>,
+}
 
 impl DrawableOmap {
-    pub fn from_omap_objects(
-        objects: impl IntoIterator<Item = MapObject>,
-        ref_point: Coord,
-        crs: Option<u16>,
-    ) -> Self {
-        DrawableOmap(
-            objects
+    pub fn from_omap(omap: Omap, hull: geo::LineString) -> Self {
+        let ref_point = omap.get_ref_point();
+        let crs = omap.get_crs();
+
+        let global_hull = if let Some(epsg) = crs {
+            let wgs = Proj::from_epsg_code(4326).unwrap();
+            let local = Proj::from_epsg_code(epsg).unwrap();
+
+            let mut points: Vec<(f64, f64)> = hull
+                .0
                 .into_iter()
+                .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
+                .collect();
+
+            transform(&local, &wgs, points.as_mut_slice()).unwrap();
+
+            points
+                .into_iter()
+                .map(|t| walkers::pos_from_lon_lat(t.0.to_degrees(), t.1.to_degrees()))
+                .collect()
+        } else {
+            hull.0
+                .into_iter()
+                .map(|c| walkers::pos_from_lon_lat(c.x + ref_point.x, c.y + ref_point.y))
+                .collect()
+        };
+
+        DrawableOmap {
+            convex_hull: global_hull,
+            map_objects: omap
+                .into_objects()
                 .map(|o| o.into_drawable_geometry(ref_point, crs))
                 .collect(),
-        )
+        }
     }
 
     pub fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector) {
         // order is determined by the order in the vec
         // should be in reverse order of ISOM color appendix,
         // ie yellow first and so on
-        for ms in self.0.iter() {
+        for ms in self.map_objects.iter() {
             ms.draw(ui, projector);
         }
+
+        // project the hull:
+
+        let points = self
+            .convex_hull
+            .clone()
+            .into_iter()
+            .map(|p| projector.project(p))
+            .collect();
+
+        ui.painter()
+            .line(points, egui::Stroke::new(2., egui::Color32::RED));
     }
 }
 
@@ -138,16 +176,21 @@ impl PolygonObject {
             .chunks(2)
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
-        if let Some(epsg) = crs {
+        let obj = if let Some(epsg) = crs {
             let geo_proj = Proj::from_epsg_code(4326).unwrap();
             let local_proj = Proj::from_epsg_code(epsg).unwrap();
 
             let _ = transform(&local_proj, &geo_proj, verts.as_mut_slice());
-        }
-        let obj = verts
-            .iter()
-            .map(|c| walkers::pos_from_lon_lat(c.0, c.1))
-            .collect();
+            verts
+                .iter()
+                .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
+                .collect()
+        } else {
+            verts
+                .iter()
+                .map(|c| walkers::pos_from_lon_lat(c.0, c.1))
+                .collect()
+        };
 
         let triangulation = Triangulation {
             indices: tri.triangle_indices.iter().map(|t| *t as u32).collect(),
@@ -168,7 +211,7 @@ impl Triangulation {
     fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, color: &egui::Color32) {
         let painter = ui.painter();
 
-        let points = self
+        let points: Vec<egui::epaint::Vertex> = self
             .vertices
             .iter()
             .map(|p| egui::epaint::Vertex {
@@ -213,7 +256,7 @@ impl LineObject {
             let _ = transform(&local_proj, &geo_proj, line.as_mut_slice());
 
             line.iter()
-                .map(|c| walkers::pos_from_lon_lat(c.0, c.1))
+                .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
                 .collect()
         } else {
             line.coords()
@@ -244,7 +287,7 @@ impl PointObject {
             let mut p = (point.x() + ref_point.x, point.y() + ref_point.y);
             let _ = transform(&local_proj, &geo_proj, &mut p);
 
-            walkers::pos_from_lon_lat(p.0, p.1)
+            walkers::pos_from_lon_lat(p.0.to_degrees(), p.1.to_degrees())
         } else {
             walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
         };

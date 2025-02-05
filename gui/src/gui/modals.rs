@@ -36,7 +36,7 @@ impl OmapMaker {
                     };
                     if ui.button("Yes, drop the files!").clicked() {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::SetCrs(
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
                             SetCrs::DropAll,
                         )));
                     }
@@ -74,9 +74,11 @@ impl OmapMaker {
                     crs_set = true;
                 } else {
                     ui.label("Input CRS not recognized");
+                    ui.add_space(40.);
                 }
             } else {
                 ui.label("Could not parse input CRS code");
+                ui.add_space(40.);
             }
             ui.separator();
             egui::Sides::new().show(
@@ -88,7 +90,7 @@ impl OmapMaker {
                         .clicked()
                     {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::SetCrs(
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
                             SetCrs::SetAllEpsg,
                         )));
                     };
@@ -166,7 +168,7 @@ impl OmapMaker {
                 |ui| {
                     if ui.add_enabled(crs_set, egui::Button::new("Done")).clicked() {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::SetCrs(
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
                             SetCrs::SetEachCrs,
                         )));
                     }
@@ -202,7 +204,7 @@ impl OmapMaker {
                         .clicked()
                         {
                             self.open_modal = OmapModal::None;
-                            self.on_frontend_task(FrontEndTask::DelegateTask(Task::SetCrs(SetCrs::Local)));
+                            self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(SetCrs::Local)));
                         }
                 } else if self.gui_variables.unique_crs.len() == 1 {
                     #[allow(clippy::collapsible_if)]
@@ -212,7 +214,7 @@ impl OmapMaker {
                         .clicked()
                     {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::SetCrs(SetCrs::Default)));
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(SetCrs::Default)));
                     }
                 }
 
@@ -278,12 +280,12 @@ impl OmapMaker {
                 if ui.button(format!("Majority Vote (EPSG: {majority_epsg})")).clicked() {
                     self.gui_variables.map_params.output_epsg = Some(majority_epsg);
                     self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::OutputCrs));
+                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }
                 if ui.add_enabled(transform_crs.is_some(), egui::Button::new("Select the given CRS")).clicked() {
                     self.gui_variables.map_params.output_epsg = transform_crs;
                     self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::OutputCrs));
+                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }
             });
         });
@@ -307,7 +309,7 @@ impl OmapMaker {
                 ui.vertical_centered(|ui| {
                     if ui.button("Show components").clicked() {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::ShowComponents));
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::ShowComponents));
                     }
                 });
             }
@@ -318,17 +320,17 @@ impl OmapMaker {
                 |ui| {
                     if ui.button("Start over").clicked() {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::Reset));
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
                     };
                     if ui
                         .add_enabled(
-                            self.gui_variables.connected_components.len() < 9,
+                            self.gui_variables.connected_components.len() <= 9,
                             egui::Button::new("Drop all files not in the largest component"),
                         )
                         .clicked()
                     {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::DropComponents));
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::DropComponents));
                     }
                 },
             );
@@ -352,7 +354,7 @@ impl OmapMaker {
                 };
                 if ui.button("Yes, let's make that map!").clicked() {
                     self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontEndTask::NextState);
+                    self.on_frontend_task(FrontendTask::NextState);
                 }
             });
         });
@@ -374,7 +376,7 @@ impl OmapMaker {
                     };
                     if ui.button("Yes, start over!").clicked() {
                         self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontEndTask::DelegateTask(Task::Reset));
+                        self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
                     }
                 },
             );

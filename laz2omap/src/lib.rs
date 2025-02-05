@@ -1,7 +1,9 @@
 //mod c2hm;
 pub mod comms;
 mod drawable_omap;
+mod error;
 pub mod geometry;
+mod make_map;
 mod matrix;
 pub mod params;
 mod raster;
@@ -21,3 +23,6 @@ const MIN_NEIGHBOUR_MARGIN: f64 = MIN_NEIGHBOUR_MARGIN_USIZE as f64;
 
 pub use drawable_omap::DrawableOmap;
 pub use run_backend::OmapGenerator;
+
+pub use error::{Error, Result};
+pub use make_map::make_map;

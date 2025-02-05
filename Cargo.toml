@@ -43,7 +43,7 @@ geo = "0.29.3"
 # read/write las/laz/copc
 las = { version = "0.9.3", features = ["laz"] }
 las-crs = {git = "https://github.com/oyhj1801/las-crs"}
-copc-rs = {git = "https://github.com/oyhj1801/copc-rs"}
+copc-rs = {path = "../copc-rs"}#{git = "https://github.com/oyhj1801/copc-rs"}
 
 # omap-writing
 omap = {path = "../omap"}#{git = "https://github.com/oyhj1801/omap-rs"}

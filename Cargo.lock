@@ -797,11 +797,14 @@ dependencies = [
 [[package]]
 name = "copc-rs"
 version = "1.0.0"
-source = "git+https://github.com/oyhj1801/copc-rs#d4b0a92585a3a71e864bbfdda2b256200f4827fa"
 dependencies = [
  "byteorder",
+ "crs-definitions",
+ "fastrand",
  "las",
+ "las-crs",
  "laz",
+ "log",
  "thiserror 2.0.11",
 ]
 

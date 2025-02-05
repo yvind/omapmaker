@@ -6,8 +6,6 @@ use laz2omap::{
 };
 use walkers::{sources, HttpOptions, HttpTiles, MapMemory, Position};
 
-use std::sync::mpsc;
-
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
@@ -26,8 +24,8 @@ pub struct OmapMaker {
     // app state
     pub state: ProcessStage,
 
-    // backend
-    comms: OmapComms<BackendTask, FrontEndTask>,
+    // backend communication
+    comms: OmapComms<BackendTask, FrontendTask>,
 }
 
 impl eframe::App for OmapMaker {
@@ -38,7 +36,7 @@ impl eframe::App for OmapMaker {
         }
 
         // render correct side panel
-        egui::SidePanel::left("Guide")
+        egui::SidePanel::left("Guide Panel")
             .exact_width(400.)
             .show(ctx, |ui| match self.state {
                 ProcessStage::Welcome => self.render_welcome_panel(ui),
@@ -89,12 +87,7 @@ impl eframe::App for OmapMaker {
 // public functions
 impl OmapMaker {
     pub fn new(egui_ctx: egui::Context) -> Self {
-        // start backend thread
-        let (to_frontend, from_backend) = mpsc::channel();
-        let (to_backend, from_frontend) = mpsc::channel();
-
-        let backend_comms = OmapComms::new(to_frontend, from_frontend);
-        let frontend_comms = OmapComms::new(to_backend, from_backend);
+        let (frontend_comms, backend_comms) = OmapComms::new();
 
         // starts the backend on its own thread
         OmapGenerator::boot(backend_comms);
@@ -120,31 +113,31 @@ impl OmapMaker {
         }
     }
 
-    pub fn on_frontend_task(&mut self, event: FrontEndTask) {
+    pub fn on_frontend_task(&mut self, event: FrontendTask) {
         match event {
-            FrontEndTask::Log(s) => {
+            FrontendTask::Log(s) => {
                 self.gui_variables.log_terminal.println(s.as_str());
             }
-            FrontEndTask::SetVariable(variable) => self.on_update_variable(variable),
-            FrontEndTask::TaskComplete(task) => self.on_task_complete(task),
-            FrontEndTask::CrsModal => self.open_modal = OmapModal::ManualSetCRS,
-            FrontEndTask::DelegateTask(task) => self.start_task(task),
-            FrontEndTask::NextState => self.next_state(),
-            FrontEndTask::PrevState => self.prev_state(),
-            FrontEndTask::BackendError(s, fatal) => {
+            FrontendTask::SetVariable(variable) => self.on_update_variable(variable),
+            FrontendTask::TaskComplete(task) => self.on_task_complete(task),
+            FrontendTask::CrsModal => self.open_modal = OmapModal::ManualSetCRS,
+            FrontendTask::DelegateTask(task) => self.start_task(task),
+            FrontendTask::NextState => self.next_state(),
+            FrontendTask::PrevState => self.prev_state(),
+            FrontendTask::BackendError(s, fatal) => {
                 if fatal {
                     self.reset();
                 }
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
-            FrontEndTask::UpdateMap(drawable_omap) => self.gui_variables.update_map(drawable_omap),
-            FrontEndTask::StartProgressBar => {
+            FrontendTask::UpdateMap(drawable_omap) => self.gui_variables.update_map(drawable_omap),
+            FrontendTask::StartProgressBar => {
                 self.gui_variables.log_terminal.start_progress_bar(40)
             }
-            FrontEndTask::IncrementProgressBar(delta) => {
+            FrontendTask::IncrementProgressBar(delta) => {
                 self.gui_variables.log_terminal.inc_progress_bar(delta)
             }
-            FrontEndTask::FinishProgrssBar => self.gui_variables.log_terminal.finish_progress_bar(),
+            FrontendTask::FinishProgrssBar => self.gui_variables.log_terminal.finish_progress_bar(),
         }
     }
 }
@@ -153,6 +146,7 @@ impl OmapMaker {
 impl OmapMaker {
     fn on_update_variable(&mut self, variable: Variable) {
         match variable {
+            Variable::Paths(p) => self.gui_variables.file_params.paths = p,
             Variable::Boundaries(vec) => self.gui_variables.boundaries = vec,
             Variable::Home(position) => self.home = position,
             Variable::CrsEPSG(vec) => {
@@ -170,6 +164,7 @@ impl OmapMaker {
     fn start_task(&mut self, task: Task) {
         match task {
             Task::RegenerateMap => {
+                self.gui_variables.generating_map_tile = true;
                 self.comms
                     .send(BackendTask::RegenerateMap(Box::new(
                         self.gui_variables.map_params.clone(),
@@ -186,7 +181,9 @@ impl OmapMaker {
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
             Task::DropComponents => {
-                self.gui_variables.drop_small_graph_components();
+                let new_home = self.gui_variables.drop_small_graph_components();
+
+                self.home = new_home;
                 self.on_task_complete(TaskDone::DropComponents);
             }
             Task::GetOutputCRS => {
@@ -206,14 +203,14 @@ impl OmapMaker {
             Task::DoConnectedComponentAnalysis => {
                 if self.gui_variables.map_params.output_epsg.is_some() {
                     self.comms
-                        .send(BackendTask::ConnectedComponentAnalysis(
+                        .send(BackendTask::MapSpatialLidarRelations(
                             self.gui_variables.file_params.paths.clone(),
                             Some(self.gui_variables.file_params.crs_epsg.clone()),
                         ))
                         .unwrap();
                 } else {
                     self.comms
-                        .send(BackendTask::ConnectedComponentAnalysis(
+                        .send(BackendTask::MapSpatialLidarRelations(
                             self.gui_variables.file_params.paths.clone(),
                             None,
                         ))
@@ -227,33 +224,47 @@ impl OmapMaker {
         match task {
             TaskDone::ParseCrs(m) => {
                 if let SetCrs::Local = m {
-                    self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::OutputCrs));
+                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 } else {
-                    self.on_frontend_task(FrontEndTask::DelegateTask(Task::GetOutputCRS));
+                    self.on_frontend_task(FrontendTask::DelegateTask(Task::GetOutputCRS));
                 }
             }
-            TaskDone::ConnectedComponentAnalysis => {
+            TaskDone::MapSpatialLidarRelations => {
                 if self.gui_variables.connected_components.len() == 1 {
-                    self.on_frontend_task(FrontEndTask::TaskComplete(TaskDone::DropComponents));
+                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::DropComponents));
+                    self.gui_variables
+                        .log_terminal
+                        .println("The lidar files are all connected.");
                 } else {
-                    self.on_frontend_task(FrontEndTask::DelegateTask(Task::QueryDropComponents));
+                    self.on_frontend_task(FrontendTask::DelegateTask(Task::QueryDropComponents));
+                    self.gui_variables
+                        .log_terminal
+                        .println("The remaining lidar files are all connected.");
                 }
             }
-            TaskDone::DropComponents => {
-                self.gui_variables
-                    .log_terminal
-                    .println("The remaining lidar files are all connected.");
-                self.next_state();
-            }
+            TaskDone::DropComponents => self.next_state(),
             TaskDone::OutputCrs => {
-                self.on_frontend_task(FrontEndTask::DelegateTask(
+                self.on_frontend_task(FrontendTask::DelegateTask(
                     Task::DoConnectedComponentAnalysis,
                 ));
             }
-            TaskDone::ConvertCopc => self.next_state(),
-            TaskDone::RegenerateMap => (),
+            TaskDone::ConvertCopc => {
+                self.gui_variables.generating_map_tile = true;
+                self.comms
+                    .send(BackendTask::InitializeMapTile(
+                        self.gui_variables.file_params.paths
+                            [self.gui_variables.file_params.selected_file.unwrap_or(0)]
+                        .clone(),
+                    ))
+                    .unwrap();
+            }
+            TaskDone::RegenerateMap => self.gui_variables.generating_map_tile = false,
             TaskDone::MakeMap => self.next_state(),
             TaskDone::Reset => (),
+            TaskDone::InitializeMapTile => {
+                self.gui_variables.generating_map_tile = false;
+                self.next_state();
+            }
         }
     }
 
@@ -272,19 +283,34 @@ impl OmapMaker {
             ProcessStage::ConvertingCOPC => {
                 self.comms
                     .send(BackendTask::ConvertCopc(
+                        self.gui_variables.file_params.paths.clone(),
+                        self.gui_variables.file_params.crs_epsg.clone(),
                         self.gui_variables.map_params.output_epsg,
+                        self.gui_variables.file_params.selected_file.unwrap_or(0),
+                        self.gui_variables.boundaries.clone(),
+                        self.gui_variables.polygon_filter.clone(),
                     ))
                     .unwrap();
             }
             ProcessStage::MakeMap => {
                 self.comms
-                    .send(BackendTask::MakeMap(Box::new(
-                        self.gui_variables.map_params.clone(),
-                    )))
+                    .send(BackendTask::MakeMap(
+                        Box::new(self.gui_variables.map_params.clone()),
+                        Box::new(self.gui_variables.file_params.clone()),
+                        self.gui_variables.polygon_filter.clone(),
+                    ))
                     .unwrap();
             }
             ProcessStage::ExportDone => self.open_modal = OmapModal::WaiverModal,
             ProcessStage::ChooseSquare => self.map_memory.follow_my_position(),
+            ProcessStage::AdjustSliders => {
+                self.gui_variables.generating_map_tile = true;
+                self.comms
+                    .send(BackendTask::RegenerateMap(Box::new(
+                        self.gui_variables.map_params.clone(),
+                    )))
+                    .unwrap();
+            }
             _ => (),
         }
     }
@@ -307,7 +333,6 @@ impl OmapMaker {
             Ok(_) => (),
             Err(_) => self.restart_backend(),
         }
-        self.state = ProcessStage::Welcome;
         self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
         self.open_modal = OmapModal::None;
@@ -321,7 +346,7 @@ impl OmapMaker {
 
             match self.comms.try_recv() {
                 Ok(e) => {
-                    if let FrontEndTask::TaskComplete(TaskDone::Reset) = e {
+                    if let FrontendTask::TaskComplete(TaskDone::Reset) = e {
                         break;
                     }
                 }
@@ -330,6 +355,7 @@ impl OmapMaker {
                 }
             }
         }
+        self.state = ProcessStage::Welcome;
     }
 
     fn update_crs(&mut self, message: SetCrs) {
@@ -338,8 +364,12 @@ impl OmapMaker {
                 let a = self.gui_variables.crs_less_search_strings[0]
                     .parse::<u16>()
                     .unwrap();
-                self.gui_variables.file_params.crs_epsg =
-                    vec![a; self.gui_variables.file_params.paths.len()];
+
+                for crs in self.gui_variables.file_params.crs_epsg.iter_mut() {
+                    if *crs == u16::MAX {
+                        *crs = a;
+                    }
+                }
             }
             SetCrs::SetEachCrs => {
                 let mut drop_list = vec![];
@@ -373,6 +403,7 @@ impl OmapMaker {
                 for a in self.gui_variables.file_params.crs_epsg.iter() {
                     if a != &u16::MAX {
                         default_crs = *a;
+                        break;
                     }
                 }
                 assert!(
@@ -417,15 +448,9 @@ impl OmapMaker {
     }
 
     fn restart_backend(&mut self) {
-        if self.comms.send(BackendTask::HeartBeat).is_ok() {
-            eprintln!("Tried to restart backend, but backend is still alive");
-        } else {
+        if self.comms.send(BackendTask::HeartBeat).is_err() {
             // start backend thread
-            let (to_frontend, from_backend) = mpsc::channel();
-            let (to_backend, from_frontend) = mpsc::channel();
-
-            let backend_comms = OmapComms::new(to_frontend, from_frontend);
-            let frontend_comms = OmapComms::new(to_backend, from_backend);
+            let (frontend_comms, backend_comms) = OmapComms::new();
 
             // starts the backend on its own thread
             OmapGenerator::boot(backend_comms);

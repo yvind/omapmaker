@@ -139,7 +139,7 @@ impl OmapMaker {
             )
             .clicked()
         {
-            self.on_frontend_task(FrontEndTask::NextState);
+            self.on_frontend_task(FrontendTask::NextState);
             if !self.gui_variables.save_tiffs {
                 self.gui_variables.file_params.tiff_location = None;
             }
@@ -229,7 +229,7 @@ impl OmapMaker {
             });
 
         if ui.button("Go back").clicked() {
-            self.on_frontend_task(FrontEndTask::PrevState);
+            self.on_frontend_task(FrontendTask::PrevState);
         }
     }
 
@@ -305,7 +305,7 @@ impl OmapMaker {
                 )
                 .clicked()
             {
-                self.on_frontend_task(FrontEndTask::NextState);
+                self.on_frontend_task(FrontendTask::NextState);
             }
         });
     }
@@ -366,6 +366,15 @@ impl OmapMaker {
         ui.add(
             egui::Slider::new(&mut self.gui_variables.map_params.green.2, 0.0..=1.0)
                 .text("Green 410")
+                .show_value(true),
+        );
+
+        ui.add_space(20.);
+
+        ui.label(egui::RichText::new("Cliff parameters").strong());
+        ui.add(
+            egui::Slider::new(&mut self.gui_variables.map_params.cliff, 0.2..=2.0)
+                .text("Cliff")
                 .show_value(true),
         );
 
@@ -439,19 +448,27 @@ impl OmapMaker {
         });
 
         ui.add_space(20.);
-        if ui.button("Re-generate map").clicked() {
-            self.on_frontend_task(FrontEndTask::DelegateTask(Task::RegenerateMap));
+        if ui
+            .add_enabled(
+                !self.gui_variables.generating_map_tile,
+                egui::Button::new("Re-generate map"),
+            )
+            .clicked()
+        {
+            self.on_frontend_task(FrontendTask::DelegateTask(Task::RegenerateMap));
         }
 
         ui.add_space(20.);
 
-        ui.horizontal(|ui| {
-            if ui.button("Prev step").clicked() {
-                self.on_frontend_task(FrontEndTask::PrevState);
-            }
-            if ui.button("Next step").clicked() {
-                self.open_modal = OmapModal::ConfirmMakeMap;
-            }
+        ui.add_enabled_ui(!self.gui_variables.generating_map_tile, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Prev step").clicked() {
+                    self.on_frontend_task(FrontendTask::PrevState);
+                }
+                if ui.button("Next step").clicked() {
+                    self.open_modal = OmapModal::ConfirmMakeMap;
+                }
+            });
         });
     }
 
@@ -477,7 +494,7 @@ impl OmapMaker {
 
         ui.add_space(20.);
         if ui.button("Start a new map").clicked() {
-            self.on_frontend_task(FrontEndTask::DelegateTask(Task::Reset));
+            self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
         }
     }
 }

@@ -1,4 +1,7 @@
-use crate::{params::MapParams, DrawableOmap};
+use crate::{
+    params::{FileParams, MapParams},
+    DrawableOmap,
+};
 use std::path::PathBuf;
 
 pub enum Task {
@@ -13,7 +16,7 @@ pub enum Task {
     DoConnectedComponentAnalysis,
 }
 
-pub enum FrontEndTask {
+pub enum FrontendTask {
     StartProgressBar,
     IncrementProgressBar(f32),
     FinishProgrssBar,
@@ -29,18 +32,27 @@ pub enum FrontEndTask {
 }
 
 pub enum BackendTask {
+    InitializeMapTile(PathBuf),
     ParseCrs(Vec<PathBuf>),
-    ConnectedComponentAnalysis(Vec<PathBuf>, Option<Vec<u16>>),
-    ConvertCopc(Option<u16>),
+    MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<u16>>),
+    ConvertCopc(
+        Vec<PathBuf>,
+        Vec<u16>,
+        Option<u16>,
+        usize,
+        Vec<[walkers::Position; 4]>,
+        geo::LineString,
+    ),
     RegenerateMap(Box<MapParams>), // boxed to keep the enum variant small
     Reset,
-    MakeMap(Box<MapParams>),
+    MakeMap(Box<MapParams>, Box<FileParams>, geo::LineString),
     HeartBeat,
 }
 
 pub enum TaskDone {
+    InitializeMapTile,
     ParseCrs(SetCrs),
-    ConnectedComponentAnalysis,
+    MapSpatialLidarRelations,
     DropComponents,
     ConvertCopc,
     OutputCrs,
@@ -59,6 +71,7 @@ pub enum SetCrs {
 }
 
 pub enum Variable {
+    Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     Home(walkers::Position),
     CrsEPSG(Vec<u16>),

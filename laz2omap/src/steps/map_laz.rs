@@ -1,44 +1,132 @@
+use geo::{Coord, Rect};
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::Reader;
+use proj4rs::{transform::transform, Proj};
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
 
+use crate::comms::messages::*;
 use crate::geometry::MapRect;
+use crate::Result;
 
-use geo::{Coord, Rect};
+pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Option<Vec<u16>>) {
+    let (boundaries, mid_point, components) = match read_boundaries(paths, crs_epsg) {
+        Ok(bm) => bm,
+        Err(e) => {
+            sender
+                .send(FrontendTask::BackendError(e.to_string(), true))
+                .unwrap();
+            return;
+        }
+    };
 
-pub fn map_laz(
+    sender
+        .send(FrontendTask::SetVariable(Variable::Boundaries(
+            boundaries.clone(),
+        )))
+        .unwrap();
+
+    sender
+        .send(FrontendTask::SetVariable(Variable::Home(mid_point)))
+        .unwrap();
+
+    sender
+        .send(FrontendTask::SetVariable(Variable::ConnectedComponents(
+            components,
+        )))
+        .unwrap();
+    sender
+        .send(FrontendTask::TaskComplete(
+            TaskDone::MapSpatialLidarRelations,
+        ))
+        .unwrap();
+}
+
+fn read_boundaries(
     paths: Vec<PathBuf>,
-) -> (
-    Vec<[Option<usize>; 9]>,
-    Vec<PathBuf>,
-    Vec<Rect>,
-    Coord,
+    crs_epsg: Option<Vec<u16>>,
+) -> Result<(
+    Vec<[walkers::Position; 4]>,
+    walkers::Position,
     Vec<Vec<usize>>,
-) {
+)> {
+    let (_neighbour_graph, bounds, _ref_point, components) = spatial_laz_analysis(&paths);
+
+    let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
+
+    let global_coords = crs_epsg.is_some();
+
+    let mut walkers_boundaries = Vec::with_capacity(bounds.len());
+
+    for (i, bound) in bounds.iter().enumerate() {
+        let mut points = [
+            (bound.min().x, bound.max().y),
+            (bound.min().x, bound.min().y),
+            (bound.max().x, bound.min().y),
+            (bound.max().x, bound.max().y),
+        ];
+
+        if global_coords {
+            // transform bounds to lat lon
+            let to = Proj::from_user_string("WGS84").unwrap();
+            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
+
+            transform(&from, &to, points.as_mut_slice())?;
+
+            for (x, y) in points.iter_mut() {
+                *x = x.to_degrees();
+                *y = y.to_degrees();
+            }
+        }
+
+        walkers_boundaries.push([
+            walkers::pos_from_lon_lat(points[0].0, points[0].1),
+            walkers::pos_from_lon_lat(points[1].0, points[1].1),
+            walkers::pos_from_lon_lat(points[2].0, points[2].1),
+            walkers::pos_from_lon_lat(points[3].0, points[3].1),
+        ]);
+
+        if all_lidar_bounds[0].0 > points[0].0 {
+            all_lidar_bounds[0].0 = points[0].0;
+        }
+        if all_lidar_bounds[0].1 < points[0].1 {
+            all_lidar_bounds[0].1 = points[0].1;
+        }
+        if all_lidar_bounds[1].0 < points[2].0 {
+            all_lidar_bounds[1].0 = points[2].0;
+        }
+        if all_lidar_bounds[1].1 > points[2].1 {
+            all_lidar_bounds[1].1 = points[2].1;
+        }
+    }
+    let mid_point = walkers::pos_from_lon_lat(
+        (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
+        (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
+    );
+    Ok((walkers_boundaries, mid_point, components))
+}
+
+fn spatial_laz_analysis(
+    paths: &Vec<PathBuf>,
+) -> (Vec<[Option<usize>; 9]>, Vec<Rect>, Coord, Vec<Vec<usize>>) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
-    let mut tile_names = Vec::with_capacity(paths.len());
 
     for las_path in paths {
-        if let Ok(las_reader) = Reader::from_path(&las_path) {
+        if let Ok(las_reader) = Reader::from_path(las_path) {
             let b = las_reader.header().bounds();
             tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
             tile_bounds.push(Rect::from_bounds(b));
-            tile_names.push(las_path);
         }
     }
 
-    if tile_names.is_empty() {
-        panic!("Unable to read the input las/laz-files");
-    } else if tile_names.len() == 1 {
+    if tile_centers.len() == 1 {
         let mut center_point = tile_centers.swap_remove(0); // round ref_point to nearest 10m
         center_point[0] = (center_point[0] / 10.).round() * 10.;
         center_point[1] = (center_point[1] / 10.).round() * 10.;
 
         return (
             vec![[Some(0), None, None, None, None, None, None, None, None]],
-            tile_names,
             tile_bounds,
             Coord::from(center_point),
             vec![vec![0]],
@@ -57,7 +145,7 @@ pub fn map_laz(
     ref_point.x = (ref_point.x / (10 * tile_centers.len()) as f64).round() * 10.;
     ref_point.y = (ref_point.y / (10 * tile_centers.len()) as f64).round() * 10.;
 
-    (neighbours, tile_names, tile_bounds, ref_point, components)
+    (neighbours, tile_bounds, ref_point, components)
 }
 
 fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[Option<usize>; 9]> {
@@ -109,20 +197,16 @@ fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
         if belongs_to != usize::MAX {
             // the main node belongs to a component and so all
             // of its neighbours also belong to that component
-            for neighbour in node.iter().skip(1) {
-                if let Some(ni) = neighbour {
-                    let _ = cc[belongs_to].insert(*ni);
-                }
+            for ni in node.iter().skip(1).flatten() {
+                let _ = cc[belongs_to].insert(*ni);
             }
         } else {
             // the main node does not belong to a component
             // create a new component and add it and all of its neighbours to that component
             let mut new_component = HashSet::new();
 
-            for neighbour in node.iter() {
-                if let Some(ni) = neighbour {
-                    let _ = new_component.insert(*ni);
-                }
+            for ni in node.iter().flatten() {
+                let _ = new_component.insert(*ni);
             }
             cc.push(new_component);
         }

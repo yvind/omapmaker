@@ -4,6 +4,8 @@ use std::path::PathBuf;
 pub struct MapParams {
     pub output_epsg: Option<u16>,
 
+    pub scale: omap::Scale,
+
     // map parameters
     pub simplification_distance: f64,
     pub bezier_error: f64,
@@ -11,6 +13,7 @@ pub struct MapParams {
     pub contour_interval: f64,
     pub green: (f64, f64, f64),
     pub yellow: f64,
+    pub cliff: f64,
 
     // debug params
     pub contour_algo_steps: u8,
@@ -24,6 +27,7 @@ pub struct MapParams {
 impl Default for MapParams {
     fn default() -> Self {
         Self {
+            scale: omap::Scale::S15_000,
             output_epsg: None,
             simplification_distance: 0.1,
             bezier_error: 0.4,
@@ -36,6 +40,7 @@ impl Default for MapParams {
             basemap_contour: false,
             formlines: false,
             bezier_bool: true,
+            cliff: 0.7,
         }
     }
 }

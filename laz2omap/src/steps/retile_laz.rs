@@ -21,11 +21,10 @@ pub fn retile_laz(
 
     // read the laz to be re-tiled, must be readable by now
     let ci = neighbour_map[0].unwrap();
-    let header;
-    {
+    let header = {
         let las_reader = Reader::from_path(&paths[ci]).unwrap();
-        header = las_reader.header().clone().into_raw().unwrap();
-    }
+        las_reader.header().clone().into_raw().unwrap()
+    };
     let bounds = Rect::new(
         Coord {
             x: header.min_x,
@@ -261,7 +260,7 @@ fn write_tiles_to_file(
     (paths, cb)
 }
 
-fn retile_bounds(
+pub fn retile_bounds(
     bounds: &Rect,
     neighbour_file_margin: &Rect,
 ) -> (Vec<Rect>, Vec<Rect>, usize, usize) {

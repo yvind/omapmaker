@@ -1,28 +1,39 @@
-use crate::comms::{messages::*, OmapComms};
-use crate::params::{FileParams, MapParams};
+use proj4rs::transform::transform;
+use proj4rs::Proj;
 
-use las::Reader;
-use omap::OmapResult;
-use proj4rs::{proj::Proj, transform::transform};
-use std::{path::PathBuf, time::Duration};
+use crate::comms::{messages::*, OmapComms};
+use crate::raster::Dfm;
+
+use std::time::Duration;
 
 pub struct OmapGenerator {
-    comms: OmapComms<FrontEndTask, BackendTask>,
-    file_params: FileParams,
-    map_params: MapParams,
+    comms: OmapComms<FrontendTask, BackendTask>,
+
+    // for iterating the params
+    map_tile_dem: Option<Dfm>,
+    map_tile_grad_dem: Option<Dfm>,
+    convex_hull: Option<geo::LineString>,
+    ref_point: geo::Coord,
+    z_range: (f64, f64),
 }
 
 impl OmapGenerator {
-    pub fn boot(comms: OmapComms<FrontEndTask, BackendTask>) {
-        std::thread::spawn(move || {
-            let mut backend = OmapGenerator {
-                comms,
-                map_params: Default::default(),
-                file_params: Default::default(),
-            };
+    pub fn boot(comms: OmapComms<FrontendTask, BackendTask>) {
+        std::thread::Builder::new()
+            .stack_size(crate::STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
+            .spawn(move || {
+                let mut backend = OmapGenerator {
+                    comms,
+                    map_tile_dem: None,
+                    map_tile_grad_dem: None,
+                    convex_hull: None,
+                    ref_point: geo::Coord { x: 0., y: 0. },
+                    z_range: (0., 0.),
+                };
 
-            backend.run();
-        });
+                backend.run();
+            })
+            .unwrap();
     }
 
     fn run(&mut self) {
@@ -30,200 +41,101 @@ impl OmapGenerator {
             if let Ok(task) = self.comms.try_recv() {
                 match task {
                     BackendTask::ParseCrs(paths) => {
-                        self.parse_crs(paths);
+                        crate::steps::parse_crs(self.comms.clone_sender(), paths);
                     }
-                    BackendTask::ConnectedComponentAnalysis(paths, crs) => {
-                        self.connected_components(paths, crs);
+                    BackendTask::MapSpatialLidarRelations(paths, crs) => {
+                        crate::steps::map_laz(self.comms.clone_sender(), paths, crs);
                     }
-                    BackendTask::ConvertCopc(_epsg) => {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                        self.comms
-                            .send(FrontEndTask::TaskComplete(TaskDone::ConvertCopc))
-                            .unwrap();
+                    BackendTask::ConvertCopc(
+                        paths,
+                        in_epsg,
+                        out_epsg,
+                        selected_file,
+                        bounds,
+                        polygon,
+                    ) => {
+                        crate::steps::convert_copc(
+                            self.comms.clone_sender(),
+                            paths,
+                            in_epsg,
+                            out_epsg,
+                            selected_file,
+                            bounds,
+                            polygon,
+                        );
                     }
-                    BackendTask::Reset => {
-                        self.comms
-                            .send(FrontEndTask::TaskComplete(TaskDone::Reset))
-                            .unwrap();
+                    BackendTask::InitializeMapTile(path) => {
+                        let (dem, gdem, hull, ref_point, z_range) =
+                            crate::steps::initialize_map_tile(self.comms.clone_sender(), path);
+                        self.map_tile_dem = Some(dem);
+                        self.map_tile_grad_dem = Some(gdem);
+                        self.convex_hull = Some(hull);
+                        self.ref_point = ref_point;
+                        self.z_range = z_range;
                     }
                     BackendTask::RegenerateMap(params) => {
+                        assert!(self.map_tile_dem.is_some());
+                        crate::steps::regenerate_map_tile(
+                            self.comms.clone_sender(),
+                            self.map_tile_dem.as_ref().unwrap(),
+                            self.map_tile_grad_dem.as_ref().unwrap(),
+                            self.convex_hull.as_ref().unwrap(),
+                            self.ref_point,
+                            self.z_range,
+                            *params,
+                        );
+                    }
+                    BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
+                        // transform the linestring to output coords
+                        let local_polygon_filter =
+                            transform_polygon(map_params.output_epsg, polygon_filter);
+
+                        crate::make_map(
+                            self.comms.clone_sender(),
+                            *map_params,
+                            *file_params,
+                            local_polygon_filter,
+                        );
+                    }
+                    BackendTask::Reset => {
+                        self.map_tile_dem = None;
+                        self.map_tile_grad_dem = None;
+                        self.convex_hull = None;
+                        self.ref_point = geo::Coord { x: 0., y: 0. };
                         self.comms
-                            .send(FrontEndTask::TaskComplete(TaskDone::RegenerateMap))
+                            .send(FrontendTask::TaskComplete(TaskDone::Reset))
                             .unwrap();
                     }
-                    BackendTask::MakeMap(_) => {
-                        std::thread::sleep(std::time::Duration::from_secs(5));
-                        self.comms
-                            .send(FrontEndTask::TaskComplete(TaskDone::MakeMap))
-                            .unwrap();
-                    }
-                    BackendTask::HeartBeat => (),
+                    BackendTask::HeartBeat => (), // to check if the backend's receiver has hung up, i.e. backend has panicked and must be restarted
                 }
             }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
-
-    fn connected_components(&mut self, paths: Vec<PathBuf>, crs_epsg: Option<Vec<u16>>) {
-        self.comms
-            .send(FrontEndTask::Log(
-                "Building Lidar Neighbour Graph".to_string(),
-            ))
-            .unwrap();
-        let (boundaries, mid_point, components) = match read_boundaries(paths, crs_epsg) {
-            Ok(bm) => bm,
-            Err(e) => {
-                self.comms
-                    .send(FrontEndTask::BackendError(e.to_string(), true))
-                    .unwrap();
-                return;
-            }
-        };
-
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::Boundaries(
-                boundaries.clone(),
-            )))
-            .unwrap();
-
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::Home(mid_point)))
-            .unwrap();
-
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::ConnectedComponents(
-                components,
-            )))
-            .unwrap();
-        self.comms
-            .send(FrontEndTask::TaskComplete(
-                TaskDone::ConnectedComponentAnalysis,
-            ))
-            .unwrap();
-    }
-
-    fn parse_crs(&mut self, paths: Vec<PathBuf>) {
-        self.comms
-            .send(FrontEndTask::Log(
-                "Detecting CRS of all provided files...".to_string(),
-            ))
-            .unwrap();
-        self.comms.send(FrontEndTask::StartProgressBar).unwrap();
-
-        let mut crs_epsg = vec![];
-
-        let mut num_crs_less = 0;
-
-        let inc_size = 1. / paths.len() as f32;
-        for path in paths.iter() {
-            let reader = Reader::from_path(path).unwrap();
-            let crs_res = las_crs::parse_las_crs(reader.header());
-
-            if let Ok(epsg) = crs_res {
-                crs_epsg.push(epsg.0);
-            } else {
-                crs_epsg.push(u16::MAX);
-                num_crs_less += 1;
-            }
-            self.comms
-                .send(FrontEndTask::IncrementProgressBar(inc_size))
-                .unwrap();
-        }
-        self.comms.send(FrontEndTask::FinishProgrssBar).unwrap();
-
-        self.comms
-            .send(FrontEndTask::Log(format!(
-                "{num_crs_less} out of {} lidar files have no CRS detected",
-                paths.len()
-            )))
-            .unwrap();
-
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::CrsEPSG(crs_epsg)))
-            .unwrap();
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::CrsLessString(
-                num_crs_less,
-            )))
-            .unwrap();
-        self.comms
-            .send(FrontEndTask::SetVariable(Variable::CrsLessCheckBox(
-                num_crs_less,
-            )))
-            .unwrap();
-
-        if num_crs_less == 0 {
-            self.comms
-                .send(FrontEndTask::TaskComplete(TaskDone::ParseCrs(SetCrs::Auto)))
-                .unwrap();
-        } else {
-            self.comms.send(FrontEndTask::CrsModal).unwrap();
-        }
-    }
 }
 
-fn read_boundaries(
-    paths: Vec<PathBuf>,
-    crs_epsg: Option<Vec<u16>>,
-) -> OmapResult<(
-    Vec<[walkers::Position; 4]>,
-    walkers::Position,
-    Vec<Vec<usize>>,
-)> {
-    let (_neighbour_graph, readable_paths, bounds, _ref_point, components) =
-        crate::steps::map_laz(paths);
-
-    let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
-
-    let global_coords = crs_epsg.is_some();
-
-    let mut walkers_boundaries = Vec::with_capacity(bounds.len());
-
-    for i in 0..readable_paths.len() {
-        let bound = bounds[i];
-        let mut points = [
-            (bound.min().x, bound.max().y),
-            (bound.min().x, bound.min().y),
-            (bound.max().x, bound.min().y),
-            (bound.max().x, bound.max().y),
-        ];
-
-        if global_coords {
-            // transform bounds to lat lon
-            let to = Proj::from_user_string("WGS84").unwrap();
-            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
-
-            transform(&from, &to, points.as_mut_slice())?;
-
-            for (x, y) in points.iter_mut() {
-                *x = x.to_degrees();
-                *y = y.to_degrees();
-            }
-        }
-
-        walkers_boundaries.push([
-            walkers::pos_from_lon_lat(points[0].0, points[0].1),
-            walkers::pos_from_lon_lat(points[1].0, points[1].1),
-            walkers::pos_from_lon_lat(points[2].0, points[2].1),
-            walkers::pos_from_lon_lat(points[3].0, points[3].1),
-        ]);
-
-        if all_lidar_bounds[0].0 > points[0].0 {
-            all_lidar_bounds[0].0 = points[0].0;
-        }
-        if all_lidar_bounds[0].1 < points[0].1 {
-            all_lidar_bounds[0].1 = points[0].1;
-        }
-        if all_lidar_bounds[1].0 < points[2].0 {
-            all_lidar_bounds[1].0 = points[2].0;
-        }
-        if all_lidar_bounds[1].1 > points[2].1 {
-            all_lidar_bounds[1].1 = points[2].1;
-        }
+fn transform_polygon(epsg: Option<u16>, line: geo::LineString) -> Option<geo::Polygon> {
+    if line.0.is_empty() {
+        return None;
     }
-    let mid_point = walkers::pos_from_lon_lat(
-        (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
-        (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
+    if epsg.is_none() {
+        return Some(geo::Polygon::new(line, vec![]));
+    }
+    let epsg = epsg.unwrap();
+
+    let global_proj = Proj::from_epsg_code(4326).unwrap();
+    let local_proj = Proj::from_epsg_code(epsg).unwrap();
+
+    let mut points: Vec<(f64, f64)> = line.0.into_iter().map(|c| c.x_y()).collect();
+
+    transform(&global_proj, &local_proj, points.as_mut_slice()).unwrap();
+
+    let line = geo::LineString::new(
+        points
+            .into_iter()
+            .map(|t| geo::Coord { x: t.0, y: t.1 })
+            .collect(),
     );
-    Ok((walkers_boundaries, mid_point, components))
+
+    Some(geo::Polygon::new(line, vec![]))
 }

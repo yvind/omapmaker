@@ -1,8 +1,40 @@
+use crate::{
+    comms::messages::*,
+    params::{FileParams, MapParams},
+};
+
+use std::sync::mpsc::Sender;
+
+pub fn make_map(
+    sender: Sender<FrontendTask>,
+    _map_params: MapParams,
+    _file_params: FileParams,
+    _polygon_filter: Option<geo::Polygon>,
+) {
+    sender
+        .send(FrontendTask::Log("Map Generation!".to_string()))
+        .unwrap();
+
+    sender.send(FrontendTask::StartProgressBar).unwrap();
+    let inc_size = 1. / 5.;
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        sender
+            .send(FrontendTask::IncrementProgressBar(inc_size))
+            .unwrap();
+    }
+    sender.send(FrontendTask::FinishProgrssBar).unwrap();
+
+    sender
+        .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
+        .unwrap();
+}
+
+/*
 use crate::parser::Args;
 use crate::steps;
 use omap::{Omap, Scale};
 
-use indicatif::{ProgressBar, ProgressStyle};
 use std::{
     fs,
     sync::{Arc, Mutex},
@@ -45,34 +77,14 @@ pub fn run_cli() {
         // step 1: preprocess lidar-file, retile into TILE_SIZExTILE_SIZEm tiles
         //         with at least MIN_NEIGHBOUR_MARGINm overlap on all sides
 
-        let pb = ProgressBar::new(args.threads as u64 * 3 + 1);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] [{bar:30.white/gray}] ({eta})")
-                .unwrap()
-                .progress_chars("=>."),
-        );
-        let pb = Arc::new(Mutex::new(pb));
 
         let (tile_paths, tile_cut_bounds) = steps::retile_laz(
             args.threads,
             &laz_neighbour_map[fi],
             laz_paths.clone(),
-            pb.clone(),
         );
-        {
-            pb.lock().unwrap().finish();
-        }
-        println!("Computing map features...");
 
-        let pb = ProgressBar::new(tile_paths.len() as u64);
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template("[{elapsed_precise}] [{bar:30.white/gray}] ({eta})")
-                .unwrap()
-                .progress_chars("=>."),
-        );
-        let pb = Arc::new(Mutex::new(pb));
+        println!("Computing map features...");
 
         steps::compute_map_objects(
             map.clone(),
@@ -81,15 +93,11 @@ pub fn run_cli() {
             ref_point,
             tile_cut_bounds,
             &tiff_directory,
-            pb.clone(),
         );
 
         // delete all sub-tiles
         fs::remove_dir_all(laz_paths[fi].with_extension(""))
             .expect("Could not remove dir with sub-tiled las-file");
-        {
-            pb.lock().unwrap().finish();
-        }
 
         tiff_directory.pop();
     }
@@ -105,3 +113,4 @@ pub fn run_cli() {
         .write_to_file(file_stem, &args.output_directory, Some(crate::BEZIER_ERROR));
     println!("Done!");
 }
+*/

@@ -1,5 +1,4 @@
 mod epsg_list;
-mod error;
 mod gui;
 
 use eframe::egui;
