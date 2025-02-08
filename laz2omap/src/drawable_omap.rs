@@ -106,6 +106,11 @@ impl DrawableOmap {
                 .collect()
         };
 
+        // draw-order is determined by the order in the vec
+        // should be in reverse order of ISOM color appendix,
+        // ie yellow first and so on
+        // this must be revised when multithreading is added as
+        // the order may vary then
         DrawableOmap {
             convex_hull: global_hull,
             map_objects: omap
@@ -116,13 +121,6 @@ impl DrawableOmap {
     }
 
     pub fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector) {
-        // order is determined by the order in the vec
-        // should be in reverse order of ISOM color appendix,
-        // ie yellow first and so on
-        for ms in self.map_objects.iter() {
-            ms.draw(ui, projector);
-        }
-
         // project the hull:
 
         let points = self
@@ -132,8 +130,15 @@ impl DrawableOmap {
             .map(|p| projector.project(p))
             .collect();
 
-        ui.painter()
-            .line(points, egui::Stroke::new(2., egui::Color32::RED));
+        ui.painter().add(egui::Shape::convex_polygon(
+            points,
+            egui::Color32::WHITE.gamma_multiply(0.5),
+            egui::Stroke::new(2., egui::Color32::RED),
+        ));
+
+        for ms in self.map_objects.iter() {
+            ms.draw(ui, projector);
+        }
     }
 }
 

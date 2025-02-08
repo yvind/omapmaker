@@ -4,35 +4,21 @@ use crate::{
 };
 use std::path::PathBuf;
 
-pub enum Task {
-    RegenerateMap,
-    Reset,
-    SetCrs(SetCrs),
-    ShowComponents,
-    QueryDropComponents,
-    DropComponents,
-    Error(String, bool),
-    GetOutputCRS,
-    DoConnectedComponentAnalysis,
-}
-
 pub enum FrontendTask {
-    StartProgressBar,
-    IncrementProgressBar(f32),
-    FinishProgrssBar,
+    ProgressBar(ProgressBar),
     Log(String),
-    SetVariable(Variable),
-    TaskComplete(TaskDone),
-    CrsModal,
+    UpdateVariable(Variable),
     DelegateTask(Task),
-    UpdateMap(Box<DrawableOmap>),
+    TaskComplete(TaskDone),
+    OpenCrsModal,
     NextState,
     PrevState,
-    BackendError(String, bool),
+    Error(String, bool),
 }
 
 pub enum BackendTask {
-    InitializeMapTile(PathBuf),
+    TileSelectedFile(PathBuf, Option<u16>),
+    InitializeMapTile(PathBuf, [Option<usize>; 9]),
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<u16>>),
     ConvertCopc(
@@ -46,10 +32,27 @@ pub enum BackendTask {
     RegenerateMap(Box<MapParams>), // boxed to keep the enum variant small
     Reset,
     MakeMap(Box<MapParams>, Box<FileParams>, geo::LineString),
-    HeartBeat,
+}
+
+pub enum Task {
+    RegenerateMap,
+    Reset,
+    SetCrs(SetCrs),
+    ShowComponents,
+    QueryDropComponents,
+    DropComponents,
+    GetOutputCRS,
+    DoConnectedComponentAnalysis,
+}
+
+pub enum ProgressBar {
+    Start,
+    Finish,
+    Inc(f32),
 }
 
 pub enum TaskDone {
+    TileSelectedFile,
     InitializeMapTile,
     ParseCrs(SetCrs),
     MapSpatialLidarRelations,
@@ -71,6 +74,9 @@ pub enum SetCrs {
 }
 
 pub enum Variable {
+    MapTile(Box<DrawableOmap>),
+    TileBounds(Vec<[walkers::Position; 4]>),
+    TileNeighbours(Vec<[Option<usize>; 9]>),
     Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     Home(walkers::Position),

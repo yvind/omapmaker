@@ -25,7 +25,9 @@ pub fn convert_copc(
             "Converting and transforming files".to_string(),
         ))
         .unwrap();
-    sender.send(FrontendTask::StartProgressBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Start))
+        .unwrap();
 
     let polygon = geo::Polygon::new(polygon_filter, vec![]);
 
@@ -72,13 +74,15 @@ pub fn convert_copc(
         }
 
         sender
-            .send(FrontendTask::IncrementProgressBar(inc_size))
+            .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap()
     }
-    sender.send(FrontendTask::FinishProgrssBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Finish))
+        .unwrap();
 
     sender
-        .send(FrontendTask::SetVariable(Variable::Paths(new_paths)))
+        .send(FrontendTask::UpdateVariable(Variable::Paths(new_paths)))
         .unwrap();
 
     sender

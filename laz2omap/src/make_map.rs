@@ -15,15 +15,19 @@ pub fn make_map(
         .send(FrontendTask::Log("Map Generation!".to_string()))
         .unwrap();
 
-    sender.send(FrontendTask::StartProgressBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Start))
+        .unwrap();
     let inc_size = 1. / 5.;
     for _ in 0..5 {
         std::thread::sleep(std::time::Duration::from_secs(1));
         sender
-            .send(FrontendTask::IncrementProgressBar(inc_size))
+            .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap();
     }
-    sender.send(FrontendTask::FinishProgrssBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Finish))
+        .unwrap();
 
     sender
         .send(FrontendTask::TaskComplete(TaskDone::MakeMap))

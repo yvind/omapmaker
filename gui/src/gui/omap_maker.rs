@@ -24,6 +24,9 @@ pub struct OmapMaker {
     // app state
     pub state: ProcessStage,
 
+    // app context
+    ctx: egui::Context,
+
     // backend communication
     comms: OmapComms<BackendTask, FrontendTask>,
 }
@@ -44,6 +47,7 @@ impl eframe::App for OmapMaker {
                 ProcessStage::ShowComponents => self.render_show_components_panel(ui),
                 ProcessStage::ConvertingCOPC => self.render_copc_panel(ui),
                 ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
+                ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
                 ProcessStage::DrawPolygon => self.render_choose_lidar_panel(ui, false),
                 ProcessStage::AdjustSliders => self.render_adjust_slider_panel(ui),
                 ProcessStage::MakeMap => self.render_generating_map_panel(ui),
@@ -57,6 +61,7 @@ impl eframe::App for OmapMaker {
                 ProcessStage::Welcome
                 | ProcessStage::AdjustSliders
                 | ProcessStage::ChooseSquare
+                | ProcessStage::ChooseSubTile
                 | ProcessStage::ExportDone
                 | ProcessStage::DrawPolygon
                 | ProcessStage::ShowComponents => {
@@ -86,11 +91,11 @@ impl eframe::App for OmapMaker {
 
 // public functions
 impl OmapMaker {
-    pub fn new(egui_ctx: egui::Context) -> Self {
+    pub fn new(ctx: egui::Context) -> Self {
         let (frontend_comms, backend_comms) = OmapComms::new();
 
         // starts the backend on its own thread
-        OmapGenerator::boot(backend_comms);
+        OmapGenerator::boot(backend_comms, ctx.clone());
 
         let http_tiles = HttpTiles::with_options(
             sources::OpenStreetMap,
@@ -98,13 +103,14 @@ impl OmapMaker {
                 cache: None, //Some(".osm_cache".into()),
                 ..Default::default()
             },
-            egui_ctx,
+            ctx.clone(),
         );
 
         Self {
             http_tiles,
             map_memory: Default::default(),
             state: ProcessStage::Welcome,
+            ctx,
             comms: frontend_comms,
             open_modal: OmapModal::None,
             home: walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
@@ -118,26 +124,21 @@ impl OmapMaker {
             FrontendTask::Log(s) => {
                 self.gui_variables.log_terminal.println(s.as_str());
             }
-            FrontendTask::SetVariable(variable) => self.on_update_variable(variable),
+            FrontendTask::UpdateVariable(variable) => self.on_update_variable(variable),
             FrontendTask::TaskComplete(task) => self.on_task_complete(task),
-            FrontendTask::CrsModal => self.open_modal = OmapModal::ManualSetCRS,
+            FrontendTask::OpenCrsModal => self.open_modal = OmapModal::ManualSetCRS,
             FrontendTask::DelegateTask(task) => self.start_task(task),
             FrontendTask::NextState => self.next_state(),
             FrontendTask::PrevState => self.prev_state(),
-            FrontendTask::BackendError(s, fatal) => {
+            FrontendTask::Error(s, fatal) => {
                 if fatal {
                     self.reset();
                 }
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
-            FrontendTask::UpdateMap(drawable_omap) => self.gui_variables.update_map(drawable_omap),
-            FrontendTask::StartProgressBar => {
-                self.gui_variables.log_terminal.start_progress_bar(40)
+            FrontendTask::ProgressBar(p) => {
+                self.update_progress_bar(p);
             }
-            FrontendTask::IncrementProgressBar(delta) => {
-                self.gui_variables.log_terminal.inc_progress_bar(delta)
-            }
-            FrontendTask::FinishProgrssBar => self.gui_variables.log_terminal.finish_progress_bar(),
         }
     }
 }
@@ -158,6 +159,9 @@ impl OmapMaker {
             }
             Variable::CrsLessCheckBox(num) => self.gui_variables.drop_checkboxes = vec![false; num],
             Variable::ConnectedComponents(vec) => self.gui_variables.connected_components = vec,
+            Variable::MapTile(drawable_omap) => self.gui_variables.update_map(drawable_omap),
+            Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
+            Variable::TileNeighbours(tn) => self.gui_variables.subtile_neighbours = tn,
         }
     }
 
@@ -174,12 +178,6 @@ impl OmapMaker {
             Task::Reset => self.reset(),
             Task::SetCrs(s) => self.update_crs(s),
             Task::ShowComponents => self.state = ProcessStage::ShowComponents,
-            Task::Error(s, fatal) => {
-                if fatal {
-                    self.reset();
-                }
-                self.open_modal = OmapModal::ErrorModal(s.clone());
-            }
             Task::DropComponents => {
                 let new_home = self.gui_variables.drop_small_graph_components();
 
@@ -222,6 +220,13 @@ impl OmapMaker {
 
     fn on_task_complete(&mut self, task: TaskDone) {
         match task {
+            TaskDone::TileSelectedFile => {
+                if self.gui_variables.subtile_boundaries.len() <= 9 {
+                    self.gui_variables.selected_tile =
+                        Some(self.gui_variables.subtile_boundaries.len() / 2);
+                    self.next_state();
+                }
+            }
             TaskDone::ParseCrs(m) => {
                 if let SetCrs::Local = m {
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
@@ -255,10 +260,14 @@ impl OmapMaker {
                         self.gui_variables.file_params.paths
                             [self.gui_variables.file_params.selected_file.unwrap_or(0)]
                         .clone(),
+                        self.gui_variables.subtile_neighbours
+                            [self.gui_variables.selected_tile.unwrap_or(0)],
                     ))
                     .unwrap();
             }
-            TaskDone::RegenerateMap => self.gui_variables.generating_map_tile = false,
+            TaskDone::RegenerateMap => {
+                self.gui_variables.generating_map_tile = false;
+            }
             TaskDone::MakeMap => self.next_state(),
             TaskDone::Reset => (),
             TaskDone::InitializeMapTile => {
@@ -311,6 +320,16 @@ impl OmapMaker {
                     )))
                     .unwrap();
             }
+            ProcessStage::ChooseSubTile => {
+                self.comms
+                    .send(BackendTask::TileSelectedFile(
+                        self.gui_variables.file_params.paths
+                            [self.gui_variables.file_params.selected_file.unwrap()]
+                        .clone(),
+                        self.gui_variables.map_params.output_epsg,
+                    ))
+                    .unwrap();
+            }
             _ => (),
         }
     }
@@ -328,34 +347,12 @@ impl OmapMaker {
         self.state.prev();
     }
 
-    fn reset(&mut self) {
-        match self.comms.send(BackendTask::Reset) {
-            Ok(_) => (),
-            Err(_) => self.restart_backend(),
+    fn update_progress_bar(&mut self, p: ProgressBar) {
+        match p {
+            ProgressBar::Start => self.gui_variables.log_terminal.start_progress_bar(40),
+            ProgressBar::Inc(delta) => self.gui_variables.log_terminal.inc_progress_bar(delta),
+            ProgressBar::Finish => self.gui_variables.log_terminal.finish_progress_bar(),
         }
-        self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
-        self.gui_variables = Default::default();
-        self.open_modal = OmapModal::None;
-        self.home_zoom = 16.;
-        self.map_memory.set_zoom(self.home_zoom).unwrap();
-        self.map_memory.follow_my_position();
-
-        // Wait for current backend tasks to finish and then continue
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-
-            match self.comms.try_recv() {
-                Ok(e) => {
-                    if let FrontendTask::TaskComplete(TaskDone::Reset) = e {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    self.restart_backend();
-                }
-            }
-        }
-        self.state = ProcessStage::Welcome;
     }
 
     fn update_crs(&mut self, message: SetCrs) {
@@ -436,7 +433,7 @@ impl OmapMaker {
         );
 
         if self.gui_variables.file_params.paths.is_empty() {
-            self.start_task(Task::Error(
+            self.on_frontend_task(FrontendTask::Error(
                 "All Lidar files were dropped.".to_string(),
                 true,
             ));
@@ -447,14 +444,42 @@ impl OmapMaker {
         }
     }
 
-    fn restart_backend(&mut self) {
-        if self.comms.send(BackendTask::HeartBeat).is_err() {
-            // start backend thread
-            let (frontend_comms, backend_comms) = OmapComms::new();
-
-            // starts the backend on its own thread
-            OmapGenerator::boot(backend_comms);
-            self.comms = frontend_comms;
+    fn reset(&mut self) {
+        match self.comms.send(BackendTask::Reset) {
+            Ok(_) => (),
+            Err(_) => self.restart_backend(),
         }
+        self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
+        self.gui_variables = Default::default();
+        self.open_modal = OmapModal::None;
+        self.home_zoom = 16.;
+        self.map_memory.set_zoom(self.home_zoom).unwrap();
+        self.map_memory.follow_my_position();
+
+        // Wait for current backend tasks to finish and then continue
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+
+            match self.comms.try_recv() {
+                Ok(e) => {
+                    if let FrontendTask::TaskComplete(TaskDone::Reset) = e {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    self.restart_backend();
+                }
+            }
+        }
+        self.state = ProcessStage::Welcome;
+    }
+
+    fn restart_backend(&mut self) {
+        // start backend thread
+        let (frontend_comms, backend_comms) = OmapComms::new();
+
+        // starts the backend on its own thread
+        OmapGenerator::boot(backend_comms, self.ctx.clone());
+        self.comms = frontend_comms;
     }
 }

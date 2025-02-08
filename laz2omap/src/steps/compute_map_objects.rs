@@ -80,7 +80,7 @@ pub fn compute_map_objects(
                             steps::compute_basemap(
                                 &dem,
                                 (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z),
-                                Some(&cut_overlay),
+                                &cut_overlay,
                                 &args,
                                 &map_ref,
                             );
@@ -132,7 +132,7 @@ pub fn compute_map_objects(
                         steps::compute_cliffs(
                             &grad_dem,
                             &convex_hull,
-                            Some(&cut_overlay),
+                            &cut_overlay,
                             &args,
                             &map_ref,
                         );

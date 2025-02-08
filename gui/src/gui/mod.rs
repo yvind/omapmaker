@@ -16,6 +16,7 @@ pub enum ProcessStage {
     CheckLidar,
     ShowComponents,
     ChooseSquare,
+    ChooseSubTile,
     ConvertingCOPC,
     DrawPolygon,
     ExportDone,
@@ -28,7 +29,8 @@ impl ProcessStage {
         match self {
             ProcessStage::Welcome => *self = ProcessStage::CheckLidar,
             ProcessStage::CheckLidar => *self = ProcessStage::ChooseSquare,
-            ProcessStage::ChooseSquare => *self = ProcessStage::ConvertingCOPC,
+            ProcessStage::ChooseSquare => *self = ProcessStage::ChooseSubTile,
+            ProcessStage::ChooseSubTile => *self = ProcessStage::ConvertingCOPC,
             ProcessStage::ConvertingCOPC => *self = ProcessStage::AdjustSliders,
             ProcessStage::AdjustSliders => *self = ProcessStage::MakeMap,
             ProcessStage::MakeMap => *self = ProcessStage::ExportDone,

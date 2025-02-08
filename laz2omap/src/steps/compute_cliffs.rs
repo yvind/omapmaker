@@ -1,8 +1,4 @@
-use crate::{
-    geometry::MapMultiPolygon,
-    params::MapParams,
-    raster::{Dfm, Threshold},
-};
+use crate::{geometry::MapMultiPolygon, params::MapParams, raster::Dfm};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
 use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
@@ -12,7 +8,7 @@ use std::sync::{Arc, Mutex};
 pub fn compute_cliffs(
     slope: &Dfm,
     convex_hull: &LineString,
-    cut_overlay: Option<&Polygon>,
+    cut_overlay: &Polygon,
     params: &MapParams,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -26,9 +22,7 @@ pub fn compute_cliffs(
         false,
     );
 
-    if let Some(overlay) = cut_overlay {
-        cliff_polygons = overlay.intersection(&cliff_polygons);
-    }
+    cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
     cliff_polygons = cliff_polygons.simplify(&params.simplification_distance);
 

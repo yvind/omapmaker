@@ -10,7 +10,9 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
             "Detecting CRS of all provided files...".to_string(),
         ))
         .unwrap();
-    sender.send(FrontendTask::StartProgressBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Start))
+        .unwrap();
 
     let mut crs_epsg = vec![];
 
@@ -28,7 +30,7 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
                 paths.swap_remove(i);
                 unreadable_path = true;
                 sender
-                    .send(FrontendTask::IncrementProgressBar(inc_size))
+                    .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
                     .unwrap();
                 continue;
             }
@@ -42,18 +44,20 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
             num_crs_less += 1;
         }
         sender
-            .send(FrontendTask::IncrementProgressBar(inc_size))
+            .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap();
 
         i += 1;
     }
-    sender.send(FrontendTask::FinishProgrssBar).unwrap();
+    sender
+        .send(FrontendTask::ProgressBar(ProgressBar::Finish))
+        .unwrap();
 
     let num_files = paths.len();
 
     if paths.is_empty() {
         sender
-            .send(FrontendTask::BackendError(
+            .send(FrontendTask::Error(
                 "None of the given files were readable as lidar files".to_string(),
                 true,
             ))
@@ -61,13 +65,13 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
         return;
     } else if unreadable_path {
         sender
-            .send(FrontendTask::BackendError(
+            .send(FrontendTask::Error(
                 "Some paths were not readable as lidar files and have been removed".to_string(),
                 false,
             ))
             .unwrap();
         sender
-            .send(FrontendTask::SetVariable(Variable::Paths(paths)))
+            .send(FrontendTask::UpdateVariable(Variable::Paths(paths)))
             .unwrap();
     }
 
@@ -79,15 +83,15 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
         .unwrap();
 
     sender
-        .send(FrontendTask::SetVariable(Variable::CrsEPSG(crs_epsg)))
+        .send(FrontendTask::UpdateVariable(Variable::CrsEPSG(crs_epsg)))
         .unwrap();
     sender
-        .send(FrontendTask::SetVariable(Variable::CrsLessString(
+        .send(FrontendTask::UpdateVariable(Variable::CrsLessString(
             num_crs_less,
         )))
         .unwrap();
     sender
-        .send(FrontendTask::SetVariable(Variable::CrsLessCheckBox(
+        .send(FrontendTask::UpdateVariable(Variable::CrsLessCheckBox(
             num_crs_less,
         )))
         .unwrap();
@@ -97,6 +101,6 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
             .send(FrontendTask::TaskComplete(TaskDone::ParseCrs(SetCrs::Auto)))
             .unwrap();
     } else {
-        sender.send(FrontendTask::CrsModal).unwrap();
+        sender.send(FrontendTask::OpenCrsModal).unwrap();
     }
 }

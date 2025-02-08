@@ -34,6 +34,11 @@ pub struct GuiVariables {
     pub map_params: MapParams,
     pub file_params: FileParams,
 
+    // sub_tile parameters
+    pub selected_tile: Option<usize>,
+    pub subtile_boundaries: Vec<[walkers::Position; 4]>,
+    pub subtile_neighbours: Vec<[Option<usize>; 9]>,
+
     // for storing the generated map tile for drawing
     pub map_tile: Option<Box<DrawableOmap>>,
 }
@@ -41,8 +46,8 @@ pub struct GuiVariables {
 impl Default for GuiVariables {
     fn default() -> Self {
         Self {
-            boundaries: Default::default(),
             polygon_filter: LineString::new(vec![]),
+            boundaries: Default::default(),
             crs_less_search_strings: Default::default(),
             unique_crs: Default::default(),
             output_crs_string: Default::default(),
@@ -54,6 +59,9 @@ impl Default for GuiVariables {
             file_params: Default::default(),
             map_tile: Default::default(),
             generating_map_tile: Default::default(),
+            selected_tile: Default::default(),
+            subtile_boundaries: Default::default(),
+            subtile_neighbours: Default::default(),
         }
     }
 }

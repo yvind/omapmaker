@@ -1,4 +1,4 @@
-An application for generating orienteering maps (.omap file) from a lidar data.
+An application for generating orienteering maps (.omap file) from ground-classified lidar data.
 
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
 The written files are automatically georefrenced.
@@ -15,13 +15,15 @@ Implemented:
 
     Supports both bezier and polyline output
 
-To do:
+Planned:
 
     Smart contour generation
 
     Building detection
 
     Water detection
+
+    Vegetation boundaries (abrupt changes in tree height)
 
     Stream detection
 

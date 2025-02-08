@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 pub fn compute_basemap(
     dem: &Dfm,
     z_range: (f64, f64),
-    cut_overlay: Option<&Polygon>,
+    cut_overlay: &Polygon,
     args: &MapParams,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -24,9 +24,7 @@ pub fn compute_basemap(
 
         bm_contours = bm_contours.simplify(&args.simplification_distance);
 
-        if let Some(overlay) = cut_overlay {
-            bm_contours = overlay.clip(&bm_contours, false);
-        }
+        bm_contours = cut_overlay.clip(&bm_contours, false);
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, LineSymbol::BasemapContour);

@@ -14,24 +14,24 @@ pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Opti
         Ok(bm) => bm,
         Err(e) => {
             sender
-                .send(FrontendTask::BackendError(e.to_string(), true))
+                .send(FrontendTask::Error(e.to_string(), true))
                 .unwrap();
             return;
         }
     };
 
     sender
-        .send(FrontendTask::SetVariable(Variable::Boundaries(
+        .send(FrontendTask::UpdateVariable(Variable::Boundaries(
             boundaries.clone(),
         )))
         .unwrap();
 
     sender
-        .send(FrontendTask::SetVariable(Variable::Home(mid_point)))
+        .send(FrontendTask::UpdateVariable(Variable::Home(mid_point)))
         .unwrap();
 
     sender
-        .send(FrontendTask::SetVariable(Variable::ConnectedComponents(
+        .send(FrontendTask::UpdateVariable(Variable::ConnectedComponents(
             components,
         )))
         .unwrap();

@@ -315,136 +315,138 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
 
-        ui.add_space(20.);
-        ui.label(egui::RichText::new("Contour parameters").strong());
-        ui.checkbox(
-            &mut self.gui_variables.map_params.formlines,
-            "Add formlines to the map.",
-        );
-        ui.horizontal(|ui| {
-            ui.label("Contour interval: ");
-            ui.add(
-                egui::widgets::DragValue::new(&mut self.gui_variables.map_params.contour_interval)
-                    .fixed_decimals(1)
-                    .range(1.0..=20.),
+        egui::ScrollArea::vertical().max_height(ui.available_height()).max_width(f32::INFINITY).show(ui, |ui| {
+            ui.add_space(20.);
+            ui.label(egui::RichText::new("Contour parameters").strong());
+            ui.checkbox(
+                &mut self.gui_variables.map_params.formlines,
+                "Add formlines to the map.",
             );
-        });
-        ui.checkbox(
-            &mut self.gui_variables.map_params.basemap_contour,
-            "Add basemap contours to the map.",
-        );
-        ui.add_enabled_ui(self.gui_variables.map_params.basemap_contour, |ui| {
-            ui.label("Basemap interval: ");
-            ui.add(
-                egui::widgets::DragValue::new(&mut self.gui_variables.map_params.basemap_interval)
-                    .fixed_decimals(1)
-                    .range(0.1..=self.gui_variables.map_params.contour_interval),
+            ui.horizontal(|ui| {
+                ui.label("Contour interval: ");
+                ui.add(
+                    egui::widgets::DragValue::new(&mut self.gui_variables.map_params.contour_interval)
+                        .fixed_decimals(1)
+                        .range(1.0..=20.),
+                );
+            });
+            ui.checkbox(
+                &mut self.gui_variables.map_params.basemap_contour,
+                "Add basemap contours to the map.",
             );
-        });
-
-        ui.add_space(20.);
-
-        ui.label(egui::RichText::new("Vegetation parameters").strong());
-        ui.label("Yellow threshold");
-        ui.add(
-            egui::Slider::new(&mut self.gui_variables.map_params.yellow, 0.0..=1.0)
-                .text("Yellow 403")
-                .show_value(true),
-        );
-        ui.add_space(20.);
-        ui.label("Green thresholds");
-        ui.add(
-            egui::Slider::new(&mut self.gui_variables.map_params.green.0, 0.0..=1.0)
-                .text("Green 406")
-                .show_value(true),
-        );
-        ui.add(
-            egui::Slider::new(&mut self.gui_variables.map_params.green.1, 0.0..=1.0)
-                .text("Green 408")
-                .show_value(true),
-        );
-        ui.add(
-            egui::Slider::new(&mut self.gui_variables.map_params.green.2, 0.0..=1.0)
-                .text("Green 410")
-                .show_value(true),
-        );
-
-        ui.add_space(20.);
-
-        ui.label(egui::RichText::new("Cliff parameters").strong());
-        ui.add(
-            egui::Slider::new(&mut self.gui_variables.map_params.cliff, 0.2..=2.0)
-                .text("Cliff")
-                .show_value(true),
-        );
-
-        // clamp the greens to the correct order
-        self.gui_variables.map_params.green.0 = self
-            .gui_variables
-            .map_params
-            .green
-            .0
-            .min(self.gui_variables.map_params.green.1)
-            .min(self.gui_variables.map_params.green.2);
-        self.gui_variables.map_params.green.1 = self
-            .gui_variables
-            .map_params
-            .green
-            .0
-            .max(self.gui_variables.map_params.green.1)
-            .min(self.gui_variables.map_params.green.2);
-        self.gui_variables.map_params.green.2 = self
-            .gui_variables
-            .map_params
-            .green
-            .0
-            .max(self.gui_variables.map_params.green.1)
-            .max(self.gui_variables.map_params.green.2);
-
-        ui.add_space(20.);
-        ui.label(egui::RichText::new("Geometry simplification parameters").strong());
-        ui.checkbox(
-            &mut self.gui_variables.map_params.bezier_bool,
-            "Output map geometries in bezier curves.",
-        );
-
-        if self.gui_variables.map_params.bezier_bool {
-            ui.label("Bezier simplification error\n(smaller value gives less simplification, but larger files):");
+            ui.add_enabled_ui(self.gui_variables.map_params.basemap_contour, |ui| {
+                ui.label("Basemap interval: ");
+                ui.add(
+                    egui::widgets::DragValue::new(&mut self.gui_variables.map_params.basemap_interval)
+                        .fixed_decimals(1)
+                        .range(0.1..=self.gui_variables.map_params.contour_interval),
+                );
+            });
+    
+            ui.add_space(20.);
+    
+            ui.label(egui::RichText::new("Vegetation parameters").strong());
+            ui.label("Yellow threshold");
             ui.add(
-                egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.1..=5.0)
-                    .fixed_decimals(1)
+                egui::Slider::new(&mut self.gui_variables.map_params.yellow, 0.0..=1.0)
+                    .text("Yellow 403")
                     .show_value(true),
             );
-        } else {
-            ui.label("Polyline simplification distance\n(smaller value gives less simplification, but larger files):");
+            ui.add_space(20.);
+            ui.label("Green thresholds");
             ui.add(
-                egui::Slider::new(
-                    &mut self.gui_variables.map_params.simplification_distance,
-                    0.1..=2.0,
-                )
-                .fixed_decimals(1)
-                .show_value(true),
+                egui::Slider::new(&mut self.gui_variables.map_params.green.0, 0.0..=1.0)
+                    .text("Green 406")
+                    .show_value(true),
             );
-        }
-        ui.add_space(20.);
-
-        egui::CollapsingHeader::new("Contour Algo Debug Params").show(ui, |ui| {
-            ui.label("Number of steps to perform in Contour Algo");
             ui.add(
-                egui::Slider::new(
-                    &mut self.gui_variables.map_params.contour_algo_steps,
-                    0..=20,
-                )
-                .show_value(true),
+                egui::Slider::new(&mut self.gui_variables.map_params.green.1, 0.0..=1.0)
+                    .text("Green 408")
+                    .show_value(true),
             );
-            ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
             ui.add(
-                egui::Slider::new(
-                    &mut self.gui_variables.map_params.contour_algo_lambda,
-                    0.0..=10.,
-                )
-                .show_value(true),
+                egui::Slider::new(&mut self.gui_variables.map_params.green.2, 0.0..=1.0)
+                    .text("Green 410")
+                    .show_value(true),
             );
+    
+            ui.add_space(20.);
+    
+            ui.label(egui::RichText::new("Cliff parameters").strong());
+            ui.add(
+                egui::Slider::new(&mut self.gui_variables.map_params.cliff, 0.2..=2.0)
+                    .text("Cliff")
+                    .show_value(true),
+            );
+    
+            // clamp the greens to the correct order
+            self.gui_variables.map_params.green.0 = self
+                .gui_variables
+                .map_params
+                .green
+                .0
+                .min(self.gui_variables.map_params.green.1)
+                .min(self.gui_variables.map_params.green.2);
+            self.gui_variables.map_params.green.1 = self
+                .gui_variables
+                .map_params
+                .green
+                .0
+                .max(self.gui_variables.map_params.green.1)
+                .min(self.gui_variables.map_params.green.2);
+            self.gui_variables.map_params.green.2 = self
+                .gui_variables
+                .map_params
+                .green
+                .0
+                .max(self.gui_variables.map_params.green.1)
+                .max(self.gui_variables.map_params.green.2);
+    
+            ui.add_space(20.);
+            ui.label(egui::RichText::new("Geometry simplification parameters").strong());
+            ui.checkbox(
+                &mut self.gui_variables.map_params.bezier_bool,
+                "Output map geometries in bezier curves.",
+            );
+    
+            if self.gui_variables.map_params.bezier_bool {
+                ui.label("Bezier simplification error\n(smaller value gives less simplification, but larger files):");
+                ui.add(
+                    egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.1..=5.0)
+                        .fixed_decimals(1)
+                        .show_value(true),
+                );
+            } else {
+                ui.label("Polyline simplification distance\n(smaller value gives less simplification, but larger files):");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.map_params.simplification_distance,
+                        0.1..=2.0,
+                    )
+                    .fixed_decimals(1)
+                    .show_value(true),
+                );
+            }
+            ui.add_space(20.);
+    
+            egui::CollapsingHeader::new("Contour Algo Debug Params").show(ui, |ui| {
+                ui.label("Number of steps to perform in Contour Algo");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.map_params.contour_algo_steps,
+                        0..=20,
+                    )
+                    .show_value(true),
+                );
+                ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.map_params.contour_algo_lambda,
+                        0.0..=10.,
+                    )
+                    .show_value(true),
+                );
+            });
         });
 
         ui.add_space(20.);
@@ -497,4 +499,19 @@ impl OmapMaker {
             self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
         }
     }
+
+    pub fn render_choose_tile_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Select a sub-tile");
+        ui.add_space(20.);
+        ui.label("The chosen Lidar file is too large to use the entire file for adjusting parameters.\
+        Select a sub-tile to use for parameter adjusting. Both the selected tile and all its neighbours will be used.\
+        Select by clicking on the tile in the map.");
+
+        ui.add_space(20.);
+
+        if ui.add_enabled(self.gui_variables.selected_tile.is_some(), egui::Button::new("Next step")).clicked() {
+            self.on_frontend_task(FrontendTask::NextState);
+        }
+    }
+
 }
