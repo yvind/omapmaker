@@ -4,6 +4,9 @@ use proj4rs::{transform::transform, Proj};
 
 use omap::{MapObject, Omap};
 
+const PURPLE: egui::Color32 = egui::Color32::from_rgba_premultiplied(190, 60, 255, 255);
+const ROUGH_YELLOW: egui::Color32 = egui::Color32::from_rgba_premultiplied(255, 220, 155, 255);
+
 trait Drawable {
     /// what fill to use for drawing symbol equals the stroke of a line or
     /// color of a polygon or color and radius of point
@@ -22,6 +25,7 @@ impl Drawable for MapObject {
                 omap::LineSymbol::BasemapContour => {
                     egui::Stroke::new(1., egui::Color32::BROWN.gamma_multiply(0.5))
                 }
+                omap::LineSymbol::NegBasemapContour => egui::Stroke::new(1., PURPLE),
                 omap::LineSymbol::IndexContour => egui::Stroke::new(5., egui::Color32::BROWN),
                 omap::LineSymbol::Formline => egui::Stroke::new(1.5, egui::Color32::BROWN),
             },
@@ -40,9 +44,7 @@ impl Drawable for MapObject {
                 omap::AreaSymbol::GiganticBoulder => egui::Stroke::new(0., egui::Color32::BLACK),
                 omap::AreaSymbol::SandyGround => egui::Stroke::new(0., egui::Color32::YELLOW),
                 omap::AreaSymbol::BareRock => egui::Stroke::new(0., egui::Color32::GRAY),
-                omap::AreaSymbol::RoughOpenLand => {
-                    egui::Stroke::new(0., egui::Color32::LIGHT_YELLOW)
-                }
+                omap::AreaSymbol::RoughOpenLand => egui::Stroke::new(0., ROUGH_YELLOW),
                 omap::AreaSymbol::LightGreen => egui::Stroke::new(0., egui::Color32::LIGHT_GREEN),
                 omap::AreaSymbol::MediumGreen => egui::Stroke::new(0., egui::Color32::GREEN),
                 omap::AreaSymbol::DarkGreen => egui::Stroke::new(0., egui::Color32::DARK_GREEN),
@@ -132,7 +134,7 @@ impl DrawableOmap {
 
         ui.painter().add(egui::Shape::convex_polygon(
             points,
-            egui::Color32::WHITE.gamma_multiply(0.5),
+            egui::Color32::WHITE.gamma_multiply(0.8),
             egui::Stroke::new(2., egui::Color32::RED),
         ));
 

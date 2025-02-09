@@ -234,28 +234,31 @@ impl OmapMaker {
     }
 
     pub fn render_copc_panel(&mut self, ui: &mut egui::Ui) {
-        if self.gui_variables.map_params.output_epsg.is_some() {
-            ui.heading("Writing files to COPC and transforming CRS");
-        } else {
-            ui.heading("Writing files to COPC");
-        }
+        ui.heading("Preparing files for map generation");
 
         ui.add_space(20.);
-        ui.label("This might take some time");
+        ui.label("This includes writing all relevant .las or .laz files to .copc.laz \
+        and transforming any relevant lidar file not given in the output CRS to that CRS.\n\
+        This might take some time");
 
         ui.add_space(10.);
-        ui.label(".copc.laz is a .laz file (compressed .las file) where the points internally are structered in an octree.\
+        ui.label("A file is deemed relevant if it overlaps with the map area or is the selected file.");
+
+        ui.add_space(10.);
+        ui.label(".copc.laz is a .laz file (compressed .las file) where the points internally are structered in an octree. \
         This makes for logarithmic-time spatial queries and the possibility to efficiently add resolution restrictions, at a trade off for slightly larger files. \
-        This step is performed on all files not alreday in the .copc.laz format and is non-destructive. \
+        This step is performed on all relevant files not alreday in the .copc.laz format and is non-destructive. \
         Any modern lidar-reader can read points from .copc.laz files, but specialized readers are needed to utilize the octree structure.");
 
-        if self.gui_variables.map_params.output_epsg.is_some() {
-            ui.add_space(20.);
-            ui.label("Any file not given in the previously chosen CRS is transformed to the chosen CRS during writing. \
-            If the file is transformed \"_EPSG_*\" is appended to the filename. \
-            Where the star is replaced with the code of the CRS.");
-        }
-        ui.label("The resulting .copc.laz files are stored next to their parent.");
+        ui.add_space(20.);
+        ui.label("Any relevant file not given in the previously chosen CRS is transformed to the chosen CRS during writing. \
+        If the file is transformed \"_EPSG_*\" is appended to the filename. \
+        Where the star is replaced with the code of the CRS.");
+
+        ui.label("The resulting files are stored next to their parent.");
+
+        ui.add_space(20.);
+        ui.label("Finally the chosen area for adjusting parameters is prepared.");
     }
 
     pub fn render_choose_lidar_panel(&mut self, ui: &mut egui::Ui, enabled: bool) {
@@ -315,7 +318,7 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
 
-        egui::ScrollArea::vertical().max_height(ui.available_height()).max_width(f32::INFINITY).show(ui, |ui| {
+        egui::ScrollArea::both().max_height(ui.available_height()/1.2).max_width(f32::INFINITY).show(ui, |ui| {
             ui.add_space(20.);
             ui.label(egui::RichText::new("Contour parameters").strong());
             ui.checkbox(
@@ -509,9 +512,14 @@ impl OmapMaker {
 
         ui.add_space(20.);
 
-        if ui.add_enabled(self.gui_variables.selected_tile.is_some(), egui::Button::new("Next step")).clicked() {
-            self.on_frontend_task(FrontendTask::NextState);
-        }
+        ui.horizontal(|ui|{
+            if ui.button("Prev step").clicked() {
+                self.on_frontend_task(FrontendTask::PrevState);
+            }
+            if ui.add_enabled(self.gui_variables.selected_tile.is_some(), egui::Button::new("Next step")).clicked() {
+                self.on_frontend_task(FrontendTask::NextState);
+            }
+        });
     }
 
 }

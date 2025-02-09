@@ -41,6 +41,7 @@ impl ProcessStage {
     pub fn prev(&mut self) {
         match self {
             ProcessStage::AdjustSliders => *self = ProcessStage::ChooseSquare,
+            ProcessStage::ChooseSubTile => *self = ProcessStage::ChooseSquare,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
             _ => unreachable!("Should not call prev on state for this variant."),
         }

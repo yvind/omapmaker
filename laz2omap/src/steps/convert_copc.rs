@@ -22,7 +22,7 @@ pub fn convert_copc(
 
     sender
         .send(FrontendTask::Log(
-            "Converting and transforming files".to_string(),
+            "Converting and transforming files...".to_string(),
         ))
         .unwrap();
     sender

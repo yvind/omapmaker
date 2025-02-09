@@ -154,6 +154,13 @@ impl<'a> OmapMaker {
 
         let map = Maps::Map(Map::new(Some(http_tiles), map_memory, home));
 
+        ui.painter().rect(
+            ui.ctx().available_rect(),
+            0.,
+            walkers::maps::BACKGROUND_COLOR,
+            egui::Stroke::NONE,
+        );
+
         ui.colored_label(
             egui::Color32::RED,
             "If you see this the OSM background-map did not load.\nThe app still works, just not as nice to look at.",

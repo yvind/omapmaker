@@ -341,6 +341,7 @@ impl OmapMaker {
                 self.gui_variables.file_params.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
+            ProcessStage::ChooseSubTile => (),
             _ => unimplemented!("Should not have been called on this state"),
         }
 
