@@ -33,25 +33,41 @@ pub struct OmapMaker {
 
 impl eframe::App for OmapMaker {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // register all events that has occured
-        while let Ok(event) = self.comms.try_recv() {
-            self.on_frontend_task(event);
+        // register all events that has occured and monitor for backend panic
+        loop {
+            match self.comms.try_recv() {
+                Ok(event) => self.on_frontend_task(event),
+                Err(recv_err) => match recv_err {
+                    // message buffer empty i.e. all pending messages have been dealt with
+                    std::sync::mpsc::TryRecvError::Empty => break,
+                    // backend has hung up i.e. has panicked
+                    std::sync::mpsc::TryRecvError::Disconnected => {
+                        self.on_frontend_task(FrontendTask::Error(
+                            "The backend panicked. Starting over".to_string(),
+                            true,
+                        ))
+                    }
+                },
+            }
         }
 
         // render correct side panel
         egui::SidePanel::left("Guide Panel")
             .exact_width(400.)
-            .show(ctx, |ui| match self.state {
-                ProcessStage::Welcome => self.render_welcome_panel(ui),
-                ProcessStage::CheckLidar => self.render_checking_lidar_panel(ui),
-                ProcessStage::ShowComponents => self.render_show_components_panel(ui),
-                ProcessStage::ConvertingCOPC => self.render_copc_panel(ui),
-                ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
-                ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
-                ProcessStage::DrawPolygon => self.render_choose_lidar_panel(ui, false),
-                ProcessStage::AdjustSliders => self.render_adjust_slider_panel(ui),
-                ProcessStage::MakeMap => self.render_generating_map_panel(ui),
-                ProcessStage::ExportDone => self.render_done_panel(ui),
+            .show(ctx, |ui| {
+                ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
+                match self.state {
+                    ProcessStage::Welcome => self.render_welcome_panel(ui),
+                    ProcessStage::CheckLidar => self.render_checking_lidar_panel(ui),
+                    ProcessStage::ShowComponents => self.render_show_components_panel(ui),
+                    ProcessStage::ConvertingCOPC => self.render_copc_panel(ui),
+                    ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
+                    ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
+                    ProcessStage::DrawPolygon => self.render_choose_lidar_panel(ui, false),
+                    ProcessStage::AdjustSliders => self.render_adjust_slider_panel(ui),
+                    ProcessStage::MakeMap => self.render_generating_map_panel(ui),
+                    ProcessStage::ExportDone => self.render_done_panel(ui),
+                }
             });
 
         // render correct main panel
@@ -159,7 +175,7 @@ impl OmapMaker {
             }
             Variable::CrsLessCheckBox(num) => self.gui_variables.drop_checkboxes = vec![false; num],
             Variable::ConnectedComponents(vec) => self.gui_variables.connected_components = vec,
-            Variable::MapTile(drawable_omap) => self.gui_variables.update_map(drawable_omap),
+            Variable::MapTile(drawable_omap) => self.gui_variables.update_map(*drawable_omap),
             Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
             Variable::TileNeighbours(tn) => self.gui_variables.subtile_neighbours = tn,
         }
@@ -446,10 +462,6 @@ impl OmapMaker {
     }
 
     fn reset(&mut self) {
-        match self.comms.send(BackendTask::Reset) {
-            Ok(_) => (),
-            Err(_) => self.restart_backend(),
-        }
         self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
         self.open_modal = OmapModal::None;
@@ -457,21 +469,11 @@ impl OmapMaker {
         self.map_memory.set_zoom(self.home_zoom).unwrap();
         self.map_memory.follow_my_position();
 
-        // Wait for current backend tasks to finish and then continue
-        loop {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-
-            match self.comms.try_recv() {
-                Ok(e) => {
-                    if let FrontendTask::TaskComplete(TaskDone::Reset) = e {
-                        break;
-                    }
-                }
-                Err(_) => {
-                    self.restart_backend();
-                }
-            }
+        match self.comms.send(BackendTask::Reset) {
+            Ok(_) => (),
+            Err(_) => self.restart_backend(),
         }
+
         self.state = ProcessStage::Welcome;
     }
 

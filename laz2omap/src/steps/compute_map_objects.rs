@@ -93,7 +93,6 @@ pub fn compute_map_objects(
                             Threshold::Upper(1.2),
                             &convex_hull,
                             &cut_overlay,
-                            &args,
                             AreaSymbol::RoughOpenLand,
                             &map_ref,
                         );
@@ -103,7 +102,6 @@ pub fn compute_map_objects(
                             Threshold::Lower(2.1),
                             &convex_hull,
                             &cut_overlay,
-                            &args,
                             AreaSymbol::LightGreen,
                             &map_ref,
                         );
@@ -113,7 +111,6 @@ pub fn compute_map_objects(
                             Threshold::Lower(3.0),
                             &convex_hull,
                             &cut_overlay,
-                            &args,
                             AreaSymbol::MediumGreen,
                             &map_ref,
                         );
@@ -123,7 +120,6 @@ pub fn compute_map_objects(
                             Threshold::Lower(4.0),
                             &convex_hull,
                             &cut_overlay,
-                            &args,
                             AreaSymbol::DarkGreen,
                             &map_ref,
                         );

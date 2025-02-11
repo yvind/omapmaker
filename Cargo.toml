@@ -50,3 +50,4 @@ omap = {path = "../omap"}#{git = "https://github.com/oyhj1801/omap-rs"}
 
 # better error enums
 thiserror = "2.0.8"
+strum = "0.27.0"

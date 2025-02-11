@@ -7,7 +7,6 @@ pub struct MapParams {
     pub scale: omap::Scale,
 
     // map parameters
-    pub simplification_distance: f64,
     pub bezier_error: f64,
     pub basemap_interval: f64,
     pub contour_interval: f64,
@@ -18,6 +17,7 @@ pub struct MapParams {
     // debug params
     pub contour_algo_steps: u8,
     pub contour_algo_lambda: f64,
+    pub formline_prune: f64,
 
     pub basemap_contour: bool,
     pub formlines: bool,
@@ -29,7 +29,6 @@ impl Default for MapParams {
         Self {
             scale: omap::Scale::S15_000,
             output_epsg: None,
-            simplification_distance: 0.1,
             bezier_error: 0.4,
             basemap_interval: 0.5,
             contour_interval: 5.,
@@ -39,6 +38,7 @@ impl Default for MapParams {
             contour_algo_lambda: 3.,
             basemap_contour: false,
             formlines: false,
+            formline_prune: 5.,
             bezier_bool: true,
             cliff: 0.7,
         }

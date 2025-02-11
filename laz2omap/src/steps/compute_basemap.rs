@@ -1,6 +1,6 @@
 use crate::raster::Dfm;
 use crate::{geometry::MapLineString, params::MapParams};
-use omap::{LineObject, LineSymbol, MapObject, Omap, TagTrait};
+use omap::{LineObject, LineSymbol, MapObject, Omap, Symbol, TagTrait};
 
 use geo::{BooleanOps, Polygon, Simplify};
 use std::sync::{Arc, Mutex};
@@ -22,9 +22,16 @@ pub fn compute_basemap(
 
         let mut bm_contours = dem.marching_squares(bm_level);
 
-        bm_contours = bm_contours.simplify(&args.simplification_distance);
+        bm_contours = bm_contours.simplify(&crate::SIMPLIFICATION_DIST);
 
         bm_contours = cut_overlay.clip(&bm_contours, false);
+
+        let num_lines = bm_contours.0.len();
+        {
+            let mut aq_map = map.lock().unwrap();
+            aq_map.reserve_capacity(Symbol::BasemapContour, num_lines);
+            aq_map.reserve_capacity(Symbol::NegBasemapContour, num_lines);
+        }
 
         for c in bm_contours {
             let sym = if let Some(a) = c.line_string_signed_area() {

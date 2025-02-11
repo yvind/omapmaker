@@ -1,4 +1,4 @@
-use omap::{AreaSymbol, Omap};
+use omap::{AreaSymbol, Omap, Symbol};
 
 use crate::{
     comms::messages::*,
@@ -19,6 +19,7 @@ pub fn regenerate_map_tile(
     ref_point: geo::Coord,
     z_range: (f64, f64),
     params: MapParams,
+    old_params: Option<MapParams>,
 ) {
     let omap = Arc::new(Mutex::new(Omap::new(
         ref_point,
@@ -26,52 +27,71 @@ pub fn regenerate_map_tile(
         params.scale,
     )));
 
+    let needs_update = needs_regeneration(&params, old_params.as_ref());
+
     for i in 0..dem.len() {
-        crate::steps::compute_vegetation(
-            &drm[i],
-            Threshold::Upper(params.yellow),
-            hull.exterior(),
-            &cut_bounds[i],
-            &params,
-            AreaSymbol::RoughOpenLand,
-            &omap,
-        );
-
-        crate::steps::compute_vegetation(
-            &drm[i],
-            Threshold::Lower(params.green.0),
-            hull.exterior(),
-            &cut_bounds[i],
-            &params,
-            AreaSymbol::LightGreen,
-            &omap,
-        );
-
-        crate::steps::compute_vegetation(
-            &drm[i],
-            Threshold::Lower(params.green.1),
-            hull.exterior(),
-            &cut_bounds[i],
-            &params,
-            AreaSymbol::MediumGreen,
-            &omap,
-        );
-
-        crate::steps::compute_vegetation(
-            &drm[i],
-            Threshold::Lower(params.green.2),
-            hull.exterior(),
-            &cut_bounds[i],
-            &params,
-            AreaSymbol::DarkGreen,
-            &omap,
-        );
-
-        if params.basemap_contour && params.basemap_interval >= 0.1 {
+        if params.basemap_contour && params.basemap_interval >= 0.1 && needs_update.basemap {
             crate::steps::compute_basemap(&dem[i], z_range, &cut_bounds[i], &params, &omap);
+        } else if !params.basemap_contour {
+            // make sure that the basemap gets removed if it is toggeled off
+            let mut ac_map = omap.lock().unwrap();
+            ac_map.reserve_capacity(Symbol::NegBasemapContour, 1);
+            ac_map.reserve_capacity(Symbol::BasemapContour, 1);
         }
 
-        crate::steps::compute_cliffs(&g_dem[i], hull.exterior(), &cut_bounds[i], &params, &omap);
+        if needs_update.yellow {
+            crate::steps::compute_vegetation(
+                &drm[i],
+                Threshold::Upper(params.yellow),
+                hull.exterior(),
+                &cut_bounds[i],
+                AreaSymbol::RoughOpenLand,
+                &omap,
+            );
+        }
+
+        if needs_update.l_green {
+            crate::steps::compute_vegetation(
+                &drm[i],
+                Threshold::Lower(params.green.0),
+                hull.exterior(),
+                &cut_bounds[i],
+                AreaSymbol::LightGreen,
+                &omap,
+            );
+        }
+
+        if needs_update.m_green {
+            crate::steps::compute_vegetation(
+                &drm[i],
+                Threshold::Lower(params.green.1),
+                hull.exterior(),
+                &cut_bounds[i],
+                AreaSymbol::MediumGreen,
+                &omap,
+            );
+        }
+
+        if needs_update.d_green {
+            crate::steps::compute_vegetation(
+                &drm[i],
+                Threshold::Lower(params.green.2),
+                hull.exterior(),
+                &cut_bounds[i],
+                AreaSymbol::DarkGreen,
+                &omap,
+            );
+        }
+
+        if needs_update.cliff {
+            crate::steps::compute_cliffs(
+                &g_dem[i],
+                hull.exterior(),
+                &cut_bounds[i],
+                &params,
+                &omap,
+            );
+        }
     }
 
     let omap = Arc::<Mutex<Omap>>::into_inner(omap)
@@ -89,4 +109,54 @@ pub fn regenerate_map_tile(
     sender
         .send(FrontendTask::TaskComplete(TaskDone::RegenerateMap))
         .unwrap();
+}
+
+fn needs_regeneration(new: &MapParams, old: Option<&MapParams>) -> UpdateMap {
+    let mut update_map = UpdateMap::default();
+    if old.is_none() {
+        return update_map;
+    }
+    let old = old.unwrap();
+
+    if new.scale != old.scale {
+        return update_map;
+    }
+
+    update_map.yellow = new.yellow != old.yellow;
+    update_map.l_green = new.green.0 != old.green.0;
+    update_map.m_green = new.green.1 != old.green.1;
+    update_map.d_green = new.green.2 != old.green.2;
+    update_map.cliff = new.cliff != old.cliff;
+    update_map.basemap =
+        new.basemap_interval != old.basemap_interval || new.basemap_contour != old.basemap_contour;
+    update_map.contours = new.contour_algo_lambda != old.contour_algo_lambda
+        || new.contour_algo_steps != old.contour_algo_steps
+        || new.formlines != old.formlines
+        || (new.formlines && new.formline_prune != old.formline_prune)
+        || new.contour_interval != old.contour_interval;
+    update_map
+}
+
+struct UpdateMap {
+    pub basemap: bool,
+    pub contours: bool,
+    pub yellow: bool,
+    pub l_green: bool,
+    pub m_green: bool,
+    pub d_green: bool,
+    pub cliff: bool,
+}
+
+impl Default for UpdateMap {
+    fn default() -> Self {
+        Self {
+            basemap: true,
+            contours: true,
+            yellow: true,
+            l_green: true,
+            m_green: true,
+            d_green: true,
+            cliff: true,
+        }
+    }
 }

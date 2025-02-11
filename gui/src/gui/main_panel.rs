@@ -1,25 +1,37 @@
-use std::time::Duration;
-
 use eframe::egui;
 use walkers::{LocalMap, Map, MapMemory, Maps, Tiles};
 
 use super::{map_controls, map_plugins, OmapMaker, ProcessStage};
 
-impl<'a> OmapMaker {
+const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
+
+impl OmapMaker {
     pub fn render_map(&mut self, ui: &mut egui::Ui) {
+        let rect = ui.ctx().available_rect();
+
+        ui.painter().rect(rect, 0., BG_COLOR, egui::Stroke::NONE);
+
         let map = if self.state != ProcessStage::Welcome
             && self.gui_variables.map_params.output_epsg.is_none()
         {
             // Local coordinates
             Maps::LocalMap(LocalMap::new(&mut self.map_memory, self.home))
         } else {
-            // OSM map
-            map_controls::render_acknowledge(
-                ui,
-                self.http_tiles.attribution(),
-                ui.ctx().available_rect(),
+            Self::clamp_zoom_pos(&mut self.map_memory);
+
+            map_controls::render_acknowledge(ui, self.http_tiles.attribution(), rect);
+
+            ui.colored_label(
+                egui::Color32::RED,
+                "If you see this the OSM background-map did not load.\nThe app still works, just not as nice to look at.",
             );
-            Self::render_walkers_map(&mut self.map_memory, &mut self.http_tiles, self.home, ui)
+
+            // OSM map
+            Maps::Map(Map::new(
+                Some(&mut self.http_tiles),
+                &mut self.map_memory,
+                self.home,
+            ))
         };
 
         // add plugins
@@ -87,7 +99,6 @@ impl<'a> OmapMaker {
             _ => unreachable!("The render_map fn should not be called for this state"),
         };
 
-        let rect = ui.ctx().available_rect();
         ui.put(rect, map);
 
         // Draw utility windows.
@@ -114,12 +125,7 @@ impl<'a> OmapMaker {
         map_controls::render_scale_pos_label(ui, &self.map_memory, self.home);
     }
 
-    fn render_walkers_map(
-        map_memory: &'a mut MapMemory,
-        http_tiles: &'a mut walkers::HttpTiles,
-        home: walkers::Position,
-        ui: &mut egui::Ui,
-    ) -> Maps<'a, 'a, 'a> {
+    fn clamp_zoom_pos(map_memory: &mut MapMemory) {
         // clamp zoom
         if map_memory.zoom() > 21. {
             map_memory.set_zoom(21.).unwrap();
@@ -151,22 +157,6 @@ impl<'a> OmapMaker {
                 map_memory.center_at(walkers::pos_from_lon_lat(new_pos.0, new_pos.1));
             }
         }
-
-        let map = Maps::Map(Map::new(Some(http_tiles), map_memory, home));
-
-        ui.painter().rect(
-            ui.ctx().available_rect(),
-            0.,
-            walkers::maps::BACKGROUND_COLOR,
-            egui::Stroke::NONE,
-        );
-
-        ui.colored_label(
-            egui::Color32::RED,
-            "If you see this the OSM background-map did not load.\nThe app still works, just not as nice to look at.",
-        );
-
-        map
     }
 
     pub fn render_console(&mut self, ui: &mut egui::Ui) {
@@ -180,6 +170,7 @@ impl<'a> OmapMaker {
                     .interactive(false)
                     .show(ui);
             });
-        ui.ctx().request_repaint_after(Duration::from_millis(100));
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
     }
 }

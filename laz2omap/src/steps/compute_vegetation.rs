@@ -1,7 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::geometry::MapMultiPolygon;
-use crate::params::MapParams;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
@@ -14,7 +13,6 @@ pub fn compute_vegetation(
     threshold: Threshold,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    args: &MapParams,
     symbol: AreaSymbol,
     map: &Arc<Mutex<Omap>>,
 ) {
@@ -29,7 +27,14 @@ pub fn compute_vegetation(
 
     veg_polygons = cut_overlay.intersection(&veg_polygons);
 
-    veg_polygons = veg_polygons.simplify(&args.simplification_distance);
+    veg_polygons = veg_polygons.simplify(&crate::SIMPLIFICATION_DIST);
+
+    let num_polys = veg_polygons.0.len();
+    {
+        map.lock()
+            .unwrap()
+            .reserve_capacity(Symbol::from(symbol), num_polys);
+    }
 
     for polygon in veg_polygons {
         let mut veg_object = AreaObject::from_polygon(polygon, symbol);

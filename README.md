@@ -3,6 +3,8 @@ An application for generating orienteering maps (.omap file) from ground-classif
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
 The written files are automatically georefrenced.
 
+Overlapping lidar files not yet handled
+
 Implemented:
 
     GUI
@@ -15,20 +17,22 @@ Implemented:
 
     Supports both bezier and polyline output
 
-Planned:
+WIP:
 
     Smart contour generation
+
+Wish List:
 
     Building detection
 
     Water detection
 
-    Vegetation boundaries (abrupt changes in tree height)
+    Vegetation boundaries
 
     Stream detection
-
-    Marsh detection
 
     Boulder detection
 
     Road/path detection
+
+    Marsh detection

@@ -54,10 +54,8 @@ impl OmapMaker {
 
         ui.label("Selected files:");
 
-        ui.style_mut().spacing.scroll = egui::style::ScrollStyle::thin();
-
         egui::ScrollArea::both()
-            .max_height(ui.available_height() / 3.)
+            .max_height(ui.available_height() - 300.)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
                 for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
@@ -319,6 +317,16 @@ impl OmapMaker {
         ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
 
         egui::ScrollArea::both().max_height(ui.available_height()/1.2).max_width(f32::INFINITY).show(ui, |ui| {
+            ui.label(egui::RichText::new("Select Map Scale").strong());
+            ui.horizontal(|ui| {
+                if ui.selectable_label(self.gui_variables.map_params.scale == omap::Scale::S15_000, "1:15 000").clicked() {
+                    self.gui_variables.map_params.scale = omap::Scale::S15_000;
+                };
+                ui.separator();
+                if ui.selectable_label(self.gui_variables.map_params.scale == omap::Scale::S10_000, "1:10 000").clicked() {
+                    self.gui_variables.map_params.scale = omap::Scale::S10_000;
+                };
+            });
             ui.add_space(20.);
             ui.label(egui::RichText::new("Contour parameters").strong());
             ui.checkbox(
@@ -412,24 +420,14 @@ impl OmapMaker {
                 "Output map geometries in bezier curves.",
             );
     
-            if self.gui_variables.map_params.bezier_bool {
+            ui.add_enabled_ui(self.gui_variables.map_params.bezier_bool, |ui| {
                 ui.label("Bezier simplification error\n(smaller value gives less simplification, but larger files):");
                 ui.add(
                     egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.1..=5.0)
                         .fixed_decimals(1)
                         .show_value(true),
                 );
-            } else {
-                ui.label("Polyline simplification distance\n(smaller value gives less simplification, but larger files):");
-                ui.add(
-                    egui::Slider::new(
-                        &mut self.gui_variables.map_params.simplification_distance,
-                        0.1..=2.0,
-                    )
-                    .fixed_decimals(1)
-                    .show_value(true),
-                );
-            }
+            });
             ui.add_space(20.);
     
             egui::CollapsingHeader::new("Contour Algo Debug Params").show(ui, |ui| {
@@ -449,14 +447,24 @@ impl OmapMaker {
                     )
                     .show_value(true),
                 );
+                ui.add_enabled_ui(self.gui_variables.map_params.formlines, |ui| {
+                    ui.label("Formline pruning parameter. \nBigger number gives less formlines.");
+                    ui.add(
+                        egui::Slider::new(&mut self.gui_variables.map_params.formline_prune,
+                            0.0..=10.,
+                        ).show_value(true),
+                    );
+                });
             });
         });
 
         ui.add_space(20.);
+
+        let button_txt = if self.gui_variables.generating_map_tile {"Generating map..."} else {"Re-generate map"};
         if ui
             .add_enabled(
                 !self.gui_variables.generating_map_tile,
-                egui::Button::new("Re-generate map"),
+                egui::Button::new(button_txt),
             )
             .clicked()
         {

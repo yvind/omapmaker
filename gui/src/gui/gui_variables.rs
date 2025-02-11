@@ -5,7 +5,6 @@ use walkers::Position;
 use super::terminal_like::TerminalLike;
 use laz2omap::DrawableOmap;
 
-#[derive(Clone)]
 pub struct GuiVariables {
     // lidar file overlay
     pub boundaries: Vec<[Position; 4]>,
@@ -40,7 +39,7 @@ pub struct GuiVariables {
     pub subtile_neighbours: Vec<[Option<usize>; 9]>,
 
     // for storing the generated map tile for drawing
-    pub map_tile: Option<Box<DrawableOmap>>,
+    pub map_tile: Option<DrawableOmap>,
 }
 
 impl Default for GuiVariables {
@@ -132,7 +131,11 @@ impl GuiVariables {
         walkers::pos_from_lon_lat(new_home.0, new_home.1)
     }
 
-    pub fn update_map(&mut self, map: Box<DrawableOmap>) {
-        self.map_tile = Some(map);
+    pub fn update_map(&mut self, other: DrawableOmap) {
+        if let Some(map) = &mut self.map_tile {
+            map.update(other);
+        } else {
+            self.map_tile = Some(other);
+        }
     }
 }

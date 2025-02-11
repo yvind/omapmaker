@@ -279,11 +279,11 @@ fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
 }
 
 pub struct OmapDrawer<'a> {
-    map: &'a Option<Box<DrawableOmap>>,
+    map: &'a Option<DrawableOmap>,
 }
 
 impl<'a> OmapDrawer<'a> {
-    pub fn new(map: &'a Option<Box<DrawableOmap>>) -> Self {
+    pub fn new(map: &'a Option<DrawableOmap>) -> Self {
         Self { map }
     }
 }

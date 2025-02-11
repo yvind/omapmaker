@@ -24,7 +24,13 @@ pub fn compute_cliffs(
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
-    cliff_polygons = cliff_polygons.simplify(&params.simplification_distance);
+    cliff_polygons = cliff_polygons.simplify(&crate::SIMPLIFICATION_DIST);
+    let num_polys = cliff_polygons.0.len();
+    {
+        map.lock()
+            .unwrap()
+            .reserve_capacity(Symbol::from(symbol), num_polys);
+    }
 
     for polygon in cliff_polygons.into_iter() {
         let mut cliff_object = AreaObject::from_polygon(polygon, symbol);

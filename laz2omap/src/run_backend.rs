@@ -5,6 +5,7 @@ use proj4rs::Proj;
 
 use crate::comms::{messages::*, OmapComms};
 use crate::geometry::MapRect;
+use crate::params::MapParams;
 use crate::raster::Dfm;
 
 use std::time::Duration;
@@ -12,6 +13,10 @@ use std::time::Duration;
 pub struct OmapGenerator {
     comms: OmapComms<FrontendTask, BackendTask>,
     ctx: egui::Context,
+    // store the params used for generating a map tile
+    // on the next call to only generate the
+    // objects corresponding to the changed parameters
+    map_params: Option<MapParams>,
 
     // for iterating the params
     map_tile_dem: Vec<Dfm>,
@@ -26,11 +31,12 @@ pub struct OmapGenerator {
 impl OmapGenerator {
     pub fn boot(comms: OmapComms<FrontendTask, BackendTask>, ctx: egui::Context) {
         std::thread::Builder::new()
-            .stack_size(crate::STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
+            .stack_size(crate::STACK_SIZE * 1024 * 1024)
             .spawn(move || {
                 let mut backend = OmapGenerator {
                     comms,
                     ctx,
+                    map_params: None,
                     map_tile_dem: Vec::with_capacity(9),
                     map_tile_grad_dem: Vec::with_capacity(9),
                     map_tile_drm: Vec::with_capacity(9),
@@ -99,8 +105,11 @@ impl OmapGenerator {
                             &self.hull,
                             self.ref_point,
                             self.z_range,
-                            *params,
+                            *params.clone(),
+                            self.map_params.clone(),
                         );
+
+                        self.map_params = Some(*params);
                         // to force to update function to run
                         self.ctx.request_repaint();
                     }
@@ -159,13 +168,18 @@ impl OmapGenerator {
     }
 
     fn reset(&mut self) {
+        self.map_params = None;
         self.map_tile_dem.clear();
         self.map_tile_grad_dem.clear();
         self.map_tile_drm.clear();
         self.cut_bounds.clear();
+        self.hull.exterior_mut(|l| l.0.clear());
+        self.z_range = (0., 0.);
         self.ref_point = geo::Coord { x: 0., y: 0. };
     }
 }
+
+// these functions should be moved and refactored
 
 fn transform_rects(epsg: Option<u16>, rects: &Vec<geo::Rect>) -> Vec<[walkers::Position; 4]> {
     let mut out = Vec::with_capacity(rects.len());
