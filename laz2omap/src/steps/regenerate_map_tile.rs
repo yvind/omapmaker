@@ -46,6 +46,7 @@ pub fn regenerate_map_tile(
                 hull.exterior(),
                 &cut_bounds[i],
                 AreaSymbol::RoughOpenLand,
+                &params,
                 &omap,
             );
         }
@@ -57,6 +58,7 @@ pub fn regenerate_map_tile(
                 hull.exterior(),
                 &cut_bounds[i],
                 AreaSymbol::LightGreen,
+                &params,
                 &omap,
             );
         }
@@ -68,6 +70,7 @@ pub fn regenerate_map_tile(
                 hull.exterior(),
                 &cut_bounds[i],
                 AreaSymbol::MediumGreen,
+                &params,
                 &omap,
             );
         }
@@ -79,6 +82,7 @@ pub fn regenerate_map_tile(
                 hull.exterior(),
                 &cut_bounds[i],
                 AreaSymbol::DarkGreen,
+                &params,
                 &omap,
             );
         }

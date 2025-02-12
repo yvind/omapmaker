@@ -94,6 +94,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             AreaSymbol::RoughOpenLand,
+                            &args,
                             &map_ref,
                         );
 
@@ -103,6 +104,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             AreaSymbol::LightGreen,
+                            &args,
                             &map_ref,
                         );
 
@@ -112,6 +114,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             AreaSymbol::MediumGreen,
+                            &args,
                             &map_ref,
                         );
 
@@ -121,6 +124,7 @@ pub fn compute_map_objects(
                             &convex_hull,
                             &cut_overlay,
                             AreaSymbol::DarkGreen,
+                            &args,
                             &map_ref,
                         );
 

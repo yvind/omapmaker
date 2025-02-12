@@ -66,7 +66,7 @@ impl Drawable for MapObject {
     }
 }
 pub struct DrawableOmap {
-    convex_hull: Vec<walkers::Position>,
+    hull: Vec<walkers::Position>,
     map_objects: HashMap<Symbol, Vec<DrawableGeometry>>,
 }
 
@@ -104,7 +104,7 @@ impl DrawableOmap {
         // this must be revised when multithreading is added as
         // the order may vary then
         DrawableOmap {
-            convex_hull: global_hull,
+            hull: global_hull,
             map_objects: Self::into_drawable(omap.objects, ref_point, crs),
         }
     }
@@ -139,12 +139,13 @@ impl DrawableOmap {
         // project the hull:
 
         let points = self
-            .convex_hull
+            .hull
             .clone()
             .into_iter()
             .map(|p| projector.project(p))
             .collect();
 
+        // not necessarily a convex polygon, but close
         ui.painter().add(egui::Shape::convex_polygon(
             points,
             Color32::WHITE.gamma_multiply(0.8),

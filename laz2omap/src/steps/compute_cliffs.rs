@@ -18,7 +18,7 @@ pub fn compute_cliffs(
     let mut cliff_polygons = MultiPolygon::from_contours(
         cliff_contours,
         convex_hull,
-        symbol.min_size(omap::Scale::S15_000),
+        symbol.min_size(params.scale),
         false,
     );
 

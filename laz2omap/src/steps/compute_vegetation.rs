@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
 use crate::geometry::MapMultiPolygon;
+use crate::params::MapParams;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
@@ -14,6 +15,7 @@ pub fn compute_vegetation(
     convex_hull: &LineString,
     cut_overlay: &Polygon,
     symbol: AreaSymbol,
+    params: &MapParams,
     map: &Arc<Mutex<Omap>>,
 ) {
     let contours = dfm.marching_squares(threshold.inner());
@@ -21,7 +23,7 @@ pub fn compute_vegetation(
     let mut veg_polygons = MultiPolygon::from_contours(
         contours,
         convex_hull,
-        symbol.min_size(omap::Scale::S15_000),
+        symbol.min_size(params.scale),
         threshold.is_upper(),
     );
 
