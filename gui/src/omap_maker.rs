@@ -350,7 +350,10 @@ impl OmapMaker {
 
     fn prev_state(&mut self) {
         match self.state {
-            ProcessStage::AdjustSliders => self.comms.send(BackendTask::ClearParams).unwrap(),
+            ProcessStage::AdjustSliders => {
+                self.gui_variables.map_tile = None;
+                self.comms.send(BackendTask::ClearParams).unwrap()
+            }
             ProcessStage::ShowComponents => {
                 self.gui_variables.file_params.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
