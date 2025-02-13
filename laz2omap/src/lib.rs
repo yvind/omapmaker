@@ -2,8 +2,8 @@ pub mod comms;
 mod drawable_omap;
 mod error;
 pub mod geometry;
-mod make_map;
 pub mod params;
+mod project;
 mod raster;
 mod run_backend;
 mod steps;
@@ -24,4 +24,3 @@ pub use drawable_omap::DrawableOmap;
 pub use run_backend::OmapGenerator;
 
 pub use error::{Error, Result};
-pub use make_map::make_map;

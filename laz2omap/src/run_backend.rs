@@ -1,7 +1,5 @@
 use eframe::egui;
 use las::Reader;
-use proj4rs::transform::transform;
-use proj4rs::Proj;
 
 use crate::comms::{messages::*, OmapComms};
 use crate::geometry::MapRect;
@@ -118,13 +116,15 @@ impl OmapGenerator {
                     }
                     BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
                         // transform the linestring to output coords
-                        let local_polygon_filter =
-                            transform_polygon(map_params.output_epsg, polygon_filter);
+                        let local_polygon_filter = crate::project::polygon::from_walkers_map_coords(
+                            map_params.output_epsg,
+                            polygon_filter,
+                        );
 
                         // we are not going back here so can clear the dems to free some memory
                         self.reset();
 
-                        crate::make_map(
+                        crate::steps::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
@@ -148,9 +148,9 @@ impl OmapGenerator {
                                 geo::Coord { x: 0., y: 0. },
                             ),
                         );
-                        let neighbours = get_neighbours(n_x, n_y);
+                        let neighbours = crate::steps::neighbours_on_grid(n_x, n_y);
 
-                        let cb = transform_rects(epsg, &cb);
+                        let cb = crate::project::rectangles::to_walkers_map_coords(epsg, &cb);
 
                         self.comms
                             .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)))
@@ -180,217 +180,4 @@ impl OmapGenerator {
         self.z_range = (0., 0.);
         self.ref_point = geo::Coord { x: 0., y: 0. };
     }
-}
-
-// these functions should be moved and refactored
-
-fn transform_rects(epsg: Option<u16>, rects: &Vec<geo::Rect>) -> Vec<[walkers::Position; 4]> {
-    let mut out = Vec::with_capacity(rects.len());
-    if epsg.is_none() {
-        for rect in rects {
-            out.push([
-                geo::Coord {
-                    x: rect.min().x,
-                    y: rect.max().y,
-                },
-                rect.min(),
-                geo::Coord {
-                    x: rect.max().x,
-                    y: rect.min().y,
-                },
-                rect.max(),
-            ]);
-        }
-    } else if epsg.is_some() {
-        let epsg = epsg.unwrap();
-
-        let global_proj = Proj::from_epsg_code(4326).unwrap();
-        let local_proj = Proj::from_epsg_code(epsg).unwrap();
-
-        for rect in rects {
-            let mut points = [
-                (rect.min().x, rect.max().y),
-                rect.min().x_y(),
-                (rect.max().x, rect.min().y),
-                rect.max().x_y(),
-            ];
-
-            transform(&local_proj, &global_proj, points.as_mut_slice()).unwrap();
-
-            out.push([
-                geo::Coord {
-                    x: points[0].0.to_degrees(),
-                    y: points[0].1.to_degrees(),
-                },
-                geo::Coord {
-                    x: points[1].0.to_degrees(),
-                    y: points[1].1.to_degrees(),
-                },
-                geo::Coord {
-                    x: points[2].0.to_degrees(),
-                    y: points[2].1.to_degrees(),
-                },
-                geo::Coord {
-                    x: points[3].0.to_degrees(),
-                    y: points[3].1.to_degrees(),
-                },
-            ]);
-        }
-    }
-    out
-}
-
-fn transform_polygon(epsg: Option<u16>, line: geo::LineString) -> Option<geo::Polygon> {
-    if line.0.is_empty() {
-        return None;
-    }
-    if epsg.is_none() {
-        return Some(geo::Polygon::new(line, vec![]));
-    }
-    let epsg = epsg.unwrap();
-
-    let global_proj = Proj::from_epsg_code(4326).unwrap();
-    let local_proj = Proj::from_epsg_code(epsg).unwrap();
-
-    // proj4rs uses radians, but walkers uses degrees. Conversion needed
-    let mut points: Vec<(f64, f64)> = line
-        .0
-        .into_iter()
-        .map(|c| (c.x.to_radians(), c.y.to_radians()))
-        .collect();
-
-    transform(&global_proj, &local_proj, points.as_mut_slice()).unwrap();
-
-    let line = geo::LineString::new(
-        points
-            .into_iter()
-            .map(|t| geo::Coord { x: t.0, y: t.1 })
-            .collect(),
-    );
-
-    Some(geo::Polygon::new(line, vec![]))
-}
-
-fn get_neighbours(nx: usize, ny: usize) -> Vec<[Option<usize>; 9]> {
-    let mut neighbours = Vec::with_capacity(nx * ny);
-
-    for yi in 0..ny {
-        for xi in 0..nx {
-            if xi == 0 && yi == 0 {
-                //no neighbours to the left or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + 1 + nx),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == 0 {
-                // no neighbours to the right or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 && yi == ny - 1 {
-                // no neighbours to the left or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == ny - 1 {
-                // no neighbours to the right or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 {
-                // no neighbours to the left
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == 0 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == ny - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            }
-        }
-    }
-    neighbours
 }

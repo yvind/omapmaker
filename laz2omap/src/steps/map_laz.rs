@@ -54,8 +54,6 @@ fn read_boundaries(
 
     let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
 
-    let global_coords = crs_epsg.is_some();
-
     let mut walkers_boundaries = Vec::with_capacity(bounds.len());
 
     for (i, bound) in bounds.iter().enumerate() {
@@ -66,7 +64,7 @@ fn read_boundaries(
             (bound.max().x, bound.max().y),
         ];
 
-        if global_coords {
+        if crs_epsg.is_some() {
             // transform bounds to lat lon
             let to = Proj::from_user_string("WGS84").unwrap();
             let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
@@ -178,6 +176,130 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
         tile_neighbours.push(orderd_neighbours);
     }
     tile_neighbours
+}
+
+pub fn neighbours_on_grid(nx: usize, ny: usize) -> Vec<[Option<usize>; 9]> {
+    let mut neighbours = Vec::with_capacity(nx * ny);
+
+    for yi in 0..ny {
+        for xi in 0..nx {
+            if xi == 0 && yi == 0 {
+                //no neighbours to the left or top
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + 1 + nx),
+                    Some(yi * nx + xi + nx),
+                    None,
+                    None,
+                ]);
+            } else if xi == nx - 1 && yi == 0 {
+                // no neighbours to the right or top
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]);
+            } else if xi == 0 && yi == ny - 1 {
+                // no neighbours to the left or bottom
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    None,
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    None,
+                    None,
+                    None,
+                    None,
+                ]);
+            } else if xi == nx - 1 && yi == ny - 1 {
+                // no neighbours to the right or bottom
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi - 1),
+                ]);
+            } else if xi == 0 {
+                // no neighbours to the left
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    None,
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    None,
+                    None,
+                ]);
+            } else if xi == nx - 1 {
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]);
+            } else if yi == 0 {
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]);
+            } else if yi == ny - 1 {
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi - 1),
+                ]);
+            } else {
+                neighbours.push([
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]);
+            }
+        }
+    }
+    neighbours
 }
 
 fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
