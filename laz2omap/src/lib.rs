@@ -11,7 +11,6 @@ pub mod steps;
 const TILE_SIZE_USIZE: usize = 128;
 const MIN_NEIGHBOUR_MARGIN_USIZE: usize = 14;
 const INV_CELL_SIZE_USIZE: usize = 2; // test 1, 2 or 4
-pub const STACK_SIZE: usize = 10; // thread stack size in MiB
 const SIMPLIFICATION_DIST: f64 = 0.1;
 
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;

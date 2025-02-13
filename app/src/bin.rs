@@ -1,4 +1,4 @@
-mod epsg_list;
+mod assets;
 mod gui;
 mod omap_generator;
 mod omap_maker;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 const STACK_SIZE: usize = 10; // thread stack size in MiB
 
 fn main() {
-    let icon_bytes: &[u8] = include_bytes!("../assets/icon.data");
+    let icon_bytes: &[u8] = include_bytes!("./assets/icon.data");
     let rgba = icon_bytes.to_vec();
 
     let icon = eframe::egui::IconData {

@@ -12,7 +12,7 @@ path = "laz2omap/src/lib.rs"
 
 [[bin]]
 name = "OmapMaker"
-path = "gui/src/bin.rs"
+path = "app/src/bin.rs"
 
 [dependencies]
 # gui

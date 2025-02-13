@@ -62,7 +62,7 @@ impl OmapMaker {
                 ui.add(
                     egui_autocomplete::AutoCompleteTextEdit::new(
                         &mut self.gui_variables.crs_less_search_strings[0],
-                        crate::epsg_list::EPSG_LIST,
+                        crate::assets::EPSG_LIST,
                     )
                     .highlight_matches(true)
                     .set_text_edit_properties(|t| t.char_limit(5)),
@@ -138,7 +138,7 @@ impl OmapMaker {
                                     !disabled,
                                     egui_autocomplete::AutoCompleteTextEdit::new(
                                         &mut self.gui_variables.crs_less_search_strings[i],
-                                        crate::epsg_list::EPSG_LIST,
+                                        crate::assets::EPSG_LIST,
                                     )
                                     .highlight_matches(true)
                                     .max_suggestions(10)
@@ -256,7 +256,7 @@ impl OmapMaker {
                 ui.label("EPSG: ");
                 ui.add(egui_autocomplete::AutoCompleteTextEdit::new(
                     &mut self.gui_variables.output_crs_string,
-                    crate::epsg_list::EPSG_LIST).highlight_matches(true).max_suggestions(10)
+                    crate::assets::EPSG_LIST).highlight_matches(true).max_suggestions(10)
                     .set_text_edit_properties(|t| {
                         t.char_limit(5)
                     }));
