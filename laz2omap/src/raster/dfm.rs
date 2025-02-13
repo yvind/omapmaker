@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::{CELL_SIZE, SIDE_LENGTH};
 use geo::{Coord, LineString, MultiLineString};
 

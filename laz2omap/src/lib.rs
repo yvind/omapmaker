@@ -1,10 +1,8 @@
-//mod c2hm;
 pub mod comms;
 mod drawable_omap;
 mod error;
 pub mod geometry;
 mod make_map;
-mod matrix;
 pub mod params;
 mod raster;
 mod run_backend;
