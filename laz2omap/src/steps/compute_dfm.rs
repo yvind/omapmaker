@@ -1,55 +1,30 @@
-use crate::geometry::PointCloud;
-use crate::raster::{Dfm, FieldType};
-use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
+use crate::geometry::{PointCloud, PointLaz};
+use crate::raster::Dfm;
+use crate::SIDE_LENGTH;
 
-const SIDE_LENGTH: usize = TILE_SIZE_USIZE * INV_CELL_SIZE_USIZE;
+use geo::Coord;
+use spade::DelaunayTriangulation;
 
-use geo::{Contains, Coord, LineString, Polygon};
-use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
-
-pub fn compute_dfms(pc: &PointCloud, ch: &LineString, tl: Coord) -> (Dfm, Dfm, Dfm, Dfm, Dfm, Dfm) {
+pub fn compute_dfms(ground_cloud: PointCloud, tl: Coord) -> (Dfm, Dfm) {
     let mut dem = Dfm::new(tl);
-    let mut grad_dem = dem.clone();
-    let mut drm = dem.clone();
-    let mut grad_drm = dem.clone();
-    let mut dim = dem.clone();
-    let mut grad_dim = dem.clone();
+    let mut drm = Dfm::new(tl);
 
-    let pt: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(&pc.to_2d_slice());
-
-    let num_neighbours = 32;
-
-    let pch = Polygon::new(ch.clone(), vec![]);
+    let dt = DelaunayTriangulation::<PointLaz>::bulk_load_stable(ground_cloud.points).unwrap();
+    let nn = dt.natural_neighbor();
 
     for y_index in 0..SIDE_LENGTH {
         for x_index in 0..SIDE_LENGTH {
-            let coords = dem.index2coord(x_index, y_index);
+            let coords = dem.index2spade(x_index, y_index);
 
-            if !pch.contains(&coords) {
-                continue;
+            // all points inside the point cloud's convex hull gets interpolated
+            // this is problematic if the pc has a hole on a corner
+            if let Some(elev) = nn.interpolate(|p| p.data().0.z, coords) {
+                dem[(y_index, x_index)] = elev;
             }
-
-            // slow due to very many lookups
-            let nearest_n = pt.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], num_neighbours);
-            let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();
-
-            // slow due to matrix inversion
-            // gradients are almost for free
-            let (elev, grad_elev) =
-                pc.interpolate_field(FieldType::Elevation, &neighbours, &coords, 5.);
-            let (intens, grad_intens) =
-                pc.interpolate_field(FieldType::Intensity, &neighbours, &coords, 5.);
-            let (rn, grad_rn) =
-                pc.interpolate_field(FieldType::ReturnNumber, &neighbours, &coords, 5.);
-
-            dem[(y_index, x_index)] = elev;
-            grad_dem[(y_index, x_index)] = grad_elev;
-            drm[(y_index, x_index)] = rn;
-            grad_drm[(y_index, x_index)] = grad_rn;
-            dim[(y_index, x_index)] = intens;
-            grad_dim[(y_index, x_index)] = grad_intens;
+            if let Some(rn) = nn.interpolate(|p| p.data().0.return_number as f64, coords) {
+                drm[(y_index, x_index)] = (rn - 1.) / 5.; // want a range between 0-1 for veg and this basic algo does not do that;
+            }
         }
     }
-
-    (dem, grad_dem, drm, grad_drm, dim, grad_dim)
+    (dem, drm)
 }

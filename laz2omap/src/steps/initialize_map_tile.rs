@@ -1,6 +1,6 @@
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 use fastrand::f64 as random;
-use geo::{BooleanOps, Contains, Coord, Polygon, Rect};
+use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::point::Classification;
 
@@ -8,12 +8,9 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 
 use crate::{
     comms::messages::*,
-    geometry::{MapRect, PointCloud},
-    raster::{Dfm, FieldType},
+    geometry::{MapRect, PointCloud, PointLaz},
+    raster::Dfm,
 };
-
-use crate::{INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
-const SIDE_LENGTH: usize = TILE_SIZE_USIZE * INV_CELL_SIZE_USIZE;
 
 pub fn initialize_map_tile(
     sender: Sender<FrontendTask>,
@@ -94,20 +91,48 @@ pub fn initialize_map_tile(
             reader
                 .points(LodSelection::All, BoundsSelection::Within(bounds))
                 .unwrap()
-                .filter_map(|p| {
+                .filter_map(|mut p| {
                     (!p.is_withheld
                         && (p.classification == Classification::Ground
                             || p.classification == Classification::Water))
                         .then(|| {
-                            let mut clone = p.clone();
-                            clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                            clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                            clone
+                            p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                            p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                            PointLaz(p)
                         })
                 })
                 .collect(),
             shifted_bounds,
         );
+
+        // add ghost points at the corners of the bounds to make the entire dem interpolatable
+        // IDW interpolating the ghost points from the 32 closest real points
+        let query_points = [
+            [shifted_bounds.min.x, shifted_bounds.max.y],
+            [shifted_bounds.min.x, shifted_bounds.min.y],
+            [shifted_bounds.max.x, shifted_bounds.min.y],
+            [shifted_bounds.max.x, shifted_bounds.max.y],
+        ];
+        let mut zs = [0.; 4];
+
+        let pt: ImmutableKdTree<f64, usize, 2, 32> =
+            ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
+        for (i, qp) in query_points.iter().enumerate() {
+            let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, 32);
+            let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
+
+            zs[i] = neighbours
+                .iter()
+                .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
+                / tot_weight;
+        }
+
+        point_cloud.add(vec![
+            PointLaz::new(query_points[0][0], query_points[0][1], zs[0]),
+            PointLaz::new(query_points[1][0], query_points[1][1], zs[1]),
+            PointLaz::new(query_points[2][0], query_points[2][1], zs[2]),
+            PointLaz::new(query_points[3][0], query_points[3][1], zs[3]),
+        ]);
 
         let dims = point_cloud.get_dfm_dimensions();
 
@@ -120,41 +145,8 @@ pub fn initialize_map_tile(
             y: dims.max.y,
         };
 
-        let mut dem = Dfm::new(tl);
-        let mut drm = dem.clone();
-        let mut grad_dem = dem.clone();
-
-        let pt: ImmutableKdTree<f64, usize, 2, 32> =
-            ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
-
-        for y_index in 0..SIDE_LENGTH {
-            for x_index in 0..SIDE_LENGTH {
-                let coords = dem.index2coord(x_index, y_index);
-
-                if !hull.contains(&coords) {
-                    continue;
-                }
-
-                // slow due to very many lookups
-                let nearest_n = pt.nearest_n::<SquaredEuclidean>(&[coords.x, coords.y], 32);
-                let neighbours: Vec<usize> = nearest_n.iter().map(|n| n.item).collect();
-
-                // slow due to matrix inversion
-                // gradients are almost for free
-                let (elev, grad_elev) =
-                    point_cloud.interpolate_field(FieldType::Elevation, &neighbours, &coords, 5.);
-                let (ret, _) = point_cloud.interpolate_field(
-                    FieldType::ReturnNumber,
-                    &neighbours,
-                    &coords,
-                    10.,
-                );
-
-                dem[(y_index, x_index)] = elev;
-                grad_dem[(y_index, x_index)] = grad_elev;
-                drm[(y_index, x_index)] = (ret - 1.) / 5.; // want a range between 0-1 and this basic algo does not do that
-            }
-        }
+        let (dem, drm) = crate::steps::compute_dfms(point_cloud, tl);
+        let grad_dem = dem.slope(3);
 
         all_hulls.push(hull);
         dems.push(dem);
@@ -171,6 +163,7 @@ pub fn initialize_map_tile(
         .into_iter()
         .skip(1)
         .fold(initial, |acc, p| acc.union(&p).0[0].clone());
+    let super_hull = super_hull.convex_hull();
 
     sender
         .send(FrontendTask::ProgressBar(ProgressBar::Finish))

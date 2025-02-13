@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
-use crate::{CELL_SIZE, INV_CELL_SIZE_USIZE, TILE_SIZE_USIZE};
+use crate::{CELL_SIZE, SIDE_LENGTH};
 use geo::{Coord, LineString, MultiLineString};
-
-const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
 
 use std::ops::{Index, IndexMut};
 use std::{
@@ -28,14 +26,14 @@ impl Dfm {
         }
     }
 
-    pub fn difference(&self, other: &Dfm) -> Result<Dfm, &'static str> {
-        let mut diff = Dfm::new(self.tl_coord);
+    pub fn difference(&self, other: &Dfm) -> Dfm {
+        let mut diff = self.clone();
         for y in 0..SIDE_LENGTH {
             for x in 0..SIDE_LENGTH {
-                diff[(y, x)] = self[(y, x)] - other[(y, x)];
+                diff[(y, x)] -= other[(y, x)];
             }
         }
-        Ok(diff)
+        diff
     }
 
     #[inline]
@@ -46,19 +44,43 @@ impl Dfm {
         }
     }
 
-    pub fn adjust(
-        &mut self,
-        truth: &Dfm,
-        interpolated: &Dfm,
-        weigth: f64,
-    ) -> Result<(), &'static str> {
-        let diff = truth.difference(interpolated)?;
+    #[inline]
+    pub fn index2spade(&self, xi: usize, yi: usize) -> spade::Point2<f64> {
+        spade::Point2 {
+            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
+        }
+    }
+
+    pub fn adjust(&mut self, truth: &Dfm, interpolated: &Dfm, weigth: f64) {
+        let diff = truth.difference(interpolated);
         for y in 0..SIDE_LENGTH {
             for x in 0..SIDE_LENGTH {
                 self[(y, x)] += diff[(y, x)] * weigth;
             }
         }
-        Ok(())
+    }
+
+    pub fn slope(&self, filter_size: usize) -> Dfm {
+        let mut slope = Dfm::new(self.tl_coord);
+
+        let filter_length = filter_size as f64 * CELL_SIZE;
+
+        for yi in 0..SIDE_LENGTH {
+            let top_i = yi.saturating_sub(filter_size);
+            let bottom_i = (yi + filter_size).min(SIDE_LENGTH - 1);
+            for xi in 0..SIDE_LENGTH {
+                let left_i = xi.saturating_sub(filter_size);
+                let right_i = (xi + filter_size).min(SIDE_LENGTH - 1);
+
+                slope[(yi, xi)] = (((self[(top_i, xi)] - self[(bottom_i, xi)]) / filter_length)
+                    .powi(2)
+                    + ((self[(yi, left_i)] - self[(yi, right_i)]) / filter_length).powi(2))
+                .sqrt();
+            }
+        }
+
+        slope
     }
 
     pub fn marching_squares(&self, level: f64) -> MultiLineString {

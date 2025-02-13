@@ -23,7 +23,7 @@ impl DrawableSymbol for Symbol {
             Symbol::BasemapContour => Stroke::new(1., Color32::BROWN.gamma_multiply(0.5)),
             Symbol::NegBasemapContour => Stroke::new(1., PURPLE),
             Symbol::IndexContour => Stroke::new(5., Color32::BROWN),
-            Symbol::Formline => Stroke::new(1.5, Color32::BROWN),
+            Symbol::Formline => Stroke::new(2., Color32::BROWN),
             Symbol::SlopelineContour => Stroke::new(3., Color32::BROWN),
             Symbol::SlopelineFormline => Stroke::new(1.5, Color32::BROWN),
             Symbol::DotKnoll => Stroke::new(6., Color32::BROWN),
@@ -254,6 +254,8 @@ impl Triangulation {
         ui.painter().add(egui::Shape::Mesh(mesh));
     }
 }
+
+// TODO! add bezier drawing support
 #[derive(Clone)]
 pub struct LineObject(Vec<walkers::Position>);
 

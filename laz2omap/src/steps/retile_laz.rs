@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
-use crate::{geometry::PointTrait, MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE};
+use crate::{MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE};
 
 use std::{
     fs,
@@ -108,7 +108,10 @@ pub fn retile_laz(
 
                     for point in las_reader.points().filter_map(Result::ok) {
                         for (i, b) in bb.iter().enumerate() {
-                            if b.contains(&point.coords()) {
+                            if b.contains(&Coord {
+                                x: point.x,
+                                y: point.y,
+                            }) {
                                 thread_buckets[i].push(point.clone());
                             }
                         }

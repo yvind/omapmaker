@@ -317,7 +317,7 @@ impl OmapMaker {
         ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
 
         egui::ScrollArea::both().max_height(ui.available_height()/1.2).max_width(f32::INFINITY).show(ui, |ui| {
-            ui.label(egui::RichText::new("Select Map Scale").strong());
+            ui.label(egui::RichText::new("Map Scale").strong());
             ui.horizontal(|ui| {
                 if ui.selectable_label(self.gui_variables.map_params.scale == omap::Scale::S15_000, "1:15 000").clicked() {
                     self.gui_variables.map_params.scale = omap::Scale::S15_000;

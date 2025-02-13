@@ -1,7 +1,8 @@
 mod compute_basemap;
 mod compute_cliffs;
+mod compute_contours;
 mod compute_dfm;
-mod compute_map_objects;
+//mod compute_map_objects;
 mod compute_vegetation;
 mod convert_copc;
 mod initialize_map_tile;
@@ -14,8 +15,9 @@ mod save_tiffs;
 
 pub use self::compute_basemap::compute_basemap;
 pub use self::compute_cliffs::compute_cliffs;
+pub use self::compute_contours::compute_contours;
 pub use self::compute_dfm::compute_dfms;
-pub use self::compute_map_objects::compute_map_objects;
+//pub use self::compute_map_objects::compute_map_objects;
 pub use self::compute_vegetation::compute_vegetation;
 pub use self::convert_copc::convert_copc;
 pub use self::initialize_map_tile::initialize_map_tile;

@@ -1,13 +1,10 @@
-use super::{PointLaz, PointTrait};
-use crate::matrix::{Matrix32x6, Vector32, Vector6};
-use crate::raster::FieldType;
+use super::PointLaz;
 
 use crate::{CELL_SIZE, TILE_SIZE};
 
-use geo::{Coord, LineString, Simplify};
-use las::point::Classification;
-use las::{Bounds, Vector};
-use std::cmp::Ordering;
+use geo::{LineString, Simplify};
+use las::{point::Classification, Bounds, Vector};
+use std::{cmp::Ordering, ops::Index};
 
 #[derive(Clone)]
 pub struct PointCloud {
@@ -28,7 +25,7 @@ impl PointCloud {
     }
 
     pub fn to_2d_slice(&self) -> Vec<[f64; 2]> {
-        self.points.iter().map(|p| [p.x, p.y]).collect()
+        self.points.iter().map(|p| [p.x(), p.y()]).collect()
     }
 
     pub fn get_dfm_dimensions(&self) -> Bounds {
@@ -69,15 +66,15 @@ impl PointCloud {
         let mut hull_contour: LineString = LineString::new(vec![]);
 
         for mut point in convex_hull {
-            if (dfm_bounds.min.x - point.x).abs() <= epsilon {
-                point.x = dfm_bounds.min.x;
-            } else if (dfm_bounds.max.x - point.x).abs() <= epsilon {
-                point.x = dfm_bounds.max.x;
+            if (dfm_bounds.min.x - point.x()).abs() <= epsilon {
+                point.0.x = dfm_bounds.min.x;
+            } else if (dfm_bounds.max.x - point.x()).abs() <= epsilon {
+                point.0.x = dfm_bounds.max.x;
             }
-            if (dfm_bounds.min.y - point.y).abs() <= epsilon {
-                point.y = dfm_bounds.min.y;
-            } else if (dfm_bounds.max.y - point.y).abs() <= epsilon {
-                point.y = dfm_bounds.max.y;
+            if (dfm_bounds.min.y - point.y()).abs() <= epsilon {
+                point.0.y = dfm_bounds.min.y;
+            } else if (dfm_bounds.max.y - point.y()).abs() <= epsilon {
+                point.0.y = dfm_bounds.max.y;
             }
 
             hull_contour.0.push(point.flatten().into());
@@ -91,11 +88,13 @@ impl PointCloud {
         let mut gp_iter = self
             .points
             .iter()
-            .filter(|p| p.classification == Classification::Ground);
+            .filter(|p| p.0.classification == Classification::Ground);
 
         let mut bottom_point = gp_iter.next().unwrap().clone();
         for point in gp_iter {
-            if point.y < bottom_point.y || (point.y == bottom_point.y && point.x < bottom_point.x) {
+            if point.y() < bottom_point.y()
+                || (point.y() == bottom_point.y() && point.x() < bottom_point.x())
+            {
                 bottom_point = point.clone();
             }
         }
@@ -122,7 +121,7 @@ impl PointCloud {
             .points
             .iter()
             .skip(1)
-            .filter(|p| p.classification == Classification::Ground);
+            .filter(|p| p.0.classification == Classification::Ground);
         convex_hull.push(gp_iter.next().unwrap().clone());
 
         for point in gp_iter {
@@ -145,95 +144,13 @@ impl PointCloud {
         }
         convex_hull
     }
+}
 
-    pub fn interpolate_field(
-        &self,
-        field: FieldType,
-        neighbours: &Vec<usize>,
-        point: &Coord,
-        smoothing: f64,
-    ) -> (f64, f64) {
-        let nrows = neighbours.len();
+impl Index<usize> for PointCloud {
+    type Output = PointLaz;
 
-        let mut mean: [f64; 3] = [0., 0., 0.];
-        for n in neighbours {
-            mean[0] += self.points[*n].x;
-            mean[1] += self.points[*n].y;
-
-            match field {
-                FieldType::Elevation => mean[2] += self.points[*n].z,
-                FieldType::ReturnNumber => mean[2] += self.points[*n].return_number as f64,
-                FieldType::Intensity => mean[2] += self.points[*n].intensity as f64,
-            }
-        }
-        mean = [
-            mean[0] / nrows as f64,
-            mean[1] / nrows as f64,
-            mean[2] / nrows as f64,
-        ];
-
-        let mut std: [f64; 3] = [0., 0., 0.];
-        for n in neighbours {
-            std[0] += (self.points[*n].x - mean[0]).powi(2);
-            std[1] += (self.points[*n].y - mean[1]).powi(2);
-
-            match field {
-                FieldType::Elevation => std[2] += (self.points[*n].z - mean[2]).powi(2),
-                FieldType::ReturnNumber => {
-                    std[2] += (self.points[*n].return_number as f64 - mean[2]).powi(2)
-                }
-                FieldType::Intensity => {
-                    std[2] += (self.points[*n].intensity as f64 - mean[2]).powi(2)
-                }
-            }
-        }
-        std = [
-            (std[0] / nrows as f64).sqrt(),
-            (std[1] / nrows as f64).sqrt(),
-            (std[2] / nrows as f64).sqrt(),
-        ];
-
-        if std[2] < 0.01 {
-            return (mean[2], 0.0);
-        }
-
-        let mut xy: Matrix32x6 = Matrix32x6::zeros();
-        let mut z: Vector32 = Vector32::zeros();
-        for (i, n) in neighbours.iter().enumerate() {
-            let x = (self.points[*n].x - mean[0]) / std[0];
-            let y = (self.points[*n].y - mean[1]) / std[1];
-
-            xy.insert_row([1.0, x, y, x * x, y * y, x * y], i);
-
-            match field {
-                FieldType::Elevation => z.data[i] = (self.points[*n].z - mean[2]) / std[2],
-                FieldType::ReturnNumber => {
-                    z.data[i] = (self.points[*n].return_number as f64 - mean[2]) / std[2]
-                }
-                FieldType::Intensity => {
-                    z.data[i] = (self.points[*n].intensity as f64 - mean[2]) / std[2]
-                }
-            }
-        }
-
-        // slow matrix inversion
-        let beta: Vector6 = (xy.tdot_self().add_to_diag(smoothing))
-            .inverse_spd()
-            .dot_vec(xy.tdot_vec(&z));
-
-        let nx = (point.x - mean[0]) / std[0];
-        let ny = (point.y - mean[1]) / std[1];
-
-        let x0 = Vector6::new([1.0, nx, ny, nx * nx, ny * ny, nx * ny]);
-        let dx = Vector6::new([0.0, 1.0, 0.0, 2.0 * nx, 0.0, ny]);
-        let dy = Vector6::new([0.0, 0.0, 1.0, 0.0, 2.0 * ny, nx]);
-
-        let value = x0.dot(&beta) * std[2] + mean[2];
-        let gradient_x = dx.dot(&beta) * std[2] / std[0];
-        let gradient_y = dy.dot(&beta) * std[2] / std[1];
-        let gradient_size = (gradient_x.powi(2) + gradient_y.powi(2)).sqrt();
-
-        (value, gradient_size)
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.points[index]
     }
 }
 

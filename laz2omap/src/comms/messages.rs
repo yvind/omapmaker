@@ -17,6 +17,7 @@ pub enum FrontendTask {
 }
 
 pub enum BackendTask {
+    ClearParams,
     TileSelectedFile(PathBuf, Option<u16>),
     InitializeMapTile(PathBuf, [Option<usize>; 9]),
     ParseCrs(Vec<PathBuf>),

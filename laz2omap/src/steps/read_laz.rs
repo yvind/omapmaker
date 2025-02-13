@@ -1,4 +1,4 @@
-use crate::geometry::PointCloud;
+use crate::geometry::{PointCloud, PointLaz};
 
 use geo::{Coord, LineString};
 
@@ -28,12 +28,11 @@ pub fn read_laz(las_path: &PathBuf, ref_point: Coord) -> (PointCloud, LineString
         las_reader
             .points()
             .filter_map(Result::ok)
-            .filter_map(|p| {
+            .filter_map(|mut p| {
                 (p.classification == Classification::Ground && !p.is_withheld).then(|| {
-                    let mut clone = p.clone();
-                    clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                    clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                    clone
+                    p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                    p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                    PointLaz(p)
                 })
             }) // add noise on the order of mm for KD-tree stability
             .collect(),
@@ -53,12 +52,11 @@ pub fn read_laz(las_path: &PathBuf, ref_point: Coord) -> (PointCloud, LineString
         las_reader
             .points()
             .filter_map(Result::ok)
-            .filter_map(|p| {
+            .filter_map(|mut p| {
                 (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                    let mut clone = p.clone();
-                    clone.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                    clone.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                    clone
+                    p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                    p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                    PointLaz(p)
                 })
             }) // add noise on the order of mm for KD-tree stability
             .collect::<Vec<_>>(),

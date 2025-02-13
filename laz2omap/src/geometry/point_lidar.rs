@@ -1,11 +1,14 @@
 #![allow(dead_code)]
 
 use geo::{Coord, Point};
-pub use las::Point as PointLaz;
+use spade::{HasPosition, Point2};
 
-impl PointTrait for PointLaz {
-    fn new(x: f64, y: f64, z: f64) -> PointLaz {
-        Self {
+#[derive(Clone)]
+pub struct PointLaz(pub las::Point);
+
+impl PointLaz {
+    pub fn new(x: f64, y: f64, z: f64) -> PointLaz {
+        PointLaz(las::Point {
             x,
             y,
             z,
@@ -28,37 +31,47 @@ impl PointTrait for PointLaz {
             waveform: None,
             nir: None,
             extra_bytes: vec![],
-        }
+        })
     }
 
-    fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
-        (self.x - b.x).powi(2) + (self.y - b.y).powi(2)
+    #[inline]
+    pub fn squared_euclidean_distance(&self, b: &PointLaz) -> f64 {
+        (self.0.x - b.0.x).powi(2) + (self.0.y - b.0.y).powi(2)
     }
 
-    fn flatten(self) -> Point {
-        Point::new(self.x, self.y)
+    #[inline]
+    pub fn flatten(self) -> Point {
+        Point::new(self.0.x, self.0.y)
     }
 
-    fn coords(&self) -> Coord {
+    #[inline]
+    pub fn coords(&self) -> Coord {
         Coord {
-            x: self.x,
-            y: self.y,
+            x: self.0.x,
+            y: self.0.y,
         }
     }
 
-    fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64 {
-        (a.x - self.x) * (b.y - self.y) - (a.y - self.y) * (b.x - self.x)
+    #[inline]
+    pub fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64 {
+        (a.0.x - self.0.x) * (b.0.y - self.0.y) - (a.0.y - self.0.y) * (b.0.x - self.0.x)
+    }
+
+    #[inline]
+    pub fn x(&self) -> f64 {
+        self.0.x
+    }
+
+    #[inline]
+    pub fn y(&self) -> f64 {
+        self.0.y
     }
 }
 
-pub trait PointTrait {
-    fn new(x: f64, y: f64, z: f64) -> Self;
+impl HasPosition for PointLaz {
+    type Scalar = f64;
 
-    fn consecutive_orientation(&self, a: &PointLaz, b: &PointLaz) -> f64;
-
-    fn squared_euclidean_distance(&self, other: &PointLaz) -> f64;
-
-    fn flatten(self) -> Point;
-
-    fn coords(&self) -> Coord;
+    fn position(&self) -> Point2<Self::Scalar> {
+        Point2::new(self.0.x, self.0.y)
+    }
 }

@@ -55,6 +55,9 @@ impl OmapGenerator {
         loop {
             if let Ok(task) = self.comms.try_recv() {
                 match task {
+                    BackendTask::ClearParams => {
+                        self.map_params = None;
+                    }
                     BackendTask::ParseCrs(paths) => {
                         crate::steps::parse_crs(self.comms.clone_sender(), paths);
                     }

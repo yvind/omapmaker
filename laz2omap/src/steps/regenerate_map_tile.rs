@@ -30,6 +30,17 @@ pub fn regenerate_map_tile(
     let needs_update = needs_regeneration(&params, old_params.as_ref());
 
     for i in 0..dem.len() {
+        if needs_update.contours {
+            crate::steps::compute_contours(
+                &dem[i],
+                z_range,
+                &cut_bounds[i],
+                (0.9, 0.1),
+                &params,
+                &omap,
+            );
+        }
+
         if params.basemap_contour && params.basemap_interval >= 0.1 && needs_update.basemap {
             crate::steps::compute_basemap(&dem[i], z_range, &cut_bounds[i], &params, &omap);
         } else if !params.basemap_contour {
