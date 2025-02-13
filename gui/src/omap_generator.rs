@@ -1,10 +1,12 @@
 use eframe::egui;
 use las::Reader;
 
-use crate::comms::{messages::*, OmapComms};
-use crate::geometry::MapRect;
-use crate::params::MapParams;
-use crate::raster::Dfm;
+use laz2omap::comms::{messages::*, OmapComms};
+use laz2omap::geometry::MapRect;
+use laz2omap::params::MapParams;
+use laz2omap::project;
+use laz2omap::raster::Dfm;
+use laz2omap::steps;
 
 use std::time::Duration;
 
@@ -12,7 +14,7 @@ pub struct OmapGenerator {
     comms: OmapComms<FrontendTask, BackendTask>,
     ctx: egui::Context,
     // store the params used for generating a map tile
-    // on the next call to only generate the
+    // so the next call only generates the
     // objects corresponding to the changed parameters
     map_params: Option<MapParams>,
 
@@ -57,10 +59,10 @@ impl OmapGenerator {
                         self.map_params = None;
                     }
                     BackendTask::ParseCrs(paths) => {
-                        crate::steps::parse_crs(self.comms.clone_sender(), paths);
+                        steps::parse_crs(self.comms.clone_sender(), paths);
                     }
                     BackendTask::MapSpatialLidarRelations(paths, crs) => {
-                        crate::steps::map_laz(self.comms.clone_sender(), paths, crs);
+                        steps::map_laz(self.comms.clone_sender(), paths, crs);
                     }
                     BackendTask::ConvertCopc(
                         paths,
@@ -70,7 +72,7 @@ impl OmapGenerator {
                         bounds,
                         polygon,
                     ) => {
-                        crate::steps::convert_copc(
+                        steps::convert_copc(
                             self.comms.clone_sender(),
                             paths,
                             in_epsg,
@@ -82,11 +84,7 @@ impl OmapGenerator {
                     }
                     BackendTask::InitializeMapTile(path, tiles) => {
                         let (dem, gdem, drm, cut_bounds, hull, ref_point, z_range) =
-                            crate::steps::initialize_map_tile(
-                                self.comms.clone_sender(),
-                                path,
-                                tiles,
-                            );
+                            steps::initialize_map_tile(self.comms.clone_sender(), path, tiles);
                         self.map_tile_dem = dem;
                         self.map_tile_grad_dem = gdem;
                         self.map_tile_drm = drm;
@@ -97,7 +95,7 @@ impl OmapGenerator {
                     }
                     BackendTask::RegenerateMap(params) => {
                         assert!(!self.map_tile_dem.is_empty());
-                        crate::steps::regenerate_map_tile(
+                        steps::regenerate_map_tile(
                             self.comms.clone_sender(),
                             &self.map_tile_dem,
                             &self.map_tile_grad_dem,
@@ -116,7 +114,7 @@ impl OmapGenerator {
                     }
                     BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
                         // transform the linestring to output coords
-                        let local_polygon_filter = crate::project::polygon::from_walkers_map_coords(
+                        let local_polygon_filter = project::polygon::from_walkers_map_coords(
                             map_params.output_epsg,
                             polygon_filter,
                         );
@@ -124,7 +122,7 @@ impl OmapGenerator {
                         // we are not going back here so can clear the dems to free some memory
                         self.reset();
 
-                        crate::steps::make_map(
+                        steps::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
@@ -141,16 +139,16 @@ impl OmapGenerator {
                         let bounds = Reader::from_path(&path).unwrap().header().bounds();
                         let rect = geo::Rect::from_bounds(bounds);
 
-                        let (_, cb, n_x, n_y) = crate::steps::retile_bounds(
+                        let (_, cb, n_x, n_y) = steps::retile_bounds(
                             &rect,
                             &geo::Rect::new(
                                 geo::Coord { x: 0., y: 0. },
                                 geo::Coord { x: 0., y: 0. },
                             ),
                         );
-                        let neighbours = crate::steps::neighbours_on_grid(n_x, n_y);
+                        let neighbours = steps::neighbours_on_grid(n_x, n_y);
 
-                        let cb = crate::project::rectangles::to_walkers_map_coords(epsg, &cb);
+                        let cb = project::rectangles::to_walkers_map_coords(epsg, &cb);
 
                         self.comms
                             .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)))

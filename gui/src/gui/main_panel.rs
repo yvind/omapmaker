@@ -1,7 +1,8 @@
 use eframe::egui;
 use walkers::{LocalMap, Map, MapMemory, Maps, Tiles};
 
-use super::{map_controls, map_plugins, OmapMaker, ProcessStage};
+use super::{map_controls, map_plugins, ProcessStage};
+use crate::OmapMaker;
 
 const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
 

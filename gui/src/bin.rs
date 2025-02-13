@@ -1,9 +1,15 @@
 mod epsg_list;
 mod gui;
+mod omap_generator;
+mod omap_maker;
+
+pub use omap_generator::OmapGenerator;
+pub use omap_maker::OmapMaker;
 
 use eframe::egui;
-use gui::OmapMaker;
 use std::sync::Arc;
+
+const STACK_SIZE: usize = 10; // thread stack size in MiB
 
 fn main() {
     let icon_bytes: &[u8] = include_bytes!("../assets/icon.data");

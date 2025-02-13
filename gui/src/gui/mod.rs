@@ -1,14 +1,12 @@
-mod gui_variables;
-mod main_panel;
-mod map_controls;
-mod map_plugins;
-mod modals;
-mod omap_maker;
-mod side_panel;
-mod terminal_like;
+pub mod gui_variables;
+pub mod main_panel;
+pub mod map_controls;
+pub mod map_plugins;
+pub mod modals;
+pub mod side_panel;
+pub mod terminal_like;
 
 pub use gui_variables::GuiVariables;
-pub use omap_maker::OmapMaker;
 
 #[derive(PartialEq, Eq)]
 pub enum ProcessStage {

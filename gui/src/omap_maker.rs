@@ -1,9 +1,7 @@
-use super::{modals::OmapModal, GuiVariables, ProcessStage};
+use crate::gui::{modals::OmapModal, GuiVariables, ProcessStage};
+use crate::OmapGenerator;
 use eframe::egui;
-use laz2omap::{
-    comms::{messages::*, OmapComms},
-    OmapGenerator,
-};
+use laz2omap::comms::{messages::*, OmapComms};
 use walkers::{sources, HttpOptions, HttpTiles, MapMemory, Position};
 
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);

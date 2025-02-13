@@ -1,6 +1,7 @@
 use laz2omap::comms::messages::*;
 
-use super::{modals::OmapModal, OmapMaker};
+use crate::OmapMaker;
+use super::modals::OmapModal;
 use eframe::egui;
 
 impl OmapMaker {
