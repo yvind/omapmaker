@@ -1,7 +1,7 @@
 An application for generating orienteering maps (.omap file) from ground-classified lidar data.
 
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
-The written files are automatically georefrenced.
+The written omap-file is automatically georefrenced.
 
 Overlapping lidar files not yet handled
 
