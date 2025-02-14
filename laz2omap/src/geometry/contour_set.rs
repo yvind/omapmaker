@@ -21,7 +21,7 @@ impl ContourSet {
                 let cp = ContourPoint {
                     pos: Point2::new(line.0[0].x, line.0[0].y),
                     z: level.z,
-                    grad_dir: (line.0[1] - line.0[0])
+                    grad: (line.0[1] - line.0[0])
                         .left()
                         .try_normalize()
                         .unwrap_or(Coord { x: 0., y: 0. })
@@ -33,7 +33,7 @@ impl ContourSet {
                     let cp = ContourPoint {
                         pos: Point2::new(line.0[i].x, line.0[i].y),
                         z: level.z,
-                        grad_dir: (line.0[i + 1] - line.0[i - 1])
+                        grad: (line.0[i + 1] - line.0[i - 1])
                             .left()
                             .try_normalize()
                             .unwrap_or(Coord { x: 0., y: 0. })
@@ -45,7 +45,7 @@ impl ContourSet {
                 let cp = ContourPoint {
                     pos: Point2::new(line.0[line.0.len() - 1].x, line.0[line.0.len() - 1].y),
                     z: level.z,
-                    grad_dir: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
+                    grad: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
                         .left()
                         .try_normalize()
                         .unwrap_or(Coord { x: 0., y: 0. })
@@ -61,22 +61,22 @@ impl ContourSet {
             ContourPoint {
                 pos: dem.index2spade(0, 0),
                 z: dem[(0, 0)],
-                grad_dir: [0., 0.],
+                grad: [0., 0.],
             },
             ContourPoint {
                 pos: dem.index2spade(SIDE_LENGTH - 1, 0),
                 z: dem[(SIDE_LENGTH - 1, 0)],
-                grad_dir: [0., 0.],
+                grad: [0., 0.],
             },
             ContourPoint {
                 pos: dem.index2spade(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
                 z: dem[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)],
-                grad_dir: [0., 0.],
+                grad: [0., 0.],
             },
             ContourPoint {
                 pos: dem.index2spade(0, SIDE_LENGTH - 1),
                 z: dem[(0, SIDE_LENGTH - 1)],
-                grad_dir: [0., 0.],
+                grad: [0., 0.],
             },
         ];
         points.extend(ghost_points);
@@ -84,7 +84,7 @@ impl ContourSet {
         DelaunayTriangulation::bulk_load_stable(points).unwrap()
     }
 
-    pub fn calculate_error(&self, true_dem: &Dfm, interpolated_dem: &Dfm, lambda: f64) -> f64 {
+    pub fn calculate_error(&self, _true_dem: &Dfm, _interpolated_dem: &Dfm, _lambda: f64) -> f64 {
         1.
     }
 }
@@ -103,7 +103,7 @@ impl ContourLevel {
 pub struct ContourPoint {
     pub pos: Point2<f64>,
     pub z: f64,
-    pub grad_dir: [f64; 2],
+    pub grad: [f64; 2], // direction is always normal to the contour line, length must be derived
 }
 
 impl HasPosition for ContourPoint {

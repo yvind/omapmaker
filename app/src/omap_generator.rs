@@ -3,7 +3,7 @@ use las::Reader;
 
 use laz2omap::comms::{messages::*, OmapComms};
 use laz2omap::geometry::MapRect;
-use laz2omap::params::MapParams;
+use laz2omap::parameters::MapParameters;
 use laz2omap::project;
 use laz2omap::raster::Dfm;
 use laz2omap::steps;
@@ -16,7 +16,7 @@ pub struct OmapGenerator {
     // store the params used for generating a map tile
     // so the next call only generates the
     // objects corresponding to the changed parameters
-    map_params: Option<MapParams>,
+    map_params: Option<MapParameters>,
 
     // for iterating the params
     map_tile_dem: Vec<Dfm>,

@@ -1,5 +1,5 @@
 use geo::LineString;
-use laz2omap::params::{FileParams, MapParams};
+use laz2omap::parameters::{FileParameters, MapParameters};
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
@@ -30,8 +30,8 @@ pub struct GuiVariables {
     // logging to the in app "console"
     pub log_terminal: TerminalLike,
 
-    pub map_params: MapParams,
-    pub file_params: FileParams,
+    pub map_params: MapParameters,
+    pub file_params: FileParameters,
 
     // sub_tile parameters
     pub selected_tile: Option<usize>,

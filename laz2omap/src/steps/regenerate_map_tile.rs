@@ -1,8 +1,10 @@
+#![allow(clippy::too_many_arguments)]
+
 use omap::{AreaSymbol, Omap, Symbol};
 
 use crate::{
     comms::messages::*,
-    params::MapParams,
+    parameters::MapParameters,
     raster::{Dfm, Threshold},
     DrawableOmap,
 };
@@ -11,15 +13,15 @@ use std::sync::{mpsc::Sender, Arc, Mutex};
 
 pub fn regenerate_map_tile(
     sender: Sender<FrontendTask>,
-    dem: &Vec<Dfm>,
-    g_dem: &Vec<Dfm>,
-    drm: &Vec<Dfm>,
-    cut_bounds: &Vec<geo::Polygon>,
+    dem: &[Dfm],
+    g_dem: &[Dfm],
+    drm: &[Dfm],
+    cut_bounds: &[geo::Polygon],
     hull: &geo::Polygon,
     ref_point: geo::Coord,
     z_range: (f64, f64),
-    params: MapParams,
-    old_params: Option<MapParams>,
+    params: MapParameters,
+    old_params: Option<MapParameters>,
 ) {
     let omap = Arc::new(Mutex::new(Omap::new(
         ref_point,
@@ -126,7 +128,7 @@ pub fn regenerate_map_tile(
         .unwrap();
 }
 
-fn needs_regeneration(new: &MapParams, old: Option<&MapParams>) -> UpdateMap {
+fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> UpdateMap {
     let mut update_map = UpdateMap::default();
     if old.is_none() {
         return update_map;

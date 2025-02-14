@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::mpsc::Sender, vec};
 use copc_rs::{CopcReader, CopcWriter};
 use geo::Contains;
 use las::{Builder, Reader};
-use proj4rs::{transform::transform, Proj};
+//use proj4rs::{transform::transform, Proj};
 
 const LOCAL_OUT_EPSG: &str = "LOCAL_CS[\"Undefined\"]";
 
@@ -90,7 +90,7 @@ pub fn convert_copc(
         .unwrap();
 }
 
-fn transform_file(path: PathBuf, current_epsg: u16, out_epsg: u16) -> PathBuf {
+fn transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf {
     unimplemented!("Transforming CRS not yet supported");
 }
 
@@ -203,6 +203,6 @@ fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
     path
 }
 
-fn convert_and_transform_file(path: PathBuf, current_epsg: u16, out_epsg: u16) -> PathBuf {
+fn convert_and_transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf {
     unimplemented!("Transforming CRS not yet supported");
 }

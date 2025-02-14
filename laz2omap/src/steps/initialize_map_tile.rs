@@ -1,3 +1,5 @@
+#![allow(clippy::type_complexity)]
+
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 use fastrand::f64 as random;
 use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};

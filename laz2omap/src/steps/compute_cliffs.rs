@@ -1,4 +1,4 @@
-use crate::{geometry::MapMultiPolygon, params::MapParams, raster::Dfm};
+use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
 use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
@@ -9,7 +9,7 @@ pub fn compute_cliffs(
     slope: &Dfm,
     convex_hull: &LineString,
     cut_overlay: &Polygon,
-    params: &MapParams,
+    params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
 ) {
     let symbol = AreaSymbol::GiganticBoulder;

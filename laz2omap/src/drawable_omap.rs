@@ -13,33 +13,33 @@ const ROUGH_YELLOW: Color32 = Color32::from_rgba_premultiplied(255, 220, 155, 25
 trait DrawableSymbol {
     /// what fill to use for drawing symbol equals the stroke of a line or
     /// color of a polygon or color and radius of point
-    fn stroke(&self) -> Stroke;
+    fn stroke(&self) -> (bool, Stroke);
 }
 
 impl DrawableSymbol for Symbol {
-    fn stroke(&self) -> Stroke {
+    fn stroke(&self) -> (bool, Stroke) {
         match self {
-            Symbol::Contour => Stroke::new(3., Color32::BROWN),
-            Symbol::BasemapContour => Stroke::new(1., Color32::BROWN.gamma_multiply(0.5)),
-            Symbol::NegBasemapContour => Stroke::new(1., PURPLE),
-            Symbol::IndexContour => Stroke::new(5., Color32::BROWN),
-            Symbol::Formline => Stroke::new(2., Color32::BROWN),
-            Symbol::SlopelineContour => Stroke::new(3., Color32::BROWN),
-            Symbol::SlopelineFormline => Stroke::new(1.5, Color32::BROWN),
-            Symbol::DotKnoll => Stroke::new(6., Color32::BROWN),
-            Symbol::ElongatedDotKnoll => Stroke::new(6., Color32::BROWN),
-            Symbol::UDepression => Stroke::new(6., Color32::RED),
-            Symbol::SmallBoulder => Stroke::new(6., Color32::BLACK),
-            Symbol::LargeBoulder => Stroke::new(10., Color32::BLACK),
-            Symbol::GiganticBoulder => Stroke::new(0., Color32::BLACK),
-            Symbol::SandyGround => Stroke::new(0., Color32::YELLOW),
-            Symbol::BareRock => Stroke::new(0., Color32::GRAY),
-            Symbol::RoughOpenLand => Stroke::new(0., ROUGH_YELLOW),
-            Symbol::LightGreen => Stroke::new(0., Color32::LIGHT_GREEN),
-            Symbol::MediumGreen => Stroke::new(0., Color32::GREEN),
-            Symbol::DarkGreen => Stroke::new(0., Color32::DARK_GREEN),
-            Symbol::Building => Stroke::new(0., Color32::BLACK),
-            Symbol::Water => Stroke::new(0., Color32::BLUE),
+            Symbol::Contour => (false, Stroke::new(3., Color32::BROWN)),
+            Symbol::BasemapContour => (false, Stroke::new(1., Color32::BROWN.gamma_multiply(0.5))),
+            Symbol::NegBasemapContour => (false, Stroke::new(1., PURPLE)),
+            Symbol::IndexContour => (false, Stroke::new(5., Color32::BROWN)),
+            Symbol::Formline => (true, Stroke::new(2., Color32::BROWN)),
+            Symbol::SlopelineContour => (false, Stroke::new(3., Color32::BROWN)),
+            Symbol::SlopelineFormline => (false, Stroke::new(2., Color32::BROWN)),
+            Symbol::DotKnoll => (false, Stroke::new(10., Color32::BROWN)),
+            Symbol::ElongatedDotKnoll => (false, Stroke::new(10., Color32::BROWN)),
+            Symbol::UDepression => (false, Stroke::new(10., PURPLE)),
+            Symbol::SmallBoulder => (false, Stroke::new(8., Color32::BLACK)),
+            Symbol::LargeBoulder => (false, Stroke::new(12., Color32::BLACK)),
+            Symbol::GiganticBoulder => (false, Stroke::new(0., Color32::BLACK)),
+            Symbol::SandyGround => (false, Stroke::new(0., Color32::YELLOW)),
+            Symbol::BareRock => (false, Stroke::new(0., Color32::GRAY)),
+            Symbol::RoughOpenLand => (false, Stroke::new(0., ROUGH_YELLOW)),
+            Symbol::LightGreen => (false, Stroke::new(0., Color32::LIGHT_GREEN)),
+            Symbol::MediumGreen => (false, Stroke::new(0., Color32::GREEN)),
+            Symbol::DarkGreen => (false, Stroke::new(0., Color32::DARK_GREEN)),
+            Symbol::Building => (false, Stroke::new(0., Color32::BLACK)),
+            Symbol::Water => (true, Stroke::new(0., Color32::BLUE)),
         }
     }
 }
@@ -156,7 +156,7 @@ impl DrawableOmap {
             let stroke = symbol.stroke();
             if let Some(objs) = self.map_objects.get(&symbol) {
                 for obj in objs {
-                    obj.draw(ui, projector, stroke);
+                    obj.draw(ui, projector, stroke.1, stroke.0);
                 }
             }
         }
@@ -164,16 +164,22 @@ impl DrawableOmap {
 }
 
 impl DrawableGeometry {
-    fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, stroke: Stroke) {
+    fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        stroke: Stroke,
+        special: bool,
+    ) {
         match &self {
             DrawableGeometry::Polygon(poly) => {
-                poly.draw(ui, projector, &stroke.color);
+                poly.draw(ui, projector, &stroke.color, special);
             }
             DrawableGeometry::Line(line) => {
-                line.draw(ui, projector, &stroke);
+                line.draw(ui, projector, &stroke, special);
             }
             DrawableGeometry::Point(point) => {
-                point.draw(ui, projector, &stroke);
+                point.draw(ui, projector, &stroke, special);
             }
         }
     }
@@ -190,8 +196,14 @@ pub enum DrawableGeometry {
 pub struct PolygonObject(Triangulation);
 
 impl PolygonObject {
-    fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, color: &Color32) {
-        self.0.draw(ui, projector, color);
+    fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        color: &Color32,
+        special: bool,
+    ) {
+        self.0.draw(ui, projector, color, special);
     }
 
     fn from_geo(poly: geo::Polygon, ref_point: Coord, crs: Option<u16>) -> Self {
@@ -234,12 +246,23 @@ pub struct Triangulation {
 }
 
 impl Triangulation {
-    fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, color: &Color32) {
-        let points: Vec<egui::epaint::Vertex> = self
+    fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        color: &Color32,
+        special: bool,
+    ) {
+        let pos: Vec<egui::Pos2> = self
             .vertices
             .iter()
+            .map(|p| projector.project(*p))
+            .collect();
+
+        let points: Vec<egui::epaint::Vertex> = pos
+            .iter()
             .map(|p| egui::epaint::Vertex {
-                pos: projector.project(*p),
+                pos: *p,
                 uv: egui::epaint::WHITE_UV,
                 color: *color,
             })
@@ -252,6 +275,12 @@ impl Triangulation {
         };
 
         ui.painter().add(egui::Shape::Mesh(mesh));
+
+        // bounding line
+        if special {
+            ui.painter()
+                .line(pos, egui::Stroke::new(3., egui::Color32::DARK_BLUE));
+        }
     }
 }
 
@@ -260,10 +289,25 @@ impl Triangulation {
 pub struct LineObject(Vec<walkers::Position>);
 
 impl LineObject {
-    fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, stroke: &Stroke) {
+    fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        stroke: &Stroke,
+        special: bool,
+    ) {
         let points = self.0.iter().map(|p| projector.project(*p)).collect();
 
-        ui.painter().line(points, *stroke);
+        if !special {
+            ui.painter().line(points, *stroke);
+        } else {
+            ui.painter().add(egui::Shape::dashed_line(
+                &points,
+                *stroke,
+                20. * stroke.width,
+                2. * stroke.width,
+            ));
+        }
     }
 
     fn from_geo(line: geo::LineString, ref_point: Coord, crs: Option<u16>) -> Self {
@@ -296,7 +340,13 @@ impl LineObject {
 pub struct PointObject(walkers::Position);
 
 impl PointObject {
-    fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, stroke: &Stroke) {
+    fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        stroke: &Stroke,
+        _special: bool,
+    ) {
         let screen_point = projector.project(self.0);
 
         ui.painter()

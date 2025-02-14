@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 use crate::geometry::{ContourLevel, ContourSet};
-use crate::params::MapParams;
+use crate::parameters::MapParameters;
 use crate::raster::Dfm;
 
 use omap::{LineObject, LineSymbol, MapObject, Omap, TagTrait};
@@ -19,7 +19,7 @@ pub fn compute_contours(
     z_range: (f64, f64),
     cut_overlay: &Polygon,
     thresholds: (f64, f64),
-    params: &MapParams,
+    params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
 ) {
     let (min_threshold, conv_threshold) = thresholds;

@@ -1,5 +1,5 @@
 use crate::{
-    params::{FileParams, MapParams},
+    parameters::{FileParameters, MapParameters},
     DrawableOmap,
 };
 use std::path::PathBuf;
@@ -30,9 +30,9 @@ pub enum BackendTask {
         Vec<[walkers::Position; 4]>,
         geo::LineString,
     ),
-    RegenerateMap(Box<MapParams>), // boxed to keep the enum variant small
+    RegenerateMap(Box<MapParameters>), // boxed to keep the enum variant small
     Reset,
-    MakeMap(Box<MapParams>, Box<FileParams>, geo::LineString),
+    MakeMap(Box<MapParameters>, Box<FileParameters>, geo::LineString),
 }
 
 pub enum Task {

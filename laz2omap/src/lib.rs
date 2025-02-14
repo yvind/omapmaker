@@ -2,7 +2,7 @@ pub mod comms;
 pub mod drawable_omap;
 pub mod error;
 pub mod geometry;
-pub mod params;
+pub mod parameters;
 pub mod project;
 pub mod raster;
 pub mod steps;

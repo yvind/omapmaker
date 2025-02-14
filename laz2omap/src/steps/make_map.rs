@@ -1,14 +1,14 @@
 use crate::{
     comms::messages::*,
-    params::{FileParams, MapParams},
+    parameters::{FileParameters, MapParameters},
 };
 
 use std::sync::mpsc::Sender;
 
 pub fn make_map(
     sender: Sender<FrontendTask>,
-    _map_params: MapParams,
-    _file_params: FileParams,
+    _map_params: MapParameters,
+    _file_params: FileParameters,
     _polygon_filter: Option<geo::Polygon>,
 ) {
     sender
