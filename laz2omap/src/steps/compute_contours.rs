@@ -6,9 +6,6 @@ use crate::raster::Dfm;
 use omap::{LineObject, LineSymbol, MapObject, Omap, TagTrait};
 
 use geo::Polygon;
-use spade::Point2;
-
-use crate::SIDE_LENGTH;
 
 use core::f64;
 use geo::{BooleanOps, Simplify};
@@ -22,6 +19,14 @@ pub fn compute_contours(
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
 ) {
+    {
+        // to make sure the old drawable map features are cleared even if no features are added
+        let mut map = map.lock().unwrap();
+        map.reserve_capacity(omap::Symbol::Contour, 1);
+        map.reserve_capacity(omap::Symbol::Formline, 1);
+        map.reserve_capacity(omap::Symbol::IndexContour, 1);
+    }
+
     let (min_threshold, conv_threshold) = thresholds;
 
     let effective_interval = if params.formlines {
@@ -58,52 +63,45 @@ pub fn compute_contours(
             break;
         }
 
-        // triangulate the contour set
-        let tri = contours.triangulate(&adjusted_dem);
-        let nn = tri.natural_neighbor();
+        // interpolate the contour set
+        contours
+            .interpolate(&mut interpolated_dfm, &adjusted_dem, 25)
+            .unwrap();
 
-        // interpolate triangulation
-        for y_index in 0..SIDE_LENGTH {
-            for x_index in 0..SIDE_LENGTH {
-                let coords = interpolated_dfm.index2coord(x_index, y_index);
-                let coords = Point2::new(coords.x, coords.y);
-
-                if let Some(elev) = nn.interpolate(|p| p.data().z, coords) {
-                    if elev.is_nan() {
-                        println!("Nan in c1 interpolating!");
-                    }
-                    interpolated_dfm[(y_index, x_index)] = elev;
-                }
-            }
-        }
-
-        // calculate the contour set error
-        error = contours.calculate_error(true_dem, &interpolated_dfm, params.contour_algo_lambda);
+        // calculate the error
+        // should this only include contours inside the cut_bounds?
+        //
+        // a length exp of 0 gives bending energy, 1 gives bending force, 2 gives stiffness? (same units as a spring constant)
+        error = true_dem.error(&interpolated_dfm) + params.contour_algo_lambda * contours.energy(1);
+        println!("error: {error}");
 
         if error <= min_threshold || (error - prev_error).abs() <= conv_threshold {
             break;
         }
 
-        // adjust dem
-        adjusted_dem.adjust(true_dem, &interpolated_dfm, 1.);
-        prev_error = 3.;
+        // adjust dem, increasing frequency decreasing amplitude
+        adjusted_dem.adjust(
+            true_dem,
+            &interpolated_dfm,
+            (params.contour_algo_steps - iterations) as usize * 3,
+            (params.contour_algo_steps - iterations + 1) as f64
+                / (params.contour_algo_steps + 1) as f64,
+        );
+        prev_error = error;
         iterations += 1;
 
         contours.0.clear();
     }
+    println!();
 
-    for c_index in 0..c_levels {
-        let c_level = c_index as f64 * effective_interval + start_level;
+    for c_level in contours.0 {
+        let z = c_level.z;
 
-        let mut c_contours = adjusted_dem.marching_squares(c_level);
+        let c_contours = cut_overlay.clip(&c_level.lines, false);
 
-        c_contours = c_contours.simplify(&crate::SIMPLIFICATION_DIST);
-
-        c_contours = cut_overlay.clip(&c_contours, false);
-
-        let symbol = if c_level % (5. * params.contour_interval) == 0. {
+        let symbol = if z % (5. * params.contour_interval) == 0. {
             LineSymbol::IndexContour
-        } else if c_level % params.contour_interval == 0. {
+        } else if z % params.contour_interval == 0. {
             LineSymbol::Contour
         } else {
             LineSymbol::Formline
@@ -111,7 +109,7 @@ pub fn compute_contours(
         for c in c_contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
             c_object.add_auto_tag();
-            c_object.add_tag("Elevation", format!("{:.2}", c_level).as_str());
+            c_object.add_tag("Elevation", format!("{:.2}", z).as_str());
 
             map.lock()
                 .unwrap()

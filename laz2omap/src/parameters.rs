@@ -40,7 +40,7 @@ impl Default for MapParameters {
             formlines: false,
             formline_prune: 5.,
             bezier_bool: true,
-            cliff: 1.5,
+            cliff: 0.75,
         }
     }
 }

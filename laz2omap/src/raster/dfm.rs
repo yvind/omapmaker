@@ -1,3 +1,4 @@
+use crate::geometry::contour_set::ContourPoint;
 use crate::{CELL_SIZE, SIDE_LENGTH};
 use geo::{Coord, LineString, MultiLineString};
 
@@ -24,6 +25,65 @@ impl Dfm {
         }
     }
 
+    pub fn create_ghost_points(&self, num_points: usize) -> Vec<ContourPoint> {
+        assert!(num_points > 1);
+        let mut indices = (0..num_points)
+            .map(|i| {
+                ((SIDE_LENGTH as f32 * (i as f32 / (num_points - 1) as f32)).round() as usize)
+                    .min(SIDE_LENGTH - 1)
+            })
+            .collect::<Vec<usize>>();
+
+        // top row
+        let mut points = Vec::with_capacity((num_points - 1) * 4);
+        for i in indices.iter() {
+            points.push(ContourPoint {
+                pos: self.index2spade(0, *i),
+                z: self[(0, *i)],
+                grad: [0., 0.],
+            });
+        }
+        // bottom row
+        for i in indices.iter() {
+            points.push(ContourPoint {
+                pos: self.index2spade(SIDE_LENGTH - 1, *i),
+                z: self[(SIDE_LENGTH - 1, *i)],
+                grad: [0., 0.],
+            });
+        }
+
+        let _ = indices.pop();
+        // left side
+        for i in indices.iter().skip(1) {
+            points.push(ContourPoint {
+                pos: self.index2spade(*i, 0),
+                z: self[(*i, 0)],
+                grad: [0., 0.],
+            });
+        }
+
+        // right side
+        for i in indices.iter().skip(1) {
+            points.push(ContourPoint {
+                pos: self.index2spade(*i, SIDE_LENGTH - 1),
+                z: self[(*i, SIDE_LENGTH - 1)],
+                grad: [0., 0.],
+            });
+        }
+
+        points
+    }
+
+    pub fn error(&self, other: &Dfm) -> f64 {
+        let mut square_diff = 0.;
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                square_diff += (self[(y, x)] - other[(y, x)]).powi(2);
+            }
+        }
+        square_diff / (SIDE_LENGTH * SIDE_LENGTH) as f64
+    }
+
     pub fn difference(&self, other: &Dfm) -> Dfm {
         let mut diff = self.clone();
         for y in 0..SIDE_LENGTH {
@@ -35,7 +95,7 @@ impl Dfm {
     }
 
     #[inline]
-    pub fn index2coord(&self, xi: usize, yi: usize) -> Coord {
+    pub fn index2coord(&self, yi: usize, xi: usize) -> Coord {
         Coord {
             x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
             y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
@@ -43,37 +103,57 @@ impl Dfm {
     }
 
     #[inline]
-    pub fn index2spade(&self, xi: usize, yi: usize) -> spade::Point2<f64> {
+    pub fn index2spade(&self, yi: usize, xi: usize) -> spade::Point2<f64> {
         spade::Point2 {
             x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
             y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
         }
     }
 
-    pub fn adjust(&mut self, truth: &Dfm, interpolated: &Dfm, weigth: f64) {
+    pub fn adjust(
+        &mut self,
+        truth: &Dfm,
+        interpolated: &Dfm,
+        filter_half_size: usize,
+        amplitude: f64,
+    ) {
         let diff = truth.difference(interpolated);
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
-                self[(y, x)] += diff[(y, x)] * weigth;
+        for yi in 0..SIDE_LENGTH {
+            let top_i = yi.saturating_sub(filter_half_size);
+            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
+            for xi in 0..SIDE_LENGTH {
+                let left_i = xi.saturating_sub(filter_half_size);
+                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
+
+                let mut adjustment = 0.;
+                for yj in top_i..=bottom_i {
+                    for xj in left_i..=right_i {
+                        adjustment += diff[(yj, xj)];
+                    }
+                }
+
+                self[(yi, xi)] += amplitude * adjustment
+                    / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64;
             }
         }
     }
 
-    pub fn slope(&self, filter_size: usize) -> Dfm {
+    pub fn slope(&self, filter_half_size: usize) -> Dfm {
         let mut slope = Dfm::new(self.tl_coord);
 
-        let filter_length = filter_size as f64 * CELL_SIZE;
-
         for yi in 0..SIDE_LENGTH {
-            let top_i = yi.saturating_sub(filter_size);
-            let bottom_i = (yi + filter_size).min(SIDE_LENGTH - 1);
+            let top_i = yi.saturating_sub(filter_half_size);
+            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
             for xi in 0..SIDE_LENGTH {
-                let left_i = xi.saturating_sub(filter_size);
-                let right_i = (xi + filter_size).min(SIDE_LENGTH - 1);
+                let left_i = xi.saturating_sub(filter_half_size);
+                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
 
-                slope[(yi, xi)] = (((self[(top_i, xi)] - self[(bottom_i, xi)]) / filter_length)
+                slope[(yi, xi)] = (((self[(top_i, xi)] - self[(bottom_i, xi)])
+                    / ((bottom_i - top_i + 1) as f64 * CELL_SIZE))
                     .powi(2)
-                    + ((self[(yi, left_i)] - self[(yi, right_i)]) / filter_length).powi(2))
+                    + ((self[(yi, left_i)] - self[(yi, right_i)])
+                        / ((right_i - left_i + 1) as f64 * CELL_SIZE))
+                        .powi(2))
                 .sqrt();
             }
         }
@@ -323,7 +403,7 @@ impl<'a> DfmPaddedProxy<'a> {
     }
 
     #[inline]
-    fn index2coord(&self, xi: usize, yi: usize) -> Coord {
+    fn index2coord(&self, yi: usize, xi: usize) -> Coord {
         Coord {
             x: self.inner.tl_coord.x - CELL_SIZE + (xi as f64) * CELL_SIZE,
             y: self.inner.tl_coord.y + CELL_SIZE - (yi as f64) * CELL_SIZE,
@@ -335,7 +415,7 @@ impl<'a> DfmPaddedProxy<'a> {
         let a = self[(ys[e], xs[e])];
         let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
 
-        let a_coord = self.index2coord(xs[e], ys[e]);
+        let a_coord = self.index2coord(ys[e], xs[e]);
 
         Coord {
             x: a_coord.x

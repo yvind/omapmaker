@@ -1,4 +1,4 @@
-use crate::{raster::Dfm, SIDE_LENGTH};
+use crate::{geometry::MapLineString, raster::Dfm, SIDE_LENGTH};
 
 use geo::{Coord, MultiLineString, Vector2DOps};
 use spade::{DelaunayTriangulation, HasPosition, Point2};
@@ -9,12 +9,48 @@ impl ContourSet {
         ContourSet(Vec::with_capacity(num_levels))
     }
 
-    pub fn triangulate(&self, dem: &Dfm) -> DelaunayTriangulation<ContourPoint> {
+    pub fn interpolate(
+        &self,
+        interpolated_dem: &mut Dfm,
+        adjusted_dem: &Dfm,
+        control_points_per_side: usize,
+    ) -> crate::Result<()> {
+        let tri = self.triangulate(adjusted_dem, control_points_per_side);
+        let nn = tri.natural_neighbor();
+
+        // interpolate triangulation
+        for y_index in 0..SIDE_LENGTH {
+            for x_index in 0..SIDE_LENGTH {
+                let coords = interpolated_dem.index2spade(y_index, x_index);
+
+                if let Some(elev) = nn.interpolate(|p| p.data().z, coords) {
+                    if elev.is_nan() {
+                        println!("Nan in c1 interpolating!");
+                    }
+                    interpolated_dem[(y_index, x_index)] = elev;
+                } else {
+                    println!("DEM coord outside of contour hull");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn triangulate(
+        &self,
+        dem: &Dfm,
+        points_per_side: usize,
+    ) -> DelaunayTriangulation<ContourPoint> {
         // coarse estimate of number of nodes in triangulation
-        // number of levels * number of lines in first level * number of points in first line of first level
+        // 3 * number of levels * number of lines in first level * number of points in first line of first level
         let mut points = Vec::with_capacity(
-            self.0.len() * self.0[0].lines.0.len() * self.0[0].lines.0[0].0.len(),
+            3 * self.0.len() * self.0[0].lines.0.len() * self.0[0].lines.0[0].0.len(),
         );
+
+        // add control (ghost) points along the DEM sides
+        // to make the entire DEM be in the interior of the contour set
+        // and avoid issues with tiles with few contours
+        points.extend(dem.create_ghost_points(points_per_side));
 
         for level in self.0.iter() {
             for line in level.lines.iter() {
@@ -55,43 +91,23 @@ impl ContourSet {
             }
         }
 
-        // add ghost points in the corners from the DEM
-        // to make the entire DEM be in the interior of the contour set
-        let ghost_points = vec![
-            ContourPoint {
-                pos: dem.index2spade(0, 0),
-                z: dem[(0, 0)],
-                grad: [0., 0.],
-            },
-            ContourPoint {
-                pos: dem.index2spade(SIDE_LENGTH - 1, 0),
-                z: dem[(SIDE_LENGTH - 1, 0)],
-                grad: [0., 0.],
-            },
-            ContourPoint {
-                pos: dem.index2spade(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
-                z: dem[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)],
-                grad: [0., 0.],
-            },
-            ContourPoint {
-                pos: dem.index2spade(0, SIDE_LENGTH - 1),
-                z: dem[(0, SIDE_LENGTH - 1)],
-                grad: [0., 0.],
-            },
-        ];
-        points.extend(ghost_points);
-
         DelaunayTriangulation::bulk_load_stable(points).unwrap()
     }
 
-    pub fn calculate_error(&self, _true_dem: &Dfm, _interpolated_dem: &Dfm, _lambda: f64) -> f64 {
-        1.
+    pub fn energy(&self, length_exp: i32) -> f64 {
+        let mut tot_energy = 0.;
+        for level in self.0.iter() {
+            for c in level.lines.iter() {
+                tot_energy += c.adjusted_bending_force(length_exp);
+            }
+        }
+        tot_energy
     }
 }
 
 pub struct ContourLevel {
-    lines: MultiLineString,
-    z: f64,
+    pub lines: MultiLineString,
+    pub z: f64,
 }
 
 impl ContourLevel {
@@ -100,6 +116,7 @@ impl ContourLevel {
     }
 }
 
+#[derive(Debug)]
 pub struct ContourPoint {
     pub pos: Point2<f64>,
     pub z: f64,

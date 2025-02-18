@@ -14,7 +14,7 @@ pub fn compute_dfms(ground_cloud: PointCloud, tl: Coord) -> (Dfm, Dfm) {
 
     for y_index in 0..SIDE_LENGTH {
         for x_index in 0..SIDE_LENGTH {
-            let coords = dem.index2spade(x_index, y_index);
+            let coords = dem.index2spade(y_index, x_index);
 
             // all points inside the point cloud's convex hull gets interpolated
             // this is problematic if the pc has a hole on a corner

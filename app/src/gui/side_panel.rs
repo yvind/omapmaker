@@ -392,27 +392,7 @@ impl OmapMaker {
             );
     
             // clamp the greens to the correct order
-            self.gui_variables.map_params.green.0 = self
-                .gui_variables
-                .map_params
-                .green
-                .0
-                .min(self.gui_variables.map_params.green.1)
-                .min(self.gui_variables.map_params.green.2);
-            self.gui_variables.map_params.green.1 = self
-                .gui_variables
-                .map_params
-                .green
-                .0
-                .max(self.gui_variables.map_params.green.1)
-                .min(self.gui_variables.map_params.green.2);
-            self.gui_variables.map_params.green.2 = self
-                .gui_variables
-                .map_params
-                .green
-                .0
-                .max(self.gui_variables.map_params.green.1)
-                .max(self.gui_variables.map_params.green.2);
+            clamp_greens(&mut self.gui_variables.map_params.green);
     
             ui.add_space(20.);
             ui.label(egui::RichText::new("Geometry simplification parameters").strong());
@@ -531,4 +511,10 @@ impl OmapMaker {
         });
     }
 
+}
+
+fn clamp_greens(greens: &mut (f64, f64, f64)) {
+    greens.0 = greens.0.clamp(0., greens.1);
+    greens.2 = greens.2.clamp(greens.1, 1.);
+    greens.1 = greens.1.clamp(greens.0, greens.2);
 }

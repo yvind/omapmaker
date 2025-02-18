@@ -108,7 +108,7 @@ pub fn initialize_map_tile(
         );
 
         // add ghost points at the corners of the bounds to make the entire dem interpolatable
-        // IDW interpolating the ghost points from the 32 closest real points
+        // IDW interpolating the ghost points from the 8 closest real points
         let query_points = [
             [shifted_bounds.min.x, shifted_bounds.max.y],
             [shifted_bounds.min.x, shifted_bounds.min.y],
@@ -117,16 +117,18 @@ pub fn initialize_map_tile(
         ];
         let mut zs = [0.; 4];
 
-        let pt: ImmutableKdTree<f64, usize, 2, 32> =
-            ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
-        for (i, qp) in query_points.iter().enumerate() {
-            let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, 32);
-            let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
+        {
+            let pt: ImmutableKdTree<f64, usize, 2, 32> =
+                ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
+            for (i, qp) in query_points.iter().enumerate() {
+                let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, 8);
+                let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
 
-            zs[i] = neighbours
-                .iter()
-                .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
-                / tot_weight;
+                zs[i] = neighbours
+                    .iter()
+                    .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
+                    / tot_weight;
+            }
         }
 
         point_cloud.add(vec![
