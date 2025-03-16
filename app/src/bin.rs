@@ -3,16 +3,14 @@ mod gui;
 mod omap_generator;
 mod omap_maker;
 
-pub use omap_generator::OmapGenerator;
-pub use omap_maker::OmapMaker;
+use omap_generator::OmapGenerator;
+use omap_maker::OmapMaker;
 
 use eframe::egui;
 use std::sync::Arc;
 
-const STACK_SIZE: usize = 10; // thread stack size in MiB
-
 fn main() {
-    let icon_bytes: &[u8] = include_bytes!("./assets/icon.data");
+    let icon_bytes = include_bytes!("./assets/icon.data");
     let rgba = icon_bytes.to_vec();
 
     let icon = eframe::egui::IconData {

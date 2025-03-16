@@ -23,7 +23,6 @@ pub struct GuiVariables {
 
     // checkboxes
     pub drop_checkboxes: Vec<bool>,
-    pub save_tiffs: bool,
     // true when the backend is busy generating a map tile
     pub generating_map_tile: bool,
 
@@ -52,7 +51,6 @@ impl Default for GuiVariables {
             output_crs_string: Default::default(),
             connected_components: Default::default(),
             drop_checkboxes: Default::default(),
-            save_tiffs: Default::default(),
             log_terminal: Default::default(),
             map_params: Default::default(),
             file_params: Default::default(),

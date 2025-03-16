@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 
-use eframe::egui::{self, Color32, Stroke};
-use geo::{Coord, TriangulateEarcut};
+use eframe::{
+    egui::{self, Color32, Stroke},
+    epaint::CubicBezierShape,
+};
+use geo::{Coord, LineString, TriangulateEarcut};
+use polyline2bezier::BezierString;
 use proj4rs::{transform::transform, Proj};
 
 use omap::{MapObject, Omap, Symbol};
@@ -23,7 +27,7 @@ impl DrawableSymbol for Symbol {
             Symbol::BasemapContour => (false, Stroke::new(1., Color32::BROWN.gamma_multiply(0.5))),
             Symbol::NegBasemapContour => (false, Stroke::new(1., PURPLE)),
             Symbol::IndexContour => (false, Stroke::new(5., Color32::BROWN)),
-            Symbol::Formline => (true, Stroke::new(2., Color32::BROWN)),
+            Symbol::Formline => (true, Stroke::new(2., Color32::BROWN.gamma_multiply(0.8))),
             Symbol::SlopelineContour => (false, Stroke::new(3., Color32::BROWN)),
             Symbol::SlopelineFormline => (false, Stroke::new(2., Color32::BROWN)),
             Symbol::DotKnoll => (false, Stroke::new(10., Color32::BROWN)),
@@ -47,20 +51,33 @@ impl DrawableSymbol for Symbol {
 trait Drawable {
     /// converting a symbol to something drawable to screen
     /// needs to know what crs to project to lat/lon
-    fn into_drawable_geometry(self, ref_point: Coord, crs: Option<u16>) -> DrawableGeometry;
+    fn into_drawable_geometry(
+        self,
+        ref_point: Coord,
+        crs: Option<u16>,
+        bezier_error: Option<f64>,
+    ) -> DrawableGeometry;
 }
 
 impl Drawable for MapObject {
-    fn into_drawable_geometry(self, ref_point: Coord, crs: Option<u16>) -> DrawableGeometry {
+    fn into_drawable_geometry(
+        self,
+        ref_point: Coord,
+        crs: Option<u16>,
+        bezier_error: Option<f64>,
+    ) -> DrawableGeometry {
         match self {
-            MapObject::LineObject(line_object) => {
-                DrawableGeometry::Line(LineObject::from_geo(line_object.line, ref_point, crs))
-            }
+            MapObject::LineObject(line_object) => DrawableGeometry::Line(LineObject::from_geo(
+                line_object.line,
+                ref_point,
+                crs,
+                bezier_error,
+            )),
             MapObject::PointObject(point_object) => {
                 DrawableGeometry::Point(PointObject::from_geo(point_object.point, ref_point, crs))
             }
             MapObject::AreaObject(area_object) => DrawableGeometry::Polygon(
-                PolygonObject::from_geo(area_object.polygon, ref_point, crs),
+                PolygonObject::from_geo(area_object.polygon, ref_point, crs, bezier_error),
             ),
         }
     }
@@ -71,7 +88,7 @@ pub struct DrawableOmap {
 }
 
 impl DrawableOmap {
-    pub fn from_omap(omap: Omap, hull: geo::LineString) -> Self {
+    pub fn from_omap(omap: Omap, hull: geo::LineString, bezier_error: Option<f64>) -> Self {
         let ref_point = omap.get_ref_point();
         let crs = omap.get_crs();
 
@@ -105,7 +122,7 @@ impl DrawableOmap {
         // the order may vary then
         DrawableOmap {
             hull: global_hull,
-            map_objects: Self::into_drawable(omap.objects, ref_point, crs),
+            map_objects: Self::into_drawable(omap.objects, ref_point, crs, bezier_error),
         }
     }
 
@@ -113,13 +130,14 @@ impl DrawableOmap {
         mut omap_objs: HashMap<Symbol, Vec<MapObject>>,
         ref_point: Coord,
         crs: Option<u16>,
+        bezier_error: Option<f64>,
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {
         let mut drawable_objs = HashMap::with_capacity(omap_objs.len());
         for (symbol, objs) in omap_objs.drain() {
             drawable_objs.insert(
                 symbol,
                 objs.into_iter()
-                    .map(|o| o.into_drawable_geometry(ref_point, crs))
+                    .map(|o| o.into_drawable_geometry(ref_point, crs, bezier_error))
                     .collect(),
             );
         }
@@ -206,7 +224,12 @@ impl PolygonObject {
         self.0.draw(ui, projector, color, special);
     }
 
-    fn from_geo(poly: geo::Polygon, ref_point: Coord, crs: Option<u16>) -> Self {
+    fn from_geo(
+        poly: geo::Polygon,
+        ref_point: Coord,
+        crs: Option<u16>,
+        _bezier_error: Option<f64>,
+    ) -> Self {
         let tri = poly.earcut_triangles_raw();
 
         let mut verts: Vec<(f64, f64)> = tri
@@ -284,9 +307,8 @@ impl Triangulation {
     }
 }
 
-// TODO! add bezier drawing support
 #[derive(Clone)]
-pub struct LineObject(Vec<walkers::Position>);
+pub struct LineObject(Vec<walkers::Position>, bool);
 
 impl LineObject {
     fn draw(
@@ -294,23 +316,69 @@ impl LineObject {
         ui: &mut egui::Ui,
         projector: &walkers::Projector,
         stroke: &Stroke,
-        special: bool,
+        dashed: bool,
     ) {
-        let points = self.0.iter().map(|p| projector.project(*p)).collect();
+        let points = self
+            .0
+            .iter()
+            .map(|p| projector.project(*p))
+            .collect::<Vec<_>>();
 
-        if !special {
-            ui.painter().line(points, *stroke);
-        } else {
+        // dashed bezier not supported yet
+        if self.1 {
+            for bezier in points.chunks_exact(4) {
+                let bezier = [bezier[0], bezier[1], bezier[2], bezier[3]];
+                let bezier_shape = CubicBezierShape::from_points_stroke(
+                    bezier,
+                    false,
+                    Color32::TRANSPARENT,
+                    *stroke,
+                );
+
+                ui.painter().add(egui::Shape::CubicBezier(bezier_shape));
+            }
+        } else if dashed {
             ui.painter().add(egui::Shape::dashed_line(
                 &points,
                 *stroke,
                 20. * stroke.width,
                 2. * stroke.width,
             ));
+        } else {
+            ui.painter().line(points, *stroke);
         }
     }
 
-    fn from_geo(line: geo::LineString, ref_point: Coord, crs: Option<u16>) -> Self {
+    fn from_geo(
+        line: geo::LineString,
+        ref_point: Coord,
+        crs: Option<u16>,
+        bezier_error: Option<f64>,
+    ) -> Self {
+        let line = if let Some(bezier_error) = bezier_error {
+            let mut vec = Vec::with_capacity(line.0.len());
+            let bezier_string = BezierString::from_polyline(line, bezier_error);
+
+            for segment in bezier_string.0 {
+                if segment.is_bezier_segment() {
+                    vec.push(segment.0 .0);
+                    vec.push(segment.0 .1.unwrap());
+                    vec.push(segment.0 .2.unwrap());
+                    vec.push(segment.0 .3);
+                } else {
+                    let a = segment.0 .0 + (segment.0 .3 - segment.0 .0) / 3.;
+                    let b = segment.0 .0 + (segment.0 .3 - segment.0 .0) * 2. / 3.;
+                    vec.push(segment.0 .0);
+                    vec.push(a);
+                    vec.push(b);
+                    vec.push(segment.0 .3);
+                }
+            }
+            LineString::new(vec)
+        } else {
+            line
+        };
+
         let obj = if let Some(epsg) = crs {
             let geo_proj = Proj::from_epsg_code(4326).unwrap();
             let local_proj = Proj::from_epsg_code(epsg).unwrap();
@@ -332,7 +400,7 @@ impl LineObject {
                 .collect()
         };
 
-        LineObject(obj)
+        LineObject(obj, bezier_error.is_some())
     }
 }
 

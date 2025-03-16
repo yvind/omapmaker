@@ -34,11 +34,9 @@ fastrand = "2.1.1"
 # delauney and interpolation
 spade = "2.12.1"
 
-# writing tiff
-tiff = "0.9.1"
-
 # geometry
 geo = "0.29.3"
+polyline2bezier = {path = "../polyline2bezier"}
 
 # read/write las/laz/copc
 las = { version = "0.9.3", features = ["laz"] }

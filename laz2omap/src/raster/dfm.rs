@@ -3,13 +3,6 @@ use crate::{CELL_SIZE, SIDE_LENGTH};
 use geo::{Coord, LineString, MultiLineString};
 
 use std::ops::{Index, IndexMut};
-use std::{
-    ffi::OsString,
-    fs::File,
-    io::{BufWriter, Write},
-    path::{Path, PathBuf},
-};
-use tiff::encoder::{colortype::Gray32Float, TiffEncoder};
 
 #[derive(Clone, Debug)]
 pub struct Dfm {
@@ -161,6 +154,7 @@ impl Dfm {
         slope
     }
 
+    // marching squares algorithm for extracting contours
     pub fn marching_squares(&self, level: f64) -> MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
         let mut contours: Vec<LineString> = Vec::with_capacity(8);
@@ -346,37 +340,177 @@ impl Dfm {
         MultiLineString::new(contours)
     }
 
-    pub fn write_to_tiff(self, filename: &OsString, output_directory: &Path, ref_point: &Coord) {
-        let mut tiff_path = PathBuf::from(output_directory);
-        tiff_path.push(filename);
-        tiff_path.set_extension("tiff");
+    // feature preserving smoothing of a DEM by normal vector smoothing
+    //
+    // LiDAR DEM Smoothing and the Preservation of Drainage Features
+    // J.B.Lindsay (2019)
+    //
+    // `max_norm_diff` -
+    // cells with an angle between their normal vectors greater
+    // than this are not used in smoothing each other
+    //
+    // `filter_size` -
+    // pixel size of the smoothing filter, must be odd and min 3
+    //
+    // `num_iter` -
+    // number of smoothing iterations, min 1
+    pub fn smoothen(
+        &self,
+        mut max_norm_diff: f64,
+        mut filter_size: usize,
+        mut num_iter: usize,
+    ) -> Dfm {
+        if filter_size % 2 == 0 {
+            filter_size += 1;
+        }
+        filter_size = filter_size.max(3);
 
-        let mut tfw_path = PathBuf::from(output_directory);
-        tfw_path.push(filename);
-        tfw_path.set_extension("tfw");
+        num_iter = num_iter.max(1);
+        max_norm_diff = max_norm_diff.abs().min(60.);
 
-        let mut tiff = File::create(tiff_path).expect("Unable to create tiff-file");
-        let mut tiff = TiffEncoder::new(&mut tiff).unwrap();
+        // faster to work with the cosine of the angle instead of getting the actual angles
+        let threshold = max_norm_diff.to_radians().cos();
 
-        let data = self.field.map(|d| d as f32);
+        // calculate normal vectors
+        let mut normal_vecs = [(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
+        for y in 0..SIDE_LENGTH {
+            let y_min_1 = y.saturating_sub(1);
+            let y_plus_1 = (y + 1).min(SIDE_LENGTH - 1);
 
-        tiff.write_image::<Gray32Float>(SIDE_LENGTH as u32, SIDE_LENGTH as u32, &data)
-            .expect("Cannot write tiff-file");
+            let ys = [
+                y_min_1, y, y_plus_1, y_plus_1, y_plus_1, y, y_min_1, y_min_1,
+            ];
 
-        let tfw = File::create(tfw_path).expect("Unable to create tfw-file");
-        let mut tfw = BufWriter::new(tfw);
-        tfw.write_all(
-            format!(
-                "{}\n0\n0\n-{}\n{}\n{}",
-                CELL_SIZE,
-                CELL_SIZE,
-                self.tl_coord.x + ref_point.x,
-                self.tl_coord.y + ref_point.y
-            )
-            .as_bytes(),
-        )
-        .expect("Cannot write tfw-file");
+            let mut z_vals = [0.; 8];
+            for x in 0..SIDE_LENGTH {
+                let x_min_1 = x.saturating_sub(1);
+                let x_plus_1 = (x + 1).min(SIDE_LENGTH - 1);
+
+                let xs = [
+                    x_plus_1, x_plus_1, x_plus_1, x, x_min_1, x_min_1, x_min_1, x,
+                ];
+
+                for i in 0..8 {
+                    z_vals[i] = self[(ys[i], xs[i])];
+                }
+
+                let dzdx = -(z_vals[2] - z_vals[4] + 2. * (z_vals[1] - z_vals[5]) + z_vals[0]
+                    - z_vals[6])
+                    / (CELL_SIZE * 8.);
+                let dzdy = -(z_vals[6] - z_vals[4] + 2. * (z_vals[7] - z_vals[3]) + z_vals[0]
+                    - z_vals[2])
+                    / (CELL_SIZE * 8.);
+
+                normal_vecs[y * SIDE_LENGTH + x] = (dzdx, dzdy);
+            }
+        }
+
+        // Smooth normal vectors
+        let mut smooth_normal_vecs = [(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
+
+        let mut dx = vec![0; filter_size * filter_size];
+        let mut dy = vec![0; filter_size * filter_size];
+
+        // fill the filter d_x and d_y values and the distance-weights
+        let half_size = (filter_size as f64 / 2f64).floor() as isize;
+        let mut a = 0;
+        for y in 0..filter_size {
+            for x in 0..filter_size {
+                dx[a] = x as isize - half_size;
+                dy[a] = y as isize - half_size;
+                a += 1;
+            }
+        }
+
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                let mut sum_weights = 0.;
+                let mut a = 0.;
+                let mut b = 0.;
+                for n in 0..filter_size * filter_size {
+                    let x_neighbour =
+                        (x as isize + dx[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
+                    let y_neighbour =
+                        (y as isize + dy[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
+                    let neighbour_normal = normal_vecs[y_neighbour * SIDE_LENGTH + x_neighbour];
+                    let diff =
+                        cos_angle_between(normal_vecs[y * SIDE_LENGTH + x], neighbour_normal);
+                    if diff > threshold {
+                        let weight = (diff - threshold).powi(2);
+                        sum_weights += weight;
+                        a += neighbour_normal.0 * weight;
+                        b += neighbour_normal.1 * weight;
+                    }
+                }
+
+                a /= sum_weights;
+                b /= sum_weights;
+
+                smooth_normal_vecs[y * SIDE_LENGTH + x] = (a, b);
+            }
+        }
+
+        // Update the DEM based on the smoothed normal vectors
+        let x = [
+            -CELL_SIZE, -CELL_SIZE, -CELL_SIZE, 0., CELL_SIZE, CELL_SIZE, CELL_SIZE, 0.,
+        ];
+        let y = [
+            -CELL_SIZE, 0., CELL_SIZE, CELL_SIZE, CELL_SIZE, 0., -CELL_SIZE, -CELL_SIZE,
+        ];
+
+        let mut output = self.clone();
+
+        for _ in 0..num_iter {
+            for yi in 0..SIDE_LENGTH {
+                let y_min_1 = yi.saturating_sub(1);
+                let y_plus_1 = (yi + 1).min(SIDE_LENGTH - 1);
+
+                let ys = [
+                    y_min_1, yi, y_plus_1, y_plus_1, y_plus_1, yi, y_min_1, y_min_1,
+                ];
+                for xi in 0..SIDE_LENGTH {
+                    let x_min_1 = xi.saturating_sub(1);
+                    let x_plus_1 = (xi + 1).min(SIDE_LENGTH - 1);
+
+                    let xs = [
+                        x_plus_1, x_plus_1, x_plus_1, xi, x_min_1, x_min_1, x_min_1, xi,
+                    ];
+
+                    let mut sum_weight = 0.;
+                    let mut z = 0.;
+                    for n in 0..8 {
+                        let x_neighbour = xs[n];
+                        let y_neighbour = ys[n];
+
+                        let smooth_neighbour_normal =
+                            smooth_normal_vecs[y_neighbour * SIDE_LENGTH + x_neighbour];
+                        let diff = cos_angle_between(
+                            smooth_normal_vecs[yi * SIDE_LENGTH + xi],
+                            smooth_neighbour_normal,
+                        );
+                        if diff > threshold {
+                            let weight = (diff - threshold).powi(2);
+                            sum_weight += weight;
+                            z += -(smooth_neighbour_normal.0 * x[n]
+                                + smooth_neighbour_normal.1 * y[n]
+                                - output[(y_neighbour, x_neighbour)])
+                                * weight;
+                        }
+                    }
+                    if sum_weight > f64::EPSILON {
+                        output[(yi, xi)] = z / sum_weight;
+                    }
+                }
+            }
+        }
+
+        output
     }
+}
+
+fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+    (a.0 * b.0 + a.1 * b.1 + 1.)
+        / ((a.0 * a.0 + a.1 * a.1 + 1.) * (b.0 * b.0 + b.1 * b.1 + 1.)).sqrt()
 }
 
 impl Index<(usize, usize)> for Dfm {

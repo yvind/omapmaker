@@ -1,5 +1,5 @@
+use crate::geometry::MapLineString;
 use crate::raster::Dfm;
-use crate::{geometry::MapLineString, parameters::MapParameters};
 use omap::{LineObject, LineSymbol, MapObject, Omap, Symbol, TagTrait};
 
 use geo::{BooleanOps, Polygon, Simplify};
@@ -9,11 +9,9 @@ pub fn compute_basemap(
     dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
-    args: &MapParameters,
+    basemap_interval: f64,
     map: &Arc<Mutex<Omap>>,
 ) {
-    let basemap_interval = args.basemap_interval;
-
     let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / basemap_interval).floor() * basemap_interval;
 

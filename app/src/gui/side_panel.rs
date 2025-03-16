@@ -1,4 +1,4 @@
-use laz2omap::comms::messages::*;
+use laz2omap::{comms::messages::*, parameters::ContourAlgo};
 
 use crate::OmapMaker;
 use super::modals::OmapModal;
@@ -99,32 +99,6 @@ impl OmapMaker {
             .unwrap();
         ui.label(text);
 
-        egui::CollapsingHeader::new("Advanced settings").show(ui, |ui| {
-            ui.checkbox(
-                &mut self.gui_variables.save_tiffs,
-                "Save tiff-images generated during lidar-processing.",
-            );
-            ui.add_enabled_ui(self.gui_variables.save_tiffs, |ui| {
-                ui.label("Choose where to save the resulting tiff-files.");
-                if ui.button("Choose which folder to save tiffs to").clicked() {
-                    self.gui_variables.file_params.tiff_location =
-                        rfd::FileDialog::new().pick_folder();
-                }
-                let text = if self.gui_variables.file_params.tiff_location.is_some() {
-                    self.gui_variables
-                        .file_params
-                        .tiff_location
-                        .as_ref()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
-                } else {
-                    ""
-                };
-                ui.label(text);
-            });
-        });
-
         if ui
             .add_enabled(
                 !(self.gui_variables.file_params.paths.is_empty()
@@ -139,9 +113,6 @@ impl OmapMaker {
             .clicked()
         {
             self.on_frontend_task(FrontendTask::NextState);
-            if !self.gui_variables.save_tiffs {
-                self.gui_variables.file_params.tiff_location = None;
-            }
         }
 
         egui::Window::new("text size")
@@ -329,11 +300,42 @@ impl OmapMaker {
                 };
             });
             ui.add_space(20.);
-            ui.label(egui::RichText::new("Contour parameters").strong());
-            ui.checkbox(
-                &mut self.gui_variables.map_params.formlines,
-                "Add formlines to the map.",
-            );
+            ui.label(egui::RichText::new("Contour algorithm parameters:").strong());
+            ui.horizontal(|ui| {
+                ui.label("Contour algorithm:");
+                egui::ComboBox::from_id_salt("Contour algo")
+                .selected_text(format!("{}", self.gui_variables.map_params.contour_algorithm))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.gui_variables.map_params.contour_algorithm, ContourAlgo::AI, "AI contours (slowest)");
+                    ui.selectable_value(&mut self.gui_variables.map_params.contour_algorithm, ContourAlgo::NaiveIterations, "Naive interpolation error correction (slow)");
+                    ui.selectable_value(&mut self.gui_variables.map_params.contour_algorithm, ContourAlgo::NormalFieldSmoothing, "Normal field smoothing (fast)");
+                    ui.selectable_value(&mut self.gui_variables.map_params.contour_algorithm, ContourAlgo::Raw, "Raw contours (fastest)");
+                });
+            });
+
+            if self.gui_variables.map_params.contour_algorithm != ContourAlgo::Raw {
+                ui.label("Number of iteration steps to perform in Contour Algorithm");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.map_params.contour_algo_steps,
+                        1..=20,
+                    )
+                    .show_value(true),
+                );
+            }
+            if self.gui_variables.map_params.contour_algorithm == ContourAlgo::AI {
+                ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.map_params.contour_algo_lambda,
+                        0.0..=1.,
+                    )
+                    .show_value(true),
+                );
+            }
+            ui.add_space(10.);
+
+            ui.label(egui::RichText::new("Contour parameters:").strong());
             ui.horizontal(|ui| {
                 ui.label("Contour interval: ");
                 ui.add(
@@ -342,6 +344,19 @@ impl OmapMaker {
                         .range(1.0..=20.),
                 );
             });
+            ui.checkbox(
+                &mut self.gui_variables.map_params.formlines,
+                "Add formlines to the map.",
+            );
+            ui.add_enabled_ui(self.gui_variables.map_params.formlines, |ui| {
+                ui.label("Formline pruning parameter. \nBigger number gives less formlines.");
+                ui.add(
+                    egui::Slider::new(&mut self.gui_variables.map_params.formline_prune,
+                        0.0..=1.,
+                    ).show_value(true),
+                );
+            });
+
             ui.checkbox(
                 &mut self.gui_variables.map_params.basemap_contour,
                 "Add basemap contours to the map.",
@@ -354,7 +369,7 @@ impl OmapMaker {
                         .range(0.1..=self.gui_variables.map_params.contour_interval),
                 );
             });
-    
+
             ui.add_space(20.);
     
             ui.label(egui::RichText::new("Vegetation parameters").strong());
@@ -404,38 +419,10 @@ impl OmapMaker {
             ui.add_enabled_ui(self.gui_variables.map_params.bezier_bool, |ui| {
                 ui.label("Bezier simplification error\n(smaller value gives less simplification, but larger files):");
                 ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.1..=5.0)
-                        .fixed_decimals(1)
+                    egui::Slider::new(&mut self.gui_variables.map_params.bezier_error, 0.01..=1.0)
+                        .fixed_decimals(2)
                         .show_value(true),
                 );
-            });
-            ui.add_space(20.);
-    
-            egui::CollapsingHeader::new("Contour Algo Debug Params").show(ui, |ui| {
-                ui.label("Number of steps to perform in Contour Algo");
-                ui.add(
-                    egui::Slider::new(
-                        &mut self.gui_variables.map_params.contour_algo_steps,
-                        0..=20,
-                    )
-                    .show_value(true),
-                );
-                ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
-                ui.add(
-                    egui::Slider::new(
-                        &mut self.gui_variables.map_params.contour_algo_lambda,
-                        0.0..=10.,
-                    )
-                    .show_value(true),
-                );
-                ui.add_enabled_ui(self.gui_variables.map_params.formlines, |ui| {
-                    ui.label("Formline pruning parameter. \nBigger number gives less formlines.");
-                    ui.add(
-                        egui::Slider::new(&mut self.gui_variables.map_params.formline_prune,
-                            0.0..=10.,
-                        ).show_value(true),
-                    );
-                });
             });
         });
 

@@ -17,7 +17,7 @@ pub fn compute_dfms(ground_cloud: PointCloud, tl: Coord) -> (Dfm, Dfm) {
             let coords = dem.index2spade(y_index, x_index);
 
             // all points inside the point cloud's convex hull gets interpolated
-            // this is problematic if the pc has a hole on a corner
+            // this is problematic if the pc has a hole on a corner, fixed by adding points to the corners of the dem through IDW extrapolation
             if let Some(elev) = nn.interpolate(|p| p.data().0.z, coords) {
                 dem[(y_index, x_index)] = elev;
             }

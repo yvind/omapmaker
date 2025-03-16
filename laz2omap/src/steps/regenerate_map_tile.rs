@@ -33,18 +33,48 @@ pub fn regenerate_map_tile(
 
     for i in 0..dem.len() {
         if needs_update.contours {
-            crate::steps::compute_contours(
-                &dem[i],
-                z_range,
-                &cut_bounds[i],
-                (0.9, 0.1),
-                &params,
-                &omap,
-            );
+            match params.contour_algorithm {
+                crate::parameters::ContourAlgo::AI => (),
+                crate::parameters::ContourAlgo::NaiveIterations => {
+                    crate::steps::compute_naive_contours(
+                        &dem[i],
+                        z_range,
+                        &cut_bounds[i],
+                        (0.9, 0.1),
+                        &params,
+                        &omap,
+                    );
+                }
+                crate::parameters::ContourAlgo::NormalFieldSmoothing => {
+                    let smooth_dem = dem[i].smoothen(15., 15, params.contour_algo_steps as usize);
+                    crate::steps::extract_contours(
+                        &smooth_dem,
+                        z_range,
+                        &cut_bounds[i],
+                        &params,
+                        &omap,
+                    );
+                }
+                crate::parameters::ContourAlgo::Raw => {
+                    crate::steps::extract_contours(
+                        &dem[i],
+                        z_range,
+                        &cut_bounds[i],
+                        &params,
+                        &omap,
+                    );
+                }
+            }
         }
 
         if params.basemap_contour && params.basemap_interval >= 0.1 && needs_update.basemap {
-            crate::steps::compute_basemap(&dem[i], z_range, &cut_bounds[i], &params, &omap);
+            crate::steps::compute_basemap(
+                &dem[i],
+                z_range,
+                &cut_bounds[i],
+                params.basemap_interval,
+                &omap,
+            );
         } else if !params.basemap_contour {
             // make sure that the basemap gets removed if it is toggeled off
             let mut ac_map = omap.lock().unwrap();
@@ -116,7 +146,13 @@ pub fn regenerate_map_tile(
         .into_inner()
         .unwrap();
 
-    let map = DrawableOmap::from_omap(omap, hull.exterior().clone());
+    let bez_error = if params.bezier_bool {
+        Some(params.bezier_error)
+    } else {
+        None
+    };
+
+    let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
 
     sender
         .send(FrontendTask::UpdateVariable(Variable::MapTile(Box::new(
@@ -135,7 +171,10 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
     }
     let old = old.unwrap();
 
-    if new.scale != old.scale {
+    if new.scale != old.scale
+        || new.bezier_bool != old.bezier_bool
+        || (new.bezier_bool && (new.bezier_error != old.bezier_error))
+    {
         return update_map;
     }
 
@@ -144,13 +183,17 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
     update_map.m_green = new.green.1 != old.green.1;
     update_map.d_green = new.green.2 != old.green.2;
     update_map.cliff = new.cliff != old.cliff;
+
     update_map.basemap =
         new.basemap_interval != old.basemap_interval || new.basemap_contour != old.basemap_contour;
-    update_map.contours = new.contour_algo_lambda != old.contour_algo_lambda
+
+    update_map.contours = new.contour_algorithm != old.contour_algorithm
+        || new.contour_algo_lambda != old.contour_algo_lambda
         || new.contour_algo_steps != old.contour_algo_steps
         || new.formlines != old.formlines
-        || (new.formlines && new.formline_prune != old.formline_prune)
+        || (new.formlines && (new.formline_prune != old.formline_prune))
         || new.contour_interval != old.contour_interval;
+
     update_map
 }
 

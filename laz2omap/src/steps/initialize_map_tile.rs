@@ -29,7 +29,7 @@ pub fn initialize_map_tile(
 ) {
     sender
         .send(FrontendTask::Log(
-            "Calculating test tile rasters".to_string(),
+            "Calculating test tile rasters...".to_string(),
         ))
         .unwrap();
     sender

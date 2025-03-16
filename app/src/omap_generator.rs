@@ -31,7 +31,7 @@ pub struct OmapGenerator {
 impl OmapGenerator {
     pub fn boot(comms: OmapComms<FrontendTask, BackendTask>, ctx: egui::Context) {
         std::thread::Builder::new()
-            .stack_size(crate::STACK_SIZE * 1024 * 1024)
+            .stack_size(laz2omap::STACK_SIZE * 1024 * 1024)
             .spawn(move || {
                 let mut backend = OmapGenerator {
                     comms,
@@ -109,7 +109,7 @@ impl OmapGenerator {
                         );
 
                         self.map_params = Some(*params);
-                        // to force to update function to run
+                        // to force the update function to run
                         self.ctx.request_repaint();
                     }
                     BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
@@ -122,12 +122,17 @@ impl OmapGenerator {
                         // we are not going back here so can clear the dems to free some memory
                         self.reset();
 
+                        /*
                         steps::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
                             local_polygon_filter,
                         );
+                        */
+                        self.comms
+                            .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
+                            .unwrap();
                     }
                     BackendTask::Reset => {
                         self.reset();

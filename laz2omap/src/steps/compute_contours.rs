@@ -11,7 +11,8 @@ use core::f64;
 use geo::{BooleanOps, Simplify};
 use std::sync::{Arc, Mutex};
 
-pub fn compute_contours(
+// used for the naive iterative interpolation error correction contour algorithm
+pub fn compute_naive_contours(
     true_dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
@@ -72,8 +73,9 @@ pub fn compute_contours(
         // should this only include contours inside the cut_bounds?
         //
         // a length exp of 0 gives bending energy, 1 gives bending force, 2 gives stiffness? (same units as a spring constant)
+        // my guess is the exp should be 1 or 2 (or something in between)
         error = true_dem.error(&interpolated_dfm) + params.contour_algo_lambda * contours.energy(1);
-        println!("error: {error}");
+        println!("iteration: {iterations}, error: {error}");
 
         if error <= min_threshold || (error - prev_error).abs() <= conv_threshold {
             break;
@@ -83,7 +85,7 @@ pub fn compute_contours(
         adjusted_dem.adjust(
             true_dem,
             &interpolated_dfm,
-            (params.contour_algo_steps - iterations) as usize * 3,
+            (params.contour_algo_steps - iterations) as usize * 30,
             (params.contour_algo_steps - iterations + 1) as f64
                 / (params.contour_algo_steps + 1) as f64,
         );
@@ -92,7 +94,6 @@ pub fn compute_contours(
 
         contours.0.clear();
     }
-    println!();
 
     for c_level in contours.0 {
         let z = c_level.z;
@@ -110,6 +111,60 @@ pub fn compute_contours(
             let mut c_object = LineObject::from_line_string(c, symbol);
             c_object.add_auto_tag();
             c_object.add_tag("Elevation", format!("{:.2}", z).as_str());
+
+            map.lock()
+                .unwrap()
+                .add_object(MapObject::LineObject(c_object));
+        }
+    }
+}
+
+// used for raw and smoothed contour extraction.
+// smoothing happens on the DEM level
+pub fn extract_contours(
+    dem: &Dfm,
+    z_range: (f64, f64),
+    cut_overlay: &Polygon,
+    params: &MapParameters,
+    map: &Arc<Mutex<Omap>>,
+) {
+    {
+        // to make sure the old drawable map features are cleared even if no features are added
+        let mut map = map.lock().unwrap();
+        map.reserve_capacity(omap::Symbol::Contour, 1);
+        map.reserve_capacity(omap::Symbol::Formline, 1);
+        map.reserve_capacity(omap::Symbol::IndexContour, 1);
+    }
+
+    let effective_interval = if params.formlines {
+        params.contour_interval / 2.
+    } else {
+        params.contour_interval
+    };
+
+    let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
+    let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
+
+    for c_index in 0..c_levels {
+        let c_level = c_index as f64 * effective_interval + start_level;
+
+        let mut contours = dem.marching_squares(c_level);
+
+        contours = contours.simplify(&crate::SIMPLIFICATION_DIST);
+
+        contours = cut_overlay.clip(&contours, false);
+
+        let symbol = if c_level % (5. * params.contour_interval) == 0. {
+            LineSymbol::IndexContour
+        } else if c_level % params.contour_interval == 0. {
+            LineSymbol::Contour
+        } else {
+            LineSymbol::Formline
+        };
+        for c in contours {
+            let mut c_object = LineObject::from_line_string(c, symbol);
+            c_object.add_auto_tag();
+            c_object.add_tag("Elevation", format!("{:.2}", c_level).as_str());
 
             map.lock()
                 .unwrap()

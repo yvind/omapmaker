@@ -1,45 +1,41 @@
+use crate::comms::messages::FrontendTask;
 use crate::geometry::{MapLineString, MapRect};
-use crate::params::MapParams;
+use crate::parameters::MapParameters;
 use crate::raster::Threshold;
 use crate::steps;
-
-use crate::STACK_SIZE;
 
 use geo::{Coord, Rect};
 use omap::{AreaSymbol, LineObject, LineSymbol, MapObject, Omap};
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 pub fn compute_map_objects(
+    sender: Sender<FrontendTask>,
     map: Arc<Mutex<Omap>>,
-    args: &MapParams,
+    args: &MapParameters,
     tile_paths: Vec<PathBuf>,
     ref_point: Coord,
     cut_bounds: Vec<Rect>,
-    tiff_directory: &Path,
     threads: usize,
-    write_tiff: bool,
 ) {
     let mut thread_handles = vec![];
 
     let tile_paths = Arc::new(tile_paths);
 
-    let tiff_directory = Arc::new(tiff_directory.to_owned());
     let args = Arc::new(args.clone());
     let cut_bounds = Arc::new(cut_bounds);
 
     for thread_i in 0..threads {
         let map_ref = map.clone();
         let tile_paths_ref = tile_paths.clone();
-        let tiff_directory = tiff_directory.clone();
         let args = args.clone();
         let cut_bounds = cut_bounds.clone();
 
         thread_handles.push(
-            thread::Builder::new()
-                .stack_size(STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
+            std::thread::Builder::new()
+                .stack_size(crate::STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
                 .spawn(move || {
                     let mut current_index = thread_i;
 
@@ -136,19 +132,6 @@ pub fn compute_map_objects(
                             &args,
                             &map_ref,
                         );
-
-                        // step 7: save dfms
-                        if write_tiff {
-                            steps::save_tiffs(
-                                dem,
-                                grad_dem,
-                                dim,
-                                drm,
-                                &ref_point,
-                                tile_path.file_stem().unwrap(),
-                                &tiff_directory,
-                            );
-                        }
 
                         //pb.lock().unwrap().inc(1); send inc message
 
