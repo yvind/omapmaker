@@ -6,7 +6,7 @@ use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::point::Classification;
 
-use std::{path::PathBuf, sync::mpsc::Sender};
+use std::{num::NonZero, path::PathBuf, sync::mpsc::Sender};
 
 use crate::{
     comms::messages::*,
@@ -121,7 +121,7 @@ pub fn initialize_map_tile(
             let pt: ImmutableKdTree<f64, usize, 2, 32> =
                 ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
             for (i, qp) in query_points.iter().enumerate() {
-                let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, 8);
+                let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(8).unwrap());
                 let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
 
                 zs[i] = neighbours

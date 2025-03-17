@@ -134,10 +134,16 @@ impl DrawableOmap {
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {
         let mut drawable_objs = HashMap::with_capacity(omap_objs.len());
         for (symbol, objs) in omap_objs.drain() {
+            let bezier = match symbol {
+                // basemap should never be converted to beziers
+                Symbol::BasemapContour | Symbol::NegBasemapContour => None,
+                _ => bezier_error,
+            };
+
             drawable_objs.insert(
                 symbol,
                 objs.into_iter()
-                    .map(|o| o.into_drawable_geometry(ref_point, crs, bezier_error))
+                    .map(|o| o.into_drawable_geometry(ref_point, crs, bezier))
                     .collect(),
             );
         }

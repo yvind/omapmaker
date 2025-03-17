@@ -109,8 +109,7 @@ pub fn compute_naive_contours(
         };
         for c in c_contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
-            c_object.add_auto_tag();
-            c_object.add_tag("Elevation", format!("{:.2}", z).as_str());
+            c_object.add_elevation_tag(z);
 
             map.lock()
                 .unwrap()
@@ -163,8 +162,7 @@ pub fn extract_contours(
         };
         for c in contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
-            c_object.add_auto_tag();
-            c_object.add_tag("Elevation", format!("{:.2}", c_level).as_str());
+            c_object.add_elevation_tag(c_level);
 
             map.lock()
                 .unwrap()

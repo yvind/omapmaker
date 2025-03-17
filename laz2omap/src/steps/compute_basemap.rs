@@ -1,4 +1,3 @@
-use crate::geometry::MapLineString;
 use crate::raster::Dfm;
 use omap::{LineObject, LineSymbol, MapObject, Omap, Symbol, TagTrait};
 
@@ -32,19 +31,8 @@ pub fn compute_basemap(
         }
 
         for c in bm_contours {
-            let sym = if let Some(a) = c.line_string_signed_area() {
-                if a < 0. {
-                    LineSymbol::NegBasemapContour
-                } else {
-                    LineSymbol::BasemapContour
-                }
-            } else {
-                LineSymbol::BasemapContour
-            };
-
-            let mut c_object = LineObject::from_line_string(c, sym);
-            c_object.add_auto_tag();
-            c_object.add_tag("Elevation", format!("{:.2}", bm_level));
+            let mut c_object = LineObject::from_line_string(c, LineSymbol::BasemapContour);
+            c_object.add_elevation_tag(bm_level);
 
             map.lock()
                 .unwrap()

@@ -1,7 +1,7 @@
 use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
+use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol};
 
 use std::sync::{Arc, Mutex};
 
@@ -33,8 +33,7 @@ pub fn compute_cliffs(
     }
 
     for polygon in cliff_polygons.into_iter() {
-        let mut cliff_object = AreaObject::from_polygon(polygon, symbol);
-        cliff_object.add_auto_tag();
+        let cliff_object = AreaObject::from_polygon(polygon, symbol);
 
         map.lock()
             .unwrap()

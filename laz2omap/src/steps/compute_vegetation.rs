@@ -5,7 +5,7 @@ use crate::parameters::MapParameters;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol, TagTrait};
+use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol};
 
 use std::sync::{Arc, Mutex};
 
@@ -39,8 +39,7 @@ pub fn compute_vegetation(
     }
 
     for polygon in veg_polygons {
-        let mut veg_object = AreaObject::from_polygon(polygon, symbol);
-        veg_object.add_auto_tag();
+        let veg_object = AreaObject::from_polygon(polygon, symbol);
 
         map.lock()
             .unwrap()

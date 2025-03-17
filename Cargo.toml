@@ -27,7 +27,7 @@ crs-definitions = { version = "0.3.0", features = ["wkt"] }
 proj4rs = { version = "0.1.5", features = ["crs-definitions"] }
 
 # for kd-tree
-kiddo = { version = "4.2.1", features = ["immutable"] }
+kiddo = "5.0.3"
 # randomness for kd-tree stability
 fastrand = "2.1.1"
 

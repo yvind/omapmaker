@@ -314,7 +314,11 @@ impl OmapMaker {
             });
 
             if self.gui_variables.map_params.contour_algorithm != ContourAlgo::Raw {
-                ui.label("Number of iteration steps to perform in Contour Algorithm");
+                if self.gui_variables.map_params.contour_algorithm == ContourAlgo::NormalFieldSmoothing {
+                    ui.label("Number of smoothing iterations");
+                } else {
+                    ui.label("Number of error correction iterations");
+                }
                 ui.add(
                     egui::Slider::new(
                         &mut self.gui_variables.map_params.contour_algo_steps,
@@ -349,7 +353,7 @@ impl OmapMaker {
                 "Add formlines to the map.",
             );
             ui.add_enabled_ui(self.gui_variables.map_params.formlines, |ui| {
-                ui.label("Formline pruning parameter. \nBigger number gives less formlines.");
+                ui.label("Formline pruning parameter. \nBigger number gives more formlines.");
                 ui.add(
                     egui::Slider::new(&mut self.gui_variables.map_params.formline_prune,
                         0.0..=1.,

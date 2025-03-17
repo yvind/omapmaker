@@ -141,7 +141,7 @@ pub fn regenerate_map_tile(
         }
     }
 
-    let omap = Arc::<Mutex<Omap>>::into_inner(omap)
+    let mut omap = Arc::<Mutex<Omap>>::into_inner(omap)
         .unwrap()
         .into_inner()
         .unwrap();
@@ -151,6 +151,9 @@ pub fn regenerate_map_tile(
     } else {
         None
     };
+
+    omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+    omap.mark_basemap_depressions();
 
     let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
 

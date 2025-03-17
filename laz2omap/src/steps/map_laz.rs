@@ -6,6 +6,7 @@ use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::Reader;
 use proj4rs::{transform::transform, Proj};
 
+use std::num::NonZero;
 use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
 
 use crate::comms::messages::*;
@@ -164,7 +165,7 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
     for (i, point) in tile_centers.iter().enumerate() {
         let bounds = &tile_bounds[i];
 
-        let nn = tree.nearest_n::<SquaredEuclidean>(point, 9);
+        let nn = tree.nearest_n::<SquaredEuclidean>(point, NonZero::new(9).unwrap());
         let mut neighbours_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
 
         neighbours_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
