@@ -9,6 +9,8 @@ Implemented:
 
     GUI
 
+    Raw, smoothed and interpolation-based (experimental) contours
+
     Basemap-contours
 
     Vegetation
@@ -19,13 +21,13 @@ Implemented:
 
 WIP:
 
-    Smart contour generation
+    AI based contours
 
 Wish List:
 
-    Building detection
-
     Water detection
+
+    Building detection
 
     Vegetation boundaries
 

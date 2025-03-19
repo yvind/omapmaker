@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use geo::LineString;
 use laz2omap::parameters::{FileParameters, MapParameters};
+use strum::IntoEnumIterator;
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
@@ -23,6 +26,7 @@ pub struct GuiVariables {
 
     // checkboxes
     pub drop_checkboxes: Vec<bool>,
+    pub visability_checkboxes: HashMap<omap::Symbol, bool>,
     // true when the backend is busy generating a map tile
     pub generating_map_tile: bool,
 
@@ -43,7 +47,13 @@ pub struct GuiVariables {
 
 impl Default for GuiVariables {
     fn default() -> Self {
+        let mut visability_checkboxes = HashMap::new();
+        for symbol in omap::Symbol::iter() {
+            visability_checkboxes.insert(symbol, true);
+        }
+
         Self {
+            visability_checkboxes,
             polygon_filter: LineString::new(vec![]),
             boundaries: Default::default(),
             crs_less_search_strings: Default::default(),

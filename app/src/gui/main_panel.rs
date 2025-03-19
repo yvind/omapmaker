@@ -77,9 +77,10 @@ impl OmapMaker {
                     &mut self.state,
                 ))
             }
-            ProcessStage::AdjustSliders => {
-                map.with_plugin(map_plugins::OmapDrawer::new(&self.gui_variables.map_tile))
-            }
+            ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
+                &self.gui_variables.map_tile,
+                &self.gui_variables.visability_checkboxes,
+            )),
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.boundaries,

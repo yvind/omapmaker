@@ -154,6 +154,7 @@ pub fn regenerate_map_tile(
 
     omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
     omap.mark_basemap_depressions();
+    omap.make_dotknolls_and_depressions(10., 160., 1.5);
 
     let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
 

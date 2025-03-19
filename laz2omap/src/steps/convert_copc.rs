@@ -61,7 +61,7 @@ pub fn convert_copc(
                 // the lidar file needs to be transformed into another CRS but is already a copc
                 transform_file(path, input_epsg[pi], output_epsg.unwrap())
             } else if conversion_needed && !transform_needed {
-                // the lidar file needs both to be converted to copc
+                // the lidar file needs to be converted to copc
                 convert_file(path, input_epsg[pi])
             } else {
                 // the lidar file needs both to be transformed into another CRS and written to COPC
@@ -96,6 +96,8 @@ fn transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf
 
 fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
     let mut las_reader = Reader::from_path(&path).unwrap();
+
+    let raw_path = path.clone();
 
     path.set_extension("copc.laz");
 
@@ -198,7 +200,14 @@ fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
 
     let points = las_reader.points().filter_map(las::Result::ok);
 
-    copc_writer.write(points, num_points).unwrap();
+    let result = copc_writer.write(points, num_points);
+
+    if let Err(error) = result {
+        println!(
+            "Invalidity of type {:?} discovered in lidar file: {:?}, one or more point(s) ignored when converting to copc",
+            error, raw_path
+        );
+    }
 
     path
 }

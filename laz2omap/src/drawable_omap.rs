@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Keys, HashMap};
 
 use eframe::{
     egui::{self, Color32, Stroke},
@@ -13,37 +13,42 @@ use strum::IntoEnumIterator;
 
 const PURPLE: Color32 = Color32::from_rgba_premultiplied(190, 60, 255, 255);
 const ROUGH_YELLOW: Color32 = Color32::from_rgba_premultiplied(255, 220, 155, 255);
+const BROWN: Color32 = Color32::from_rgba_premultiplied(180, 50, 0, 255);
+const MEDIUM_BROWN: Color32 = Color32::from_rgba_premultiplied(200, 80, 0, 255);
+const LIGHT_BROWN: Color32 = Color32::from_rgba_premultiplied(220, 110, 0, 255);
 
 trait DrawableSymbol {
     /// what fill to use for drawing symbol equals the stroke of a line or
     /// color of a polygon or color and radius of point
-    fn stroke(&self) -> (bool, Stroke);
+    fn stroke(&self, pixels_per_meter: f32) -> (bool, Stroke);
 }
 
 impl DrawableSymbol for Symbol {
-    fn stroke(&self) -> (bool, Stroke) {
+    fn stroke(&self, pixels_per_meter: f32) -> (bool, Stroke) {
+        let scale_factor = 0.25 * pixels_per_meter;
+
         match self {
-            Symbol::Contour => (false, Stroke::new(3., Color32::BROWN)),
-            Symbol::BasemapContour => (false, Stroke::new(1., Color32::BROWN.gamma_multiply(0.5))),
-            Symbol::NegBasemapContour => (false, Stroke::new(1., PURPLE)),
-            Symbol::IndexContour => (false, Stroke::new(5., Color32::BROWN)),
-            Symbol::Formline => (true, Stroke::new(2., Color32::BROWN.gamma_multiply(0.8))),
-            Symbol::SlopelineContour => (false, Stroke::new(3., Color32::BROWN)),
-            Symbol::SlopelineFormline => (false, Stroke::new(2., Color32::BROWN)),
-            Symbol::DotKnoll => (false, Stroke::new(10., Color32::BROWN)),
-            Symbol::ElongatedDotKnoll => (false, Stroke::new(10., Color32::BROWN)),
-            Symbol::UDepression => (false, Stroke::new(10., PURPLE)),
-            Symbol::SmallBoulder => (false, Stroke::new(8., Color32::BLACK)),
-            Symbol::LargeBoulder => (false, Stroke::new(12., Color32::BLACK)),
-            Symbol::GiganticBoulder => (false, Stroke::new(0., Color32::BLACK)),
-            Symbol::SandyGround => (false, Stroke::new(0., Color32::YELLOW)),
-            Symbol::BareRock => (false, Stroke::new(0., Color32::GRAY)),
-            Symbol::RoughOpenLand => (false, Stroke::new(0., ROUGH_YELLOW)),
-            Symbol::LightGreen => (false, Stroke::new(0., Color32::LIGHT_GREEN)),
-            Symbol::MediumGreen => (false, Stroke::new(0., Color32::GREEN)),
-            Symbol::DarkGreen => (false, Stroke::new(0., Color32::DARK_GREEN)),
-            Symbol::Building => (false, Stroke::new(0., Color32::BLACK)),
-            Symbol::Water => (true, Stroke::new(0., Color32::BLUE)),
+            Symbol::Contour => (false, Stroke::new(3. * scale_factor, BROWN)),
+            Symbol::BasemapContour => (false, Stroke::new(1. * scale_factor, LIGHT_BROWN)),
+            Symbol::NegBasemapContour => (false, Stroke::new(1. * scale_factor, PURPLE)),
+            Symbol::IndexContour => (false, Stroke::new(5. * scale_factor, BROWN)),
+            Symbol::Formline => (true, Stroke::new(2. * scale_factor, MEDIUM_BROWN)),
+            Symbol::SlopelineContour => (false, Stroke::new(3. * scale_factor, BROWN)),
+            Symbol::SlopelineFormline => (false, Stroke::new(2. * scale_factor, BROWN)),
+            Symbol::DotKnoll => (false, Stroke::new(8. * scale_factor, BROWN)),
+            Symbol::ElongatedDotKnoll => (true, Stroke::new(8. * scale_factor, BROWN)),
+            Symbol::UDepression => (false, Stroke::new(8. * scale_factor, PURPLE)),
+            Symbol::SmallBoulder => (false, Stroke::new(8. * scale_factor, Color32::BLACK)),
+            Symbol::LargeBoulder => (false, Stroke::new(12. * scale_factor, Color32::BLACK)),
+            Symbol::GiganticBoulder => (false, Stroke::new(0. * scale_factor, Color32::BLACK)),
+            Symbol::SandyGround => (false, Stroke::new(0. * scale_factor, Color32::YELLOW)),
+            Symbol::BareRock => (false, Stroke::new(0. * scale_factor, Color32::GRAY)),
+            Symbol::RoughOpenLand => (false, Stroke::new(0. * scale_factor, ROUGH_YELLOW)),
+            Symbol::LightGreen => (false, Stroke::new(0. * scale_factor, Color32::LIGHT_GREEN)),
+            Symbol::MediumGreen => (false, Stroke::new(0. * scale_factor, Color32::GREEN)),
+            Symbol::DarkGreen => (false, Stroke::new(0. * scale_factor, Color32::DARK_GREEN)),
+            Symbol::Building => (false, Stroke::new(0. * scale_factor, Color32::BLACK)),
+            Symbol::Water => (true, Stroke::new(0. * scale_factor, Color32::BLUE)),
         }
     }
 }
@@ -73,9 +78,12 @@ impl Drawable for MapObject {
                 crs,
                 bezier_error,
             )),
-            MapObject::PointObject(point_object) => {
-                DrawableGeometry::Point(PointObject::from_geo(point_object.point, ref_point, crs))
-            }
+            MapObject::PointObject(point_object) => DrawableGeometry::Point(PointObject::from_geo(
+                point_object.point,
+                point_object.rotation,
+                ref_point,
+                crs,
+            )),
             MapObject::AreaObject(area_object) => DrawableGeometry::Polygon(
                 PolygonObject::from_geo(area_object.polygon, ref_point, crs, bezier_error),
             ),
@@ -88,6 +96,10 @@ pub struct DrawableOmap {
 }
 
 impl DrawableOmap {
+    pub fn keys(&self) -> Keys<'_, Symbol, Vec<DrawableGeometry>> {
+        self.map_objects.keys()
+    }
+
     pub fn from_omap(omap: Omap, hull: geo::LineString, bezier_error: Option<f64>) -> Self {
         let ref_point = omap.get_ref_point();
         let crs = omap.get_crs();
@@ -159,7 +171,12 @@ impl DrawableOmap {
         }
     }
 
-    pub fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector) {
+    pub fn draw(
+        &self,
+        ui: &mut egui::Ui,
+        projector: &walkers::Projector,
+        visabilities: &HashMap<Symbol, bool>,
+    ) {
         // project the hull:
 
         let points = self
@@ -177,7 +194,18 @@ impl DrawableOmap {
         ));
 
         for symbol in Symbol::iter() {
-            let stroke = symbol.stroke();
+            let vis = visabilities.get(&symbol);
+            if let Some(vis) = vis {
+                if !vis {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            let stroke = symbol.stroke(
+                projector.scale_pixel_per_meter(projector.unproject(egui::Pos2::new(0.5, 0.5))),
+            );
             if let Some(objs) = self.map_objects.get(&symbol) {
                 for obj in objs {
                     obj.draw(ui, projector, stroke.1, stroke.0);
@@ -411,7 +439,7 @@ impl LineObject {
 }
 
 #[derive(Clone)]
-pub struct PointObject(walkers::Position);
+pub struct PointObject(walkers::Position, f32);
 
 impl PointObject {
     fn draw(
@@ -419,15 +447,29 @@ impl PointObject {
         ui: &mut egui::Ui,
         projector: &walkers::Projector,
         stroke: &Stroke,
-        _special: bool,
+        special: bool,
     ) {
         let screen_point = projector.project(self.0);
 
-        ui.painter()
-            .circle_filled(screen_point, stroke.width, stroke.color);
+        if special {
+            let radius = if self.1.abs() > std::f32::consts::FRAC_PI_4 {
+                egui::Vec2::new(stroke.width, 1.5 * stroke.width)
+            } else {
+                egui::Vec2::new(1.5 * stroke.width, stroke.width)
+            };
+
+            ui.painter().add(egui::Shape::ellipse_filled(
+                screen_point,
+                radius,
+                stroke.color,
+            ));
+        } else {
+            ui.painter()
+                .circle_filled(screen_point, stroke.width, stroke.color);
+        }
     }
 
-    fn from_geo(point: geo::Point, ref_point: Coord, crs: Option<u16>) -> Self {
+    fn from_geo(point: geo::Point, rot: f64, ref_point: Coord, crs: Option<u16>) -> Self {
         let pos = if let Some(epsg) = crs {
             let geo_proj = Proj::from_epsg_code(4326).unwrap();
             let local_proj = Proj::from_epsg_code(epsg).unwrap();
@@ -440,6 +482,6 @@ impl PointObject {
             walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
         };
 
-        PointObject(pos)
+        PointObject(pos, rot as f32)
     }
 }

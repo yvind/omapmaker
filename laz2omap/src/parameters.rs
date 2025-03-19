@@ -31,7 +31,7 @@ impl Default for MapParameters {
         Self {
             scale: omap::Scale::S15_000,
             output_epsg: None,
-            bezier_error: 0.1,
+            bezier_error: 0.5,
             basemap_interval: 0.5,
             contour_interval: 5.,
             green: (0.4, 0.6, 0.8),
