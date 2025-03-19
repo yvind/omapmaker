@@ -38,3 +38,6 @@ Wish List:
     Road/path detection
 
     Marsh detection
+
+
+![Parameter tuning in OmapMaker](../docs/omapmaker.png)
