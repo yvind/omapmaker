@@ -40,4 +40,4 @@ Wish List:
     Marsh detection
 
 
-![Parameter tuning in OmapMaker](./docs/omapmaker.png)
+![Parameter tuning in OmapMaker](./docs/omap_maker.png)
