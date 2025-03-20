@@ -1,5 +1,5 @@
+use crate::backend::OmapBackend;
 use crate::gui::{modals::OmapModal, GuiVariables, ProcessStage};
-use crate::OmapGenerator;
 use eframe::egui;
 use laz2omap::comms::{messages::*, OmapComms};
 use walkers::{sources, HttpOptions, HttpTiles, MapMemory, Position};
@@ -109,7 +109,7 @@ impl OmapMaker {
         let (frontend_comms, backend_comms) = OmapComms::new();
 
         // starts the backend on its own thread
-        OmapGenerator::boot(backend_comms, ctx.clone());
+        OmapBackend::boot(backend_comms, ctx.clone());
 
         let http_tiles = HttpTiles::with_options(
             sources::OpenStreetMap,
@@ -352,13 +352,16 @@ impl OmapMaker {
         match self.state {
             ProcessStage::AdjustSliders => {
                 self.gui_variables.map_tile = None;
+                self.gui_variables.selected_tile = None;
                 self.comms.send(BackendTask::ClearParams).unwrap()
             }
             ProcessStage::ShowComponents => {
                 self.gui_variables.file_params.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
-            ProcessStage::ChooseSubTile => (),
+            ProcessStage::ChooseSubTile => {
+                self.gui_variables.selected_tile = None;
+            }
             _ => unimplemented!("Should not have been called on this state"),
         }
 
@@ -483,7 +486,7 @@ impl OmapMaker {
         let (frontend_comms, backend_comms) = OmapComms::new();
 
         // starts the backend on its own thread
-        OmapGenerator::boot(backend_comms, self.ctx.clone());
+        OmapBackend::boot(backend_comms, self.ctx.clone());
         self.comms = frontend_comms;
     }
 }

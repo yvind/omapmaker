@@ -10,7 +10,7 @@ use laz2omap::steps;
 
 use std::time::Duration;
 
-pub struct OmapGenerator {
+pub struct OmapBackend {
     comms: OmapComms<FrontendTask, BackendTask>,
     ctx: egui::Context,
     // store the params used for generating a map tile
@@ -28,12 +28,12 @@ pub struct OmapGenerator {
     z_range: (f64, f64),
 }
 
-impl OmapGenerator {
+impl OmapBackend {
     pub fn boot(comms: OmapComms<FrontendTask, BackendTask>, ctx: egui::Context) {
         std::thread::Builder::new()
             .stack_size(laz2omap::STACK_SIZE * 1024 * 1024)
             .spawn(move || {
-                let mut backend = OmapGenerator {
+                let mut backend = OmapBackend {
                     comms,
                     ctx,
                     map_params: None,
@@ -130,6 +130,7 @@ impl OmapGenerator {
                             local_polygon_filter,
                         );
                         */
+
                         self.comms
                             .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
                             .unwrap();

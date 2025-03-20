@@ -1,10 +1,9 @@
 mod assets;
+mod backend;
+mod frontend;
 mod gui;
-mod omap_generator;
-mod omap_maker;
 
-use omap_generator::OmapGenerator;
-use omap_maker::OmapMaker;
+use frontend::OmapMaker;
 
 use eframe::egui;
 use std::sync::Arc;
