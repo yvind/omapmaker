@@ -16,6 +16,12 @@ Overlapping lidar files not yet handled
 - Writes to Omap-file
 - Supports both bezier and polyline output
 - Polygon filter for only mapping parts of the provided lidar files
+- Magnetic North calculation from the world magnetic model based on the date and geographical map position
+- .las and .laz to .copc.laz conversion tool
+- Coordinate system assignment tool for CRS-less lidar-files (Lantmäteriet in Sweden uses EPSG:3006, but often does not write the _mandatory_ CRS-VLR to their files)
+- CRS-less files are supported if the CRS is unknown
+- Non-connected lidar file detection (Usefull when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
+- OpenStreetMap background map
 
 ### WIP:
 - AI based contours
@@ -28,6 +34,7 @@ Overlapping lidar files not yet handled
 - Boulder detection
 - Road/path detection
 - Marsh detection
+- Lidar CRS transformation
 
 ### Parameter tuning in OmapMaker
 Tune the map parameters on a test tile before generating the whole map
