@@ -43,6 +43,7 @@ pub struct GuiVariables {
 
     // for storing the generated map tile for drawing
     pub map_tile: Option<DrawableOmap>,
+    pub map_opacity: f32,
 }
 
 impl Default for GuiVariables {
@@ -69,6 +70,7 @@ impl Default for GuiVariables {
             selected_tile: Default::default(),
             subtile_boundaries: Default::default(),
             subtile_neighbours: Default::default(),
+            map_opacity: 1.0,
         }
     }
 }

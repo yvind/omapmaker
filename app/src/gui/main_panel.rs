@@ -10,7 +10,13 @@ impl OmapMaker {
     pub fn render_map(&mut self, ui: &mut egui::Ui) {
         let rect = ui.ctx().available_rect();
 
-        ui.painter().rect(rect, 0., BG_COLOR, egui::Stroke::NONE);
+        ui.painter().rect(
+            rect,
+            0.,
+            BG_COLOR,
+            egui::Stroke::NONE,
+            egui::StrokeKind::Middle,
+        );
 
         let map = if self.state != ProcessStage::Welcome
             && self.gui_variables.map_params.output_epsg.is_none()
@@ -80,6 +86,7 @@ impl OmapMaker {
             ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
                 &self.gui_variables.map_tile,
                 &self.gui_variables.visability_checkboxes,
+                self.gui_variables.map_opacity,
             )),
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
@@ -119,6 +126,18 @@ impl OmapMaker {
                 &mut self.gui_variables.polygon_filter,
                 &mut self.state,
             ),
+            ProcessStage::AdjustSliders => {
+                map_controls::render_map_opacity_slider(
+                    ui,
+                    &mut self.gui_variables.map_opacity,
+                    rect,
+                );
+                map_controls::render_symbol_toggles(
+                    ui,
+                    &self.gui_variables.map_tile,
+                    &mut self.gui_variables.visability_checkboxes,
+                );
+            }
             _ => (),
         }
 

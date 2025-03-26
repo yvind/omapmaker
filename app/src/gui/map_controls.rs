@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use eframe::egui;
+use laz2omap::DrawableOmap;
 use walkers::{sources::Attribution, MapMemory, Position};
 
 use super::ProcessStage;
@@ -126,9 +129,39 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
             });
 }
 
+pub fn render_symbol_toggles(
+    ui: &mut egui::Ui,
+    map_tile: &Option<DrawableOmap>,
+    checkboxes: &mut HashMap<omap::Symbol, bool>,
+) {
+    if let Some(map) = map_tile {
+        // add a window for toggeling visabilities
+        egui::Window::new("Symbol Visability Toggles")
+            .default_open(false)
+            .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
+            .show(ui.ctx(), |ui| {
+                for symbol in map.keys() {
+                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{:?}", symbol));
+                }
+            });
+    }
+}
+
+pub fn render_map_opacity_slider(ui: &mut egui::Ui, slider_val: &mut f32, rect: egui::Rect) {
+    egui::Window::new("Map opacity slider")
+        .collapsible(false)
+        .resizable(false)
+        .title_bar(false)
+        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 10.])
+        .show(ui.ctx(), |ui| {
+            ui.label("Map opacity");
+            ui.add(egui::Slider::new(slider_val, 0.0..=1.0));
+        });
+}
+
 pub fn render_acknowledge(ui: &egui::Ui, attribution: Attribution, rect: egui::Rect) {
     egui::Window::new("Acknowledge")
-        .frame(egui::Frame::none().fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 200)))
+        .frame(egui::Frame::NONE.fill(egui::Color32::from_rgba_unmultiplied(50, 50, 50, 200)))
         .collapsible(false)
         .resizable(false)
         .title_bar(false)

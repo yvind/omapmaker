@@ -16,8 +16,9 @@ path = "app/src/bin.rs"
 
 [dependencies]
 # gui
-eframe = "0.30.0"
-egui_autocomplete = "9.0.0"
+eframe = "0.31.1"
+egui_autocomplete = {path = "../egui_autocomplete"}
+egui_double_slider = "0.7.0"
 # choose files
 rfd = "0.15.1"
 # slippy map tiles
@@ -32,7 +33,7 @@ kiddo = "5.0.3"
 fastrand = "2.1.1"
 
 # delauney and interpolation
-spade = "2.12.1"
+spade = {path = "../spade"}
 
 # geometry
 geo = "0.29.3"
@@ -48,4 +49,6 @@ omap = {path = "../omap"}#{git = "https://github.com/oyhj1801/omap-rs"}
 
 # better error enums
 thiserror = "2.0.8"
+
+# enum iteration
 strum = "0.27.0"

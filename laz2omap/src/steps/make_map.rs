@@ -57,19 +57,36 @@ pub fn make_map(
         let (tile_paths, tile_cut_bounds) =
             steps::retile_laz(num_threads, &laz_neighbour_map[fi], laz_paths.clone());
 
-        // start mt here
-        // first get the point iterator for each tile
-        // pass that iterator to compute map objects
+        for thread_i in 0..num_threads {
+            let map = map.clone();
+            let tile_path = tile_paths.clone();
+            let args = args.clone();
+            let cut_bounds = cut_bounds.clone();
+            let sender = sender.clone();
 
-        steps::compute_map_objects(
-            sender.clone(),
-            map.clone(),
-            &map_params,
-            tile_paths,
-            ref_point,
-            tile_cut_bounds,
-            num_threads,
-        );
+            thread_handles.push(
+                std::thread::Builder::new()
+                    .stack_size(crate::STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
+                    .spawn(move || {
+                        // start mt here
+                        // first get the point iterator for each tile
+                        // pass that iterator to compute map objects
+                        steps::compute_map_objects(
+                            sender.clone(),
+                            map.clone(),
+                            &map_params,
+                            tile_paths,
+                            ref_point,
+                            tile_cut_bounds,
+                            num_threads,
+                        );
+                    })
+                    .unwrap(),
+            );
+        }
+        for handle in thread_handles {
+            handle.join().unwrap();
+        }
 
         // join threads here
 

@@ -18,53 +18,53 @@ impl Dfm {
         }
     }
 
-    pub fn create_ghost_points(&self, num_points: usize) -> Vec<ContourPoint> {
-        assert!(num_points > 1);
-        let mut indices = (0..num_points)
-            .map(|i| {
-                ((SIDE_LENGTH as f32 * (i as f32 / (num_points - 1) as f32)).round() as usize)
-                    .min(SIDE_LENGTH - 1)
-            })
-            .collect::<Vec<usize>>();
+    pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
+        const GRAD_CELLS: usize = 5;
+        const GRAD_LENGTH: f64 = GRAD_CELLS as f64 * CELL_SIZE;
 
-        // top row
-        let mut points = Vec::with_capacity((num_points - 1) * 4);
-        for i in indices.iter() {
-            points.push(ContourPoint {
-                pos: self.index2spade(0, *i),
-                z: self[(0, *i)],
-                grad: [0., 0.],
-            });
-        }
-        // bottom row
-        for i in indices.iter() {
-            points.push(ContourPoint {
-                pos: self.index2spade(SIDE_LENGTH - 1, *i),
-                z: self[(SIDE_LENGTH - 1, *i)],
-                grad: [0., 0.],
-            });
-        }
+        let top_left = ContourPoint {
+            pos: self.index2spade(0, 0),
+            z: self[(0, 0)],
+            grad: [
+                (self[(0, GRAD_CELLS)] - self[(0, 0)]) / GRAD_LENGTH,
+                (self[(0, 0)] - self[(GRAD_CELLS, 0)]) / GRAD_LENGTH,
+            ],
+        };
 
-        let _ = indices.pop();
-        // left side
-        for i in indices.iter().skip(1) {
-            points.push(ContourPoint {
-                pos: self.index2spade(*i, 0),
-                z: self[(*i, 0)],
-                grad: [0., 0.],
-            });
-        }
+        let top_right = ContourPoint {
+            pos: self.index2spade(0, SIDE_LENGTH - 1),
+            z: self[(0, SIDE_LENGTH - 1)],
+            grad: [
+                (self[(0, SIDE_LENGTH - 1)] - self[(0, SIDE_LENGTH - 1 - GRAD_CELLS)])
+                    / GRAD_LENGTH,
+                (self[(0, SIDE_LENGTH - 1)] - self[(GRAD_CELLS, SIDE_LENGTH - 1)]) / GRAD_LENGTH,
+            ],
+        };
 
-        // right side
-        for i in indices.iter().skip(1) {
-            points.push(ContourPoint {
-                pos: self.index2spade(*i, SIDE_LENGTH - 1),
-                z: self[(*i, SIDE_LENGTH - 1)],
-                grad: [0., 0.],
-            });
-        }
+        let bottom_right = ContourPoint {
+            pos: self.index2spade(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
+            z: self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)],
+            grad: [
+                (self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)]
+                    - self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1 - GRAD_CELLS)])
+                    / GRAD_LENGTH,
+                (self[(SIDE_LENGTH - 1 - GRAD_CELLS, SIDE_LENGTH - 1)]
+                    - self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)])
+                    / GRAD_LENGTH,
+            ],
+        };
 
-        points
+        let bottom_left = ContourPoint {
+            pos: self.index2spade(SIDE_LENGTH - 1, 0),
+            z: self[(SIDE_LENGTH - 1, 0)],
+            grad: [
+                (self[(SIDE_LENGTH - 1, GRAD_CELLS)] - self[(SIDE_LENGTH - 1, 0)]) / GRAD_LENGTH,
+                (self[(SIDE_LENGTH - 1 - GRAD_CELLS, 0)] - self[(SIDE_LENGTH - 1, 0)])
+                    / GRAD_LENGTH,
+            ],
+        };
+
+        [top_left, top_right, bottom_left, bottom_right]
     }
 
     pub fn error(&self, other: &Dfm) -> f64 {

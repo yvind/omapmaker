@@ -2,6 +2,7 @@ use std::collections::{hash_map::Keys, HashMap};
 
 use eframe::{
     egui::{self, Color32, Stroke},
+    emath,
     epaint::CubicBezierShape,
 };
 use geo::{Coord, LineString, TriangulateEarcut};
@@ -48,7 +49,8 @@ impl DrawableSymbol for Symbol {
             Symbol::MediumGreen => (false, Stroke::new(0. * scale_factor, Color32::GREEN)),
             Symbol::DarkGreen => (false, Stroke::new(0. * scale_factor, Color32::DARK_GREEN)),
             Symbol::Building => (false, Stroke::new(0. * scale_factor, Color32::BLACK)),
-            Symbol::Water => (true, Stroke::new(0. * scale_factor, Color32::BLUE)),
+            Symbol::Water => (false, Stroke::new(0. * scale_factor, Color32::BLUE)),
+            Symbol::PavedArea => (false, Stroke::new(0. * scale_factor, LIGHT_BROWN)),
         }
     }
 }
@@ -176,9 +178,9 @@ impl DrawableOmap {
         ui: &mut egui::Ui,
         projector: &walkers::Projector,
         visabilities: &HashMap<Symbol, bool>,
+        opacity: f32,
     ) {
         // project the hull:
-
         let points = self
             .hull
             .clone()
@@ -189,7 +191,7 @@ impl DrawableOmap {
         // not necessarily a convex polygon, but close
         ui.painter().add(egui::Shape::convex_polygon(
             points,
-            Color32::WHITE.gamma_multiply(0.8),
+            Color32::WHITE.gamma_multiply(0.8).gamma_multiply(opacity),
             Stroke::new(2., Color32::RED),
         ));
 
@@ -203,12 +205,17 @@ impl DrawableOmap {
                 continue;
             }
 
-            let stroke = symbol.stroke(
-                projector.scale_pixel_per_meter(projector.unproject(egui::Pos2::new(0.5, 0.5))),
+            let (special, stroke) = symbol.stroke(
+                projector.scale_pixel_per_meter(projector.unproject(emath::Pos2::new(0.5, 0.5))),
             );
+            let stroke = Stroke {
+                width: stroke.width,
+                color: stroke.color.gamma_multiply(opacity),
+            };
+
             if let Some(objs) = self.map_objects.get(&symbol) {
                 for obj in objs {
-                    obj.draw(ui, projector, stroke.1, stroke.0);
+                    obj.draw(ui, projector, stroke, special);
                 }
             }
         }
@@ -331,12 +338,12 @@ impl Triangulation {
             texture_id: egui::TextureId::Managed(0),
         };
 
-        ui.painter().add(egui::Shape::Mesh(mesh));
+        ui.painter().add(egui::Shape::Mesh(mesh.into()));
 
         // bounding line
         if special {
             ui.painter()
-                .line(pos, egui::Stroke::new(3., egui::Color32::DARK_BLUE));
+                .line(pos, egui::Stroke::new(3., egui::Color32::BLACK));
         }
     }
 }

@@ -22,6 +22,7 @@ pub fn initialize_map_tile(
     Vec<Dfm>,
     Vec<Dfm>,
     Vec<Dfm>,
+    Vec<Dfm>,
     Vec<Polygon>,
     Polygon,
     Coord,
@@ -48,18 +49,21 @@ pub fn initialize_map_tile(
         y: ((header_bounds.min.y + header_bounds.max.y) / 20.).round() * 10.,
     };
 
-    let z_range = (header_bounds.min.z, header_bounds.max.z);
-
     let (all_tile_bounds, all_cut_bounds, _, _) = crate::steps::retile_bounds(
         &Rect::from_bounds(header_bounds),
         &Rect::new(Coord { x: 0., y: 0. }, Coord { x: 0., y: 0. }),
     );
+
+    let mut z_range = (f64::MAX, f64::MIN);
+    let mut i_range = (u16::MAX, u16::MIN);
+    let mut r_range = (u8::MAX, u8::MIN);
 
     let mut cut_bounds = Vec::with_capacity(9);
     let mut all_hulls = Vec::with_capacity(9);
     let mut dems = Vec::with_capacity(9);
     let mut g_dems = Vec::with_capacity(9);
     let mut drms = Vec::with_capacity(9);
+    let mut dims = Vec::with_capacity(9);
     for ti in tile_indecies.iter() {
         let tile_bounds = all_tile_bounds[*ti];
         cut_bounds.push(
@@ -107,6 +111,27 @@ pub fn initialize_map_tile(
             shifted_bounds,
         );
 
+        // get the i and z bounds
+        for p in point_cloud.points.iter() {
+            if p.0.z > z_range.1 {
+                z_range.1 = p.0.z;
+            } else if p.0.z < z_range.0 {
+                z_range.0 = p.0.z;
+            }
+
+            if p.0.intensity > i_range.1 {
+                i_range.1 = p.0.intensity;
+            } else if p.0.intensity < i_range.0 {
+                i_range.0 = p.0.intensity;
+            }
+
+            if p.0.return_number > r_range.1 {
+                r_range.1 = p.0.return_number;
+            } else if p.0.return_number < r_range.0 {
+                r_range.0 = p.0.return_number;
+            }
+        }
+
         // add ghost points at the corners of the bounds to make the entire dem interpolatable
         // IDW interpolating the ghost points from the 8 closest real points
         let query_points = [
@@ -121,7 +146,7 @@ pub fn initialize_map_tile(
             let pt: ImmutableKdTree<f64, usize, 2, 32> =
                 ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
             for (i, qp) in query_points.iter().enumerate() {
-                let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(8).unwrap());
+                let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
                 let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
 
                 zs[i] = neighbours
@@ -138,28 +163,44 @@ pub fn initialize_map_tile(
             PointLaz::new(query_points[3][0], query_points[3][1], zs[3]),
         ]);
 
-        let dims = point_cloud.get_dfm_dimensions();
+        let dfm_bounds = point_cloud.get_dfm_dimensions();
 
-        let hull = point_cloud.bounded_convex_hull(&dims, crate::CELL_SIZE * 2.);
+        let hull = point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
 
         let hull = Polygon::new(hull, vec![]);
 
         let tl = Coord {
-            x: dims.min.x,
-            y: dims.max.y,
+            x: dfm_bounds.min.x,
+            y: dfm_bounds.max.y,
         };
 
-        let (dem, drm) = crate::steps::compute_dfms(point_cloud, tl);
+        let (dem, drm, dim) = crate::steps::compute_dfms(point_cloud, tl);
         let grad_dem = dem.slope(3);
 
         all_hulls.push(hull);
         dems.push(dem);
         g_dems.push(grad_dem);
         drms.push(drm);
+        dims.push(dim);
 
         sender
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap();
+    }
+    // normalize the return numbers
+    let r_range = (r_range.0 as f64, r_range.1 as f64);
+    for drm in drms.iter_mut() {
+        for r in drm.field.iter_mut() {
+            *r = (*r - r_range.0) / r_range.1;
+        }
+    }
+
+    // normalize the intensity
+    let i_range = (i_range.0 as f64, i_range.1 as f64);
+    for dim in dims.iter_mut() {
+        for i in dim.field.iter_mut() {
+            *i = (*i - i_range.0) / i_range.1;
+        }
     }
 
     let initial = all_hulls[0].clone();
@@ -177,6 +218,6 @@ pub fn initialize_map_tile(
         .unwrap();
 
     (
-        dems, g_dems, drms, cut_bounds, super_hull, ref_point, z_range,
+        dems, g_dems, drms, dims, cut_bounds, super_hull, ref_point, z_range,
     )
 }

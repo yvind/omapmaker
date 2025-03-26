@@ -1,14 +1,12 @@
-#![allow(clippy::too_many_arguments)]
 use crate::geometry::{ContourLevel, ContourSet};
 use crate::parameters::MapParameters;
 use crate::raster::Dfm;
+use crate::SIDE_LENGTH;
 
 use omap::{LineObject, LineSymbol, MapObject, Omap, TagTrait};
 
-use geo::Polygon;
+use geo::{BooleanOps, LineString, Polygon, Simplify};
 
-use core::f64;
-use geo::{BooleanOps, Simplify};
 use std::sync::{Arc, Mutex};
 
 // used for the naive iterative interpolation error correction contour algorithm
@@ -39,8 +37,19 @@ pub fn compute_naive_contours(
     let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
 
-    let mut adjusted_dem = true_dem.clone();
-    let mut interpolated_dfm = Dfm::new(true_dem.tl_coord);
+    let mut adjusted_dem = true_dem.smoothen(15., 15, 10);
+    let mut interpolated_dfm = adjusted_dem.clone();
+
+    let clip_poly = Polygon::new(
+        LineString::new(vec![
+            true_dem.index2coord(0, 0),
+            true_dem.index2coord(SIDE_LENGTH - 1, 0),
+            true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
+            true_dem.index2coord(0, SIDE_LENGTH - 1),
+            true_dem.index2coord(0, 0),
+        ]),
+        vec![],
+    );
 
     let mut contours = ContourSet::with_capacity(c_levels);
 
@@ -52,12 +61,14 @@ pub fn compute_naive_contours(
         for c_index in 0..c_levels {
             let c_level = c_index as f64 * effective_interval + start_level;
 
-            let c_contours = adjusted_dem.marching_squares(c_level);
+            let c_contours = adjusted_dem
+                .marching_squares(c_level)
+                .simplify(&crate::SIMPLIFICATION_DIST);
 
-            contours.0.push(ContourLevel::new(
-                c_contours.simplify(&crate::SIMPLIFICATION_DIST),
-                c_level,
-            ));
+            // should clip the contours
+            let c_contours = clip_poly.clip(&c_contours, false);
+
+            contours.0.push(ContourLevel::new(c_contours, c_level));
         }
 
         if iterations >= params.contour_algo_steps {
@@ -66,7 +77,7 @@ pub fn compute_naive_contours(
 
         // interpolate the contour set
         contours
-            .interpolate(&mut interpolated_dfm, &adjusted_dem, 25)
+            .interpolate(&mut interpolated_dfm, &adjusted_dem)
             .unwrap();
 
         // calculate the error
@@ -74,7 +85,7 @@ pub fn compute_naive_contours(
         //
         // a length exp of 0 gives bending energy, 1 gives bending force, 2 gives stiffness? (same units as a spring constant)
         // my guess is the exp should be 1 or 2 (or something in between)
-        error = true_dem.error(&interpolated_dfm) + params.contour_algo_lambda * contours.energy(1);
+        error = true_dem.error(&interpolated_dfm); // + params.contour_algo_lambda * contours.energy(1);
         println!("iteration: {iterations}, error: {error}");
 
         if error <= min_threshold || (error - prev_error).abs() <= conv_threshold {
@@ -86,7 +97,7 @@ pub fn compute_naive_contours(
             true_dem,
             &interpolated_dfm,
             (params.contour_algo_steps - iterations) as usize * 30,
-            (params.contour_algo_steps - iterations + 1) as f64
+            0.5 * (params.contour_algo_steps - iterations + 1) as f64
                 / (params.contour_algo_steps + 1) as f64,
         );
         prev_error = error;

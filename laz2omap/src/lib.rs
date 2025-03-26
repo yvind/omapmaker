@@ -16,6 +16,8 @@ pub const MERGE_DELTA: f64 = 0.1;
 
 pub const STACK_SIZE: usize = 10; // thread stack size in MiB
 
+const MIN_GRAD_LENGTH: f64 = 1.0;
+
 const SIDE_LENGTH: usize = INV_CELL_SIZE_USIZE * TILE_SIZE_USIZE;
 const CELL_SIZE: f64 = 1. / INV_CELL_SIZE_USIZE as f64;
 const TILE_SIZE: f64 = TILE_SIZE_USIZE as f64;

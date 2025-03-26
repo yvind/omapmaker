@@ -283,21 +283,27 @@ fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
 pub struct OmapDrawer<'a> {
     map: &'a Option<DrawableOmap>,
     visabilities: &'a HashMap<omap::Symbol, bool>,
+    opacity: f32,
 }
 
 impl<'a> OmapDrawer<'a> {
     pub fn new(
         map: &'a Option<DrawableOmap>,
         visabilities: &'a HashMap<omap::Symbol, bool>,
+        opacity: f32,
     ) -> Self {
-        Self { map, visabilities }
+        Self {
+            map,
+            visabilities,
+            opacity,
+        }
     }
 }
 
 impl Plugin for OmapDrawer<'_> {
     fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &Projector) {
         if let Some(map) = self.map.as_ref() {
-            map.draw(ui, projector, self.visabilities);
+            map.draw(ui, projector, self.visabilities, self.opacity);
         }
     }
 }

@@ -22,6 +22,7 @@ pub struct OmapBackend {
     map_tile_dem: Vec<Dfm>,
     map_tile_grad_dem: Vec<Dfm>,
     map_tile_drm: Vec<Dfm>,
+    map_tile_dim: Vec<Dfm>,
     cut_bounds: Vec<geo::Polygon>,
     hull: geo::Polygon,
     ref_point: geo::Coord,
@@ -40,6 +41,7 @@ impl OmapBackend {
                     map_tile_dem: Vec::with_capacity(9),
                     map_tile_grad_dem: Vec::with_capacity(9),
                     map_tile_drm: Vec::with_capacity(9),
+                    map_tile_dim: Vec::with_capacity(9),
                     cut_bounds: Vec::with_capacity(9),
                     hull: geo::Polygon::new(geo::LineString::new(vec![]), vec![]),
                     ref_point: geo::Coord { x: 0., y: 0. },
@@ -83,11 +85,12 @@ impl OmapBackend {
                         );
                     }
                     BackendTask::InitializeMapTile(path, tiles) => {
-                        let (dem, gdem, drm, cut_bounds, hull, ref_point, z_range) =
+                        let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
                             steps::initialize_map_tile(self.comms.clone_sender(), path, tiles);
                         self.map_tile_dem = dem;
                         self.map_tile_grad_dem = gdem;
                         self.map_tile_drm = drm;
+                        self.map_tile_dim = dim;
                         self.cut_bounds = cut_bounds;
                         self.hull = hull;
                         self.ref_point = ref_point;
@@ -100,6 +103,7 @@ impl OmapBackend {
                             &self.map_tile_dem,
                             &self.map_tile_grad_dem,
                             &self.map_tile_drm,
+                            &self.map_tile_dim,
                             &self.cut_bounds,
                             &self.hull,
                             self.ref_point,

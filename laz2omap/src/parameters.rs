@@ -15,6 +15,7 @@ pub struct MapParameters {
     pub green: (f64, f64, f64),
     pub yellow: f64,
     pub cliff: f64,
+    pub intensity_filters: Vec<IntensityFilter>,
 
     // debug params
     pub contour_algo_steps: u8,
@@ -44,6 +45,7 @@ impl Default for MapParameters {
             bezier_bool: true,
             cliff: 0.75,
             contour_algorithm: Default::default(),
+            intensity_filters: Default::default(),
         }
     }
 }
@@ -76,6 +78,23 @@ impl Display for ContourAlgo {
             ContourAlgo::NaiveIterations => f.write_str("Naive"),
             ContourAlgo::NormalFieldSmoothing => f.write_str("Smooth"),
             ContourAlgo::Raw => f.write_str("Raw"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct IntensityFilter {
+    pub low: f64,
+    pub high: f64,
+    pub symbol: omap::Symbol,
+}
+
+impl Default for IntensityFilter {
+    fn default() -> Self {
+        Self {
+            low: 0.4,
+            high: 0.6,
+            symbol: omap::Symbol::BareRock,
         }
     }
 }

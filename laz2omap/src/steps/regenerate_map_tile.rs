@@ -16,6 +16,7 @@ pub fn regenerate_map_tile(
     dem: &[Dfm],
     g_dem: &[Dfm],
     drm: &[Dfm],
+    dim: &[Dfm],
     cut_bounds: &[geo::Polygon],
     hull: &geo::Polygon,
     ref_point: geo::Coord,
@@ -40,7 +41,7 @@ pub fn regenerate_map_tile(
                         &dem[i],
                         z_range,
                         &cut_bounds[i],
-                        (0.9, 0.1),
+                        (0.1, 0.0),
                         &params,
                         &omap,
                     );
@@ -78,8 +79,8 @@ pub fn regenerate_map_tile(
         } else if !params.basemap_contour {
             // make sure that the basemap gets removed if it is toggeled off
             let mut ac_map = omap.lock().unwrap();
-            ac_map.reserve_capacity(Symbol::NegBasemapContour, 1);
-            ac_map.reserve_capacity(Symbol::BasemapContour, 1);
+            ac_map.reserve_capacity(Symbol::NegBasemapContour, 0);
+            ac_map.reserve_capacity(Symbol::BasemapContour, 0);
         }
 
         if needs_update.yellow {
@@ -138,6 +139,24 @@ pub fn regenerate_map_tile(
                 &params,
                 &omap,
             );
+        }
+
+        if needs_update.intensities {
+            // make sure the symbols used in the prev generation are cleared
+            if let Some(old_params) = &old_params {
+                let mut map = omap.lock().unwrap();
+                for filter in old_params.intensity_filters.iter() {
+                    map.reserve_capacity(filter.symbol, 0);
+                }
+            }
+
+            crate::steps::compute_intensity(
+                &dim[i],
+                hull.exterior(),
+                &cut_bounds[i],
+                &params,
+                &omap,
+            )
         }
     }
 
@@ -209,6 +228,7 @@ struct UpdateMap {
     pub m_green: bool,
     pub d_green: bool,
     pub cliff: bool,
+    pub intensities: bool,
 }
 
 impl Default for UpdateMap {
@@ -221,6 +241,7 @@ impl Default for UpdateMap {
             m_green: true,
             d_green: true,
             cliff: true,
+            intensities: true,
         }
     }
 }

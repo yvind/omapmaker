@@ -1,8 +1,10 @@
 use laz2omap::{comms::messages::*, parameters::ContourAlgo};
+use strum::IntoEnumIterator;
 
 use super::modals::OmapModal;
 use crate::OmapMaker;
 use eframe::egui;
+use egui_double_slider::DoubleSlider;
 
 impl OmapMaker {
     pub fn render_welcome_panel(&mut self, ui: &mut egui::Ui) {
@@ -57,6 +59,7 @@ impl OmapMaker {
 
         egui::ScrollArea::both()
             .max_height(ui.available_height() - 300.)
+            .auto_shrink(false)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
                 for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
@@ -82,7 +85,6 @@ impl OmapMaker {
 
         ui.add_space(20.);
 
-        ui.label("Choose where to save the resulting omap-file.");
         if ui.button("Choose save location and name").clicked() {
             if let Some(path) = rfd::FileDialog::new()
                 .add_filter("OpenOrienteering Mapper (*.omap)", &["omap"])
@@ -91,13 +93,18 @@ impl OmapMaker {
                 self.gui_variables.file_params.save_location = path;
             };
         }
+
         let text = self
             .gui_variables
             .file_params
             .save_location
             .to_str()
             .unwrap();
-        ui.label(text);
+        if text.is_empty() {
+            ui.label("Choose where to save the resulting omap-file.");
+        } else {
+            ui.label(text);
+        }
 
         if ui
             .add_enabled(
@@ -170,6 +177,8 @@ impl OmapMaker {
         ui.add_space(10.);
         ui.label("Clicking a file in the list will center the map at that file's location.");
         egui::ScrollArea::both()
+            .auto_shrink(false)
+            .max_width(f32::INFINITY)
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
                 for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
@@ -243,6 +252,8 @@ impl OmapMaker {
             This Lidar file will be used for adjusting parameter values.",
         );
         egui::ScrollArea::both()
+            .auto_shrink(false)
+            .max_width(f32::INFINITY)
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
                 for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
@@ -293,6 +304,7 @@ impl OmapMaker {
         ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
 
         egui::ScrollArea::both()
+            .auto_shrink(false)
             .max_height(ui.available_height() / 1.2)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
@@ -479,6 +491,58 @@ impl OmapMaker {
                         .show_value(true),
                     );
                 });
+
+                ui.add_space(20.);
+
+                ui.label(egui::RichText::new("Lidar Intensity filters").strong());
+                for (i, intensity_filter) in self
+                    .gui_variables
+                    .map_params
+                    .intensity_filters
+                    .iter_mut()
+                    .enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut intensity_filter.low).range(0.0..=1.0));
+                        ui.add(
+                            DoubleSlider::new(
+                                &mut intensity_filter.low,
+                                &mut intensity_filter.high,
+                                0.0..=1.0,
+                            )
+                            .separation_distance(0.01),
+                        );
+                        ui.add(egui::DragValue::new(&mut intensity_filter.high).range(0.0..=1.0));
+                        egui::ComboBox::from_id_salt(format!("Intensity filter {}", i + 1))
+                            .selected_text(format!("{:?}", intensity_filter.symbol))
+                            .show_ui(ui, |ui| {
+                                for area_symbol in omap::AreaSymbol::iter() {
+                                    ui.selectable_value(
+                                        &mut intensity_filter.symbol,
+                                        area_symbol.into(),
+                                        format!("{:?}", area_symbol),
+                                    );
+                                }
+                            });
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Add filter").clicked() {
+                        self.gui_variables
+                            .map_params
+                            .intensity_filters
+                            .push(Default::default());
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.gui_variables.map_params.intensity_filters.is_empty(),
+                            egui::Button::new("Remove filter"),
+                        )
+                        .clicked()
+                    {
+                        self.gui_variables.map_params.intensity_filters.pop();
+                    }
+                });
             });
 
         ui.add_space(20.);
@@ -510,24 +574,6 @@ impl OmapMaker {
                 }
             });
         });
-
-        if let Some(map) = &self.gui_variables.map_tile {
-            // add a window for toggeling visabilities
-            egui::Window::new("Symbol Visability Toggles")
-                .default_open(false)
-                .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
-                .show(ui.ctx(), |ui| {
-                    for symbol in map.keys() {
-                        ui.checkbox(
-                            self.gui_variables
-                                .visability_checkboxes
-                                .get_mut(symbol)
-                                .unwrap(),
-                            format!("{:?}", symbol),
-                        );
-                    }
-                });
-        }
     }
 
     pub fn render_generating_map_panel(&mut self, ui: &mut egui::Ui) {
