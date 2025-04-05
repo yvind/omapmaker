@@ -44,6 +44,9 @@ pub struct GuiVariables {
     // for storing the generated map tile for drawing
     pub map_tile: Option<DrawableOmap>,
     pub map_opacity: f32,
+
+    // the contour "score" (error, energy)
+    pub contour_score: (f32, f32),
 }
 
 impl Default for GuiVariables {
@@ -55,7 +58,9 @@ impl Default for GuiVariables {
 
         Self {
             visability_checkboxes,
+            map_opacity: 1.0,
             polygon_filter: LineString::new(vec![]),
+
             boundaries: Default::default(),
             crs_less_search_strings: Default::default(),
             unique_crs: Default::default(),
@@ -70,7 +75,7 @@ impl Default for GuiVariables {
             selected_tile: Default::default(),
             subtile_boundaries: Default::default(),
             subtile_neighbours: Default::default(),
-            map_opacity: 1.0,
+            contour_score: Default::default(),
         }
     }
 }

@@ -85,4 +85,5 @@ pub enum Variable {
     CrsLessString(usize),
     CrsLessCheckBox(usize),
     ConnectedComponents(Vec<Vec<usize>>),
+    ContourScore((f32, f32)),
 }

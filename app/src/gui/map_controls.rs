@@ -140,7 +140,9 @@ pub fn render_symbol_toggles(
             .default_open(false)
             .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
             .show(ui.ctx(), |ui| {
-                for symbol in map.keys() {
+                let mut keys = map.keys().collect::<Vec<_>>();
+                keys.sort();
+                for symbol in keys {
                     ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{:?}", symbol));
                 }
             });
@@ -152,10 +154,25 @@ pub fn render_map_opacity_slider(ui: &mut egui::Ui, slider_val: &mut f32, rect: 
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 10.])
+        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 65.])
         .show(ui.ctx(), |ui| {
             ui.label("Map opacity");
             ui.add(egui::Slider::new(slider_val, 0.0..=1.0));
+        });
+}
+
+pub fn render_contour_scores(ui: &mut egui::Ui, score: (f32, f32), weight: f32, rect: egui::Rect) {
+    egui::Window::new("Contour scores")
+        .collapsible(false)
+        .resizable(false)
+        .title_bar(false)
+        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 10.])
+        .show(ui.ctx(), |ui| {
+            ui.label(format!("Contour Score: {:.4}", score.0 + weight * score.1));
+            ui.label(format!(
+                "= Error + lamba * Energy = {:.4} + {:.2}*{:.4}",
+                score.0, weight, score.1
+            ));
         });
 }
 

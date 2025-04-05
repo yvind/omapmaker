@@ -49,8 +49,12 @@ impl DrawableSymbol for Symbol {
             Symbol::MediumGreen => (false, Stroke::new(0. * scale_factor, Color32::GREEN)),
             Symbol::DarkGreen => (false, Stroke::new(0. * scale_factor, Color32::DARK_GREEN)),
             Symbol::Building => (false, Stroke::new(0. * scale_factor, Color32::BLACK)),
-            Symbol::Water => (false, Stroke::new(0. * scale_factor, Color32::BLUE)),
+            Symbol::Water => (false, Stroke::new(0. * scale_factor, Color32::LIGHT_BLUE)),
             Symbol::PavedArea => (false, Stroke::new(0. * scale_factor, LIGHT_BROWN)),
+            Symbol::Marsh => (
+                true,
+                Stroke::new(2. * scale_factor, Color32::LIGHT_BLUE.gamma_multiply(0.4)),
+            ),
         }
     }
 }
@@ -232,7 +236,7 @@ impl DrawableGeometry {
     ) {
         match &self {
             DrawableGeometry::Polygon(poly) => {
-                poly.draw(ui, projector, &stroke.color, special);
+                poly.draw(ui, projector, &stroke, special);
             }
             DrawableGeometry::Line(line) => {
                 line.draw(ui, projector, &stroke, special);
@@ -259,10 +263,10 @@ impl PolygonObject {
         &self,
         ui: &mut egui::Ui,
         projector: &walkers::Projector,
-        color: &Color32,
+        stroke: &Stroke,
         special: bool,
     ) {
-        self.0.draw(ui, projector, color, special);
+        self.0.draw(ui, projector, stroke, special);
     }
 
     fn from_geo(
@@ -314,7 +318,7 @@ impl Triangulation {
         &self,
         ui: &mut egui::Ui,
         projector: &walkers::Projector,
-        color: &Color32,
+        stroke: &Stroke,
         special: bool,
     ) {
         let pos: Vec<egui::Pos2> = self
@@ -328,7 +332,7 @@ impl Triangulation {
             .map(|p| egui::epaint::Vertex {
                 pos: *p,
                 uv: egui::epaint::WHITE_UV,
-                color: *color,
+                color: stroke.color,
             })
             .collect();
 
@@ -342,8 +346,10 @@ impl Triangulation {
 
         // bounding line
         if special {
-            ui.painter()
-                .line(pos, egui::Stroke::new(3., egui::Color32::BLACK));
+            ui.painter().line(
+                pos,
+                egui::Stroke::new(stroke.width, stroke.color.to_opaque()),
+            );
         }
     }
 }

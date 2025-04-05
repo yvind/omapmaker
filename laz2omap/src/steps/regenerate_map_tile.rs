@@ -32,10 +32,13 @@ pub fn regenerate_map_tile(
 
     let needs_update = needs_regeneration(&params, old_params.as_ref());
 
+    let mut tot_energy = 0.;
+    let mut tot_error = 0.;
+
     for i in 0..dem.len() {
         if needs_update.contours {
-            match params.contour_algorithm {
-                crate::parameters::ContourAlgo::AI => (),
+            let (error, energy) = match params.contour_algorithm {
+                crate::parameters::ContourAlgo::AI => (0., 0.),
                 crate::parameters::ContourAlgo::NaiveIterations => {
                     crate::steps::compute_naive_contours(
                         &dem[i],
@@ -44,28 +47,17 @@ pub fn regenerate_map_tile(
                         (0.1, 0.0),
                         &params,
                         &omap,
-                    );
+                    )
                 }
                 crate::parameters::ContourAlgo::NormalFieldSmoothing => {
-                    let smooth_dem = dem[i].smoothen(15., 15, params.contour_algo_steps as usize);
-                    crate::steps::extract_contours(
-                        &smooth_dem,
-                        z_range,
-                        &cut_bounds[i],
-                        &params,
-                        &omap,
-                    );
+                    crate::steps::extract_contours(&dem[i], z_range, &cut_bounds[i], &params, &omap)
                 }
                 crate::parameters::ContourAlgo::Raw => {
-                    crate::steps::extract_contours(
-                        &dem[i],
-                        z_range,
-                        &cut_bounds[i],
-                        &params,
-                        &omap,
-                    );
+                    crate::steps::extract_contours(&dem[i], z_range, &cut_bounds[i], &params, &omap)
                 }
-            }
+            };
+            tot_error += error;
+            tot_energy += energy;
         }
 
         if params.basemap_contour && params.basemap_interval >= 0.1 && needs_update.basemap {
@@ -176,6 +168,18 @@ pub fn regenerate_map_tile(
     omap.make_dotknolls_and_depressions(10., 160., 1.5);
 
     let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
+
+    if needs_update.contours {
+        tot_energy /= dem.len() as f64;
+        tot_error /= dem.len() as f64;
+
+        sender
+            .send(FrontendTask::UpdateVariable(Variable::ContourScore((
+                tot_error as f32,
+                tot_energy as f32,
+            ))))
+            .unwrap();
+    }
 
     sender
         .send(FrontendTask::UpdateVariable(Variable::MapTile(Box::new(

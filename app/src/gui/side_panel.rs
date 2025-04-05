@@ -429,7 +429,7 @@ impl OmapMaker {
                         egui::widgets::DragValue::new(
                             &mut self.gui_variables.map_params.basemap_interval,
                         )
-                        .fixed_decimals(1)
+                        .fixed_decimals(2)
                         .range(0.1..=self.gui_variables.map_params.contour_interval),
                     );
                 });

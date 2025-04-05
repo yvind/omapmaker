@@ -176,6 +176,7 @@ impl OmapMaker {
             Variable::MapTile(drawable_omap) => self.gui_variables.update_map(*drawable_omap),
             Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
             Variable::TileNeighbours(tn) => self.gui_variables.subtile_neighbours = tn,
+            Variable::ContourScore(score) => self.gui_variables.contour_score = score,
         }
     }
 

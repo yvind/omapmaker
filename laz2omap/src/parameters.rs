@@ -38,7 +38,7 @@ impl Default for MapParameters {
             green: (0.4, 0.6, 0.8),
             yellow: 0.01,
             contour_algo_steps: 0,
-            contour_algo_lambda: 0.1,
+            contour_algo_lambda: 0.02,
             basemap_contour: false,
             formlines: false,
             formline_prune: 0.5,

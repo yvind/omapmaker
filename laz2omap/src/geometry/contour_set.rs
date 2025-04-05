@@ -1,6 +1,6 @@
 use crate::{geometry::MapLineString, raster::Dfm, SIDE_LENGTH};
 
-use geo::{MultiLineString, Vector2DOps};
+use geo::{Coord, MultiLineString, Vector2DOps};
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 
 #[derive(Debug, Clone)]
@@ -20,7 +20,7 @@ impl ContourSet {
                 let coords = interpolated_dem.index2spade(y_index, x_index);
 
                 if let Some(elev) =
-                    nn.interpolate_gradient(|p| p.data().z, |p| p.data().grad, 0.5, coords)
+                    nn.interpolate_gradient(|p| p.data().z, |p| p.data().grad, 1., coords)
                 {
                     if elev.is_nan() {
                         println!("Nan in c1 interpolating!");
@@ -47,6 +47,7 @@ impl ContourSet {
         // and avoid issues with tiles with few contours
         points.extend(dem.create_ghost_points());
 
+        // extract all contour vertices and gradient directions for triangulation
         for level in self.0.iter() {
             for line in level.lines.iter() {
                 if line.is_closed() && line.0.len() < 4 {
@@ -60,7 +61,10 @@ impl ContourSet {
                         grad: (line.0[i + 1] - line.0[i - 1])
                             .left()
                             .try_normalize()
-                            .unwrap() // should be okay bc of RDP simplification and the check above // is not okay panic happend
+                            .unwrap_or(Coord {
+                                x: points[points.len() - 1].grad[0],
+                                y: points[points.len() - 1].grad[1],
+                            })
                             .into(),
                     };
                     points.push(cp);
@@ -73,7 +77,10 @@ impl ContourSet {
                         grad: (line.0[1] - line.0[line.0.len() - 2])
                             .left()
                             .try_normalize()
-                            .unwrap()
+                            .unwrap_or(Coord {
+                                x: points[points.len() - 1].grad[0],
+                                y: points[points.len() - 1].grad[1],
+                            })
                             .into(),
                     };
                     points.push(cp);
@@ -84,7 +91,10 @@ impl ContourSet {
                         grad: (line.0[1] - line.0[0])
                             .left()
                             .try_normalize()
-                            .unwrap()
+                            .unwrap_or(Coord {
+                                x: points[points.len() - 1].grad[0],
+                                y: points[points.len() - 1].grad[1],
+                            })
                             .into(),
                     };
                     points.push(cp);
@@ -95,7 +105,10 @@ impl ContourSet {
                         grad: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
                             .left()
                             .try_normalize()
-                            .unwrap()
+                            .unwrap_or(Coord {
+                                x: points[points.len() - 1].grad[0],
+                                y: points[points.len() - 1].grad[1],
+                            })
                             .into(),
                     };
                     points.push(cp);
@@ -103,6 +116,8 @@ impl ContourSet {
             }
         }
 
+        // must be loaded in a stable way bc the gradient lenghts in the triangulation
+        // needs to derived from the neighbours defined by the triangulation
         let mut tri = DelaunayTriangulation::bulk_load_stable(points.clone()).unwrap();
 
         // We have the normalized direction of the gradients. Now get the length

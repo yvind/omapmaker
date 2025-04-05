@@ -127,6 +127,12 @@ impl OmapMaker {
                 &mut self.state,
             ),
             ProcessStage::AdjustSliders => {
+                map_controls::render_contour_scores(
+                    ui,
+                    self.gui_variables.contour_score,
+                    self.gui_variables.map_params.contour_algo_lambda as f32,
+                    rect,
+                );
                 map_controls::render_map_opacity_slider(
                     ui,
                     &mut self.gui_variables.map_opacity,

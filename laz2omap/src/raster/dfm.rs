@@ -186,7 +186,7 @@ impl Dfm {
         //   3       2
         //
         // 5s are only filler values, need four spaces for the special cases 5 and 10
-        let lut = [
+        const LUT: [[usize; 4]; 16] = [
             [5, 5, 5, 5], // nothing
             [3, 0, 5, 5], // merge
             [0, 1, 5, 5], // append,
@@ -219,7 +219,7 @@ impl Dfm {
                     + 4 * (padded[(ys[2], xs[2])] >= level) as usize
                     + 8 * (padded[(ys[3], xs[3])] >= level) as usize;
 
-                let edge_indices = lut[index];
+                let edge_indices = LUT[index];
 
                 match index {
                     0 | 15.. => (),

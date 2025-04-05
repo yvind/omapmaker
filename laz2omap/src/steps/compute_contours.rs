@@ -1,5 +1,5 @@
 use crate::geometry::{ContourLevel, ContourSet};
-use crate::parameters::MapParameters;
+use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
 use crate::SIDE_LENGTH;
 
@@ -17,7 +17,7 @@ pub fn compute_naive_contours(
     thresholds: (f64, f64),
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
-) {
+) -> (f64, f64) {
     {
         // to make sure the old drawable map features are cleared even if no features are added
         let mut map = map.lock().unwrap();
@@ -38,7 +38,7 @@ pub fn compute_naive_contours(
     let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
 
     let mut adjusted_dem = true_dem.smoothen(15., 15, 10);
-    let mut interpolated_dfm = adjusted_dem.clone();
+    let mut interpolated_dem = adjusted_dem.clone();
 
     let clip_poly = Polygon::new(
         LineString::new(vec![
@@ -53,20 +53,23 @@ pub fn compute_naive_contours(
 
     let mut contours = ContourSet::with_capacity(c_levels);
 
-    let mut error;
-    let mut prev_error = f64::MAX;
+    let mut error = 0.;
+    let mut energy = 0.;
+
+    let mut score;
+    let mut prev_score = f64::MAX;
     let mut iterations = 0;
     loop {
         // extract contour set from adjusted_dem
         for c_index in 0..c_levels {
             let c_level = c_index as f64 * effective_interval + start_level;
 
-            let c_contours = adjusted_dem
+            let mut c_contours = adjusted_dem
                 .marching_squares(c_level)
                 .simplify(&crate::SIMPLIFICATION_DIST);
 
             // should clip the contours
-            let c_contours = clip_poly.clip(&c_contours, false);
+            c_contours = clip_poly.clip(&c_contours, false);
 
             contours.0.push(ContourLevel::new(c_contours, c_level));
         }
@@ -77,7 +80,7 @@ pub fn compute_naive_contours(
 
         // interpolate the contour set
         contours
-            .interpolate(&mut interpolated_dfm, &adjusted_dem)
+            .interpolate(&mut interpolated_dem, &adjusted_dem)
             .unwrap();
 
         // calculate the error
@@ -85,22 +88,29 @@ pub fn compute_naive_contours(
         //
         // a length exp of 0 gives bending energy, 1 gives bending force, 2 gives stiffness? (same units as a spring constant)
         // my guess is the exp should be 1 or 2 (or something in between)
-        error = true_dem.error(&interpolated_dfm); // + params.contour_algo_lambda * contours.energy(1);
-        println!("iteration: {iterations}, error: {error}");
+        error = true_dem.error(&interpolated_dem);
+        energy = contours.energy(1);
 
-        if error <= min_threshold || (error - prev_error).abs() <= conv_threshold {
+        score = error + params.contour_algo_lambda * energy;
+
+        if score <= min_threshold || (score - prev_score).abs() <= conv_threshold {
             break;
         }
 
         // adjust dem, increasing frequency decreasing amplitude
+        let filter_half_size = ((params.contour_algo_steps - iterations) as f64
+            / params.contour_algo_steps as f64
+            * 30.) as usize;
+        let filter_amplitude =
+            (params.contour_algo_steps - iterations) as f64 / (params.contour_algo_steps as f64);
+
         adjusted_dem.adjust(
             true_dem,
-            &interpolated_dfm,
-            (params.contour_algo_steps - iterations) as usize * 30,
-            0.5 * (params.contour_algo_steps - iterations + 1) as f64
-                / (params.contour_algo_steps + 1) as f64,
+            &interpolated_dem,
+            filter_half_size,
+            filter_amplitude,
         );
-        prev_error = error;
+        prev_score = score;
         iterations += 1;
 
         contours.0.clear();
@@ -127,17 +137,19 @@ pub fn compute_naive_contours(
                 .add_object(MapObject::LineObject(c_object));
         }
     }
+
+    (error, energy)
 }
 
-// used for raw and smoothed contour extraction.
+// used for raw and smoothed contour extraction, with scoring which complicates it a bit
 // smoothing happens on the DEM level
 pub fn extract_contours(
-    dem: &Dfm,
+    true_dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
-) {
+) -> (f64, f64) {
     {
         // to make sure the old drawable map features are cleared even if no features are added
         let mut map = map.lock().unwrap();
@@ -152,8 +164,27 @@ pub fn extract_contours(
         params.contour_interval
     };
 
+    let dem = if params.contour_algorithm == ContourAlgo::Raw {
+        true_dem
+    } else {
+        &true_dem.smoothen(15., 15, params.contour_algo_steps as usize)
+    };
+
     let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
+
+    let clip_poly = Polygon::new(
+        LineString::new(vec![
+            true_dem.index2coord(0, 0),
+            true_dem.index2coord(SIDE_LENGTH - 1, 0),
+            true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
+            true_dem.index2coord(0, SIDE_LENGTH - 1),
+            true_dem.index2coord(0, 0),
+        ]),
+        vec![],
+    );
+
+    let mut contour_set = ContourSet::with_capacity(c_levels);
 
     for c_index in 0..c_levels {
         let c_level = c_index as f64 * effective_interval + start_level;
@@ -162,22 +193,36 @@ pub fn extract_contours(
 
         contours = contours.simplify(&crate::SIMPLIFICATION_DIST);
 
-        contours = cut_overlay.clip(&contours, false);
+        // should clip the contours
+        contours = clip_poly.clip(&contours, false);
 
-        let symbol = if c_level % (5. * params.contour_interval) == 0. {
+        contour_set.0.push(ContourLevel::new(contours, c_level));
+    }
+
+    let mut interpolated_dem = dem.clone();
+    contour_set.interpolate(&mut interpolated_dem, dem).unwrap();
+
+    let error = true_dem.error(&interpolated_dem);
+    let energy = contour_set.energy(1);
+
+    for c_level in contour_set.0 {
+        let contours = cut_overlay.clip(&c_level.lines, false);
+
+        let symbol = if c_level.z % (5. * params.contour_interval) == 0. {
             LineSymbol::IndexContour
-        } else if c_level % params.contour_interval == 0. {
+        } else if c_level.z % params.contour_interval == 0. {
             LineSymbol::Contour
         } else {
             LineSymbol::Formline
         };
         for c in contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
-            c_object.add_elevation_tag(c_level);
+            c_object.add_elevation_tag(c_level.z);
 
             map.lock()
                 .unwrap()
                 .add_object(MapObject::LineObject(c_object));
         }
     }
+    (error, energy)
 }
