@@ -1,5 +1,9 @@
 use crate::raster::Dfm;
-use omap::{LineObject, LineSymbol, MapObject, Omap, Symbol, TagTrait};
+use omap::{
+    objects::{LineObject, TagTrait},
+    symbols::LineSymbol,
+    Omap,
+};
 
 use geo::{BooleanOps, Polygon, Simplify};
 use std::sync::{Arc, Mutex};
@@ -26,17 +30,15 @@ pub fn compute_basemap(
         let num_lines = bm_contours.0.len();
         {
             let mut aq_map = map.lock().unwrap();
-            aq_map.reserve_capacity(Symbol::BasemapContour, num_lines);
-            aq_map.reserve_capacity(Symbol::NegBasemapContour, num_lines);
+            aq_map.reserve_capacity(LineSymbol::BasemapContour, num_lines);
+            aq_map.reserve_capacity(LineSymbol::NegBasemapContour, num_lines);
         }
 
         for c in bm_contours {
             let mut c_object = LineObject::from_line_string(c, LineSymbol::BasemapContour);
             c_object.add_elevation_tag(bm_level);
 
-            map.lock()
-                .unwrap()
-                .add_object(MapObject::LineObject(c_object));
+            map.lock().unwrap().add_object(c_object);
         }
     }
 }

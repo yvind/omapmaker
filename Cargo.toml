@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Øyvind Hjermstad"]
 description = "An application for generating orienteering maps from lidar data using AI"
-repository = "https://github.com/oyhj1801/omapmaker"
+repository = "https://github.com/yvind/omapmaker"
 
 [lib]
 name = "laz2omap"
@@ -17,12 +17,12 @@ path = "app/src/bin.rs"
 [dependencies]
 # gui
 eframe = "0.31.1"
-egui_autocomplete = {path = "../egui_autocomplete"}
+egui_autocomplete = "10.2.0"
 egui_double_slider = "0.7.0"
 # choose files
 rfd = "0.15.1"
 # slippy map tiles
-walkers = {path = "../walkers"}#{git = "https://github.com/oyhj1801/walkers"}
+walkers = { path = "../walkers" } #{git = "https://github.com/yvind/walkers"}
 # projections
 crs-definitions = { version = "0.3.0", features = ["wkt"] }
 proj4rs = { version = "0.1.5", features = ["crs-definitions"] }
@@ -32,23 +32,20 @@ kiddo = "5.0.3"
 # randomness for kd-tree stability
 fastrand = "2.1.1"
 
-# delauney and interpolation
-spade = {path = "../spade"}
+# delaunay and interpolation
+spade = { path = "../spade" }
 
 # geometry
 geo = "0.29.3"
-polyline2bezier = {path = "../polyline2bezier"}
+linestring2bezier = "0.2.0"
 
 # read/write las/laz/copc
 las = { version = "0.9.3", features = ["laz"] }
-las-crs = {git = "https://github.com/oyhj1801/las-crs"}
-copc-rs = {path = "../copc-rs"}#{git = "https://github.com/oyhj1801/copc-rs"}
+las-crs = "0.1.1"
+copc-rs = "0.5.0"
 
 # omap-writing
-omap = {path = "../omap"}#{git = "https://github.com/oyhj1801/omap-rs"}
+omap = { version = "0.2.0", features = ["merge_lines"] }
 
 # better error enums
 thiserror = "2.0.8"
-
-# enum iteration
-strum = "0.27.0"

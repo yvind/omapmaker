@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, MapObject, Omap};
+use omap::{objects::AreaObject, symbols::SymbolTrait, Omap};
 
 use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
@@ -42,11 +42,9 @@ pub fn compute_intensity(
         }
 
         for polygon in polygons.into_iter() {
-            let cliff_object = AreaObject::from_polygon(polygon, filter.symbol.try_into().unwrap());
+            let intensity_object = AreaObject::from_polygon(polygon, filter.symbol, 0.);
 
-            map.lock()
-                .unwrap()
-                .add_object(MapObject::AreaObject(cliff_object));
+            map.lock().unwrap().add_object(intensity_object);
         }
     }
 }

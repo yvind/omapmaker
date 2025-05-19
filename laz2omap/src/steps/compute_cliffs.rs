@@ -1,7 +1,11 @@
 use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol};
+use omap::{
+    objects::AreaObject,
+    symbols::{AreaSymbol, SymbolTrait},
+    Omap,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -27,16 +31,12 @@ pub fn compute_cliffs(
     cliff_polygons = cliff_polygons.simplify(&crate::SIMPLIFICATION_DIST);
     let num_polys = cliff_polygons.0.len();
     {
-        map.lock()
-            .unwrap()
-            .reserve_capacity(Symbol::from(symbol), num_polys);
+        map.lock().unwrap().reserve_capacity(symbol, num_polys);
     }
 
     for polygon in cliff_polygons.into_iter() {
-        let cliff_object = AreaObject::from_polygon(polygon, symbol);
+        let cliff_object = AreaObject::from_polygon(polygon, symbol, 0.);
 
-        map.lock()
-            .unwrap()
-            .add_object(MapObject::AreaObject(cliff_object));
+        map.lock().unwrap().add_object(cliff_object);
     }
 }

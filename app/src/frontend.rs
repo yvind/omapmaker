@@ -2,13 +2,13 @@ use crate::backend::OmapBackend;
 use crate::gui::{modals::OmapModal, GuiVariables, ProcessStage};
 use eframe::egui;
 use laz2omap::comms::{messages::*, OmapComms};
-use walkers::{sources, HttpOptions, HttpTiles, MapMemory, Position};
+use walkers::{sources, HttpTiles, MapMemory, Position};
 
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
-    // background osm map
-    pub http_tiles: HttpTiles,
+    // background osm and otm tiles
+    pub http_tiles: (HttpTiles, HttpTiles),
     pub map_memory: MapMemory,
     pub home: Position,
     pub home_zoom: f64,
@@ -111,13 +111,9 @@ impl OmapMaker {
         // starts the backend on its own thread
         OmapBackend::boot(backend_comms, ctx.clone());
 
-        let http_tiles = HttpTiles::with_options(
-            sources::OpenStreetMap,
-            HttpOptions {
-                cache: None, //Some(".osm_cache".into()),
-                ..Default::default()
-            },
-            ctx.clone(),
+        let http_tiles = (
+            HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
+            HttpTiles::new(sources::OpenTopoMap, ctx.clone()),
         );
 
         Self {
@@ -175,7 +171,7 @@ impl OmapMaker {
             Variable::ConnectedComponents(vec) => self.gui_variables.connected_components = vec,
             Variable::MapTile(drawable_omap) => self.gui_variables.update_map(*drawable_omap),
             Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
-            Variable::TileNeighbours(tn) => self.gui_variables.subtile_neighbours = tn,
+            Variable::TileNeighbours(tn) => self.gui_variables.subtile_neighbors = tn,
             Variable::ContourScore(score) => self.gui_variables.contour_score = score,
         }
     }
@@ -275,7 +271,7 @@ impl OmapMaker {
                         self.gui_variables.file_params.paths
                             [self.gui_variables.file_params.selected_file.unwrap_or(0)]
                         .clone(),
-                        self.gui_variables.subtile_neighbours
+                        self.gui_variables.subtile_neighbors
                             [self.gui_variables.selected_tile.unwrap_or(0)],
                     ))
                     .unwrap();

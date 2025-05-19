@@ -2,11 +2,17 @@ use std::collections::HashMap;
 
 use geo::LineString;
 use laz2omap::parameters::{FileParameters, MapParameters};
-use strum::IntoEnumIterator;
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
-use laz2omap::DrawableOmap;
+use laz2omap::{drawable::DrawOrder, DrawableOmap};
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum TileProvider {
+    #[default]
+    OpenStreetMap,
+    OpenTopoMap,
+}
 
 pub struct GuiVariables {
     // lidar file overlay
@@ -26,7 +32,7 @@ pub struct GuiVariables {
 
     // checkboxes
     pub drop_checkboxes: Vec<bool>,
-    pub visability_checkboxes: HashMap<omap::Symbol, bool>,
+    pub visibility_checkboxes: HashMap<omap::symbols::Symbol, bool>,
     // true when the backend is busy generating a map tile
     pub generating_map_tile: bool,
 
@@ -39,7 +45,7 @@ pub struct GuiVariables {
     // sub_tile parameters
     pub selected_tile: Option<usize>,
     pub subtile_boundaries: Vec<[walkers::Position; 4]>,
-    pub subtile_neighbours: Vec<[Option<usize>; 9]>,
+    pub subtile_neighbors: Vec<[Option<usize>; 9]>,
 
     // for storing the generated map tile for drawing
     pub map_tile: Option<DrawableOmap>,
@@ -47,17 +53,20 @@ pub struct GuiVariables {
 
     // the contour "score" (error, energy)
     pub contour_score: (f32, f32),
+
+    // tile provider
+    pub tile_provider: TileProvider,
 }
 
 impl Default for GuiVariables {
     fn default() -> Self {
-        let mut visability_checkboxes = HashMap::new();
-        for symbol in omap::Symbol::iter() {
-            visability_checkboxes.insert(symbol, true);
+        let mut visibility_checkboxes = HashMap::new();
+        for symbol in omap::symbols::Symbol::draw_order() {
+            visibility_checkboxes.insert(symbol, true);
         }
 
         Self {
-            visability_checkboxes,
+            visibility_checkboxes,
             map_opacity: 1.0,
             polygon_filter: LineString::new(vec![]),
 
@@ -74,8 +83,9 @@ impl Default for GuiVariables {
             generating_map_tile: Default::default(),
             selected_tile: Default::default(),
             subtile_boundaries: Default::default(),
-            subtile_neighbours: Default::default(),
+            subtile_neighbors: Default::default(),
             contour_score: Default::default(),
+            tile_provider: Default::default(),
         }
     }
 }

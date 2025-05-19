@@ -5,7 +5,11 @@ use crate::parameters::MapParameters;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
-use omap::{AreaObject, AreaSymbol, MapObject, Omap, Symbol};
+use omap::{
+    objects::AreaObject,
+    symbols::{AreaSymbol, SymbolTrait},
+    Omap,
+};
 
 use std::sync::{Arc, Mutex};
 
@@ -33,16 +37,12 @@ pub fn compute_vegetation(
 
     let num_polys = veg_polygons.0.len();
     {
-        map.lock()
-            .unwrap()
-            .reserve_capacity(Symbol::from(symbol), num_polys);
+        map.lock().unwrap().reserve_capacity(symbol, num_polys);
     }
 
     for polygon in veg_polygons {
-        let veg_object = AreaObject::from_polygon(polygon, symbol);
+        let veg_object = AreaObject::from_polygon(polygon, symbol, 0.);
 
-        map.lock()
-            .unwrap()
-            .add_object(MapObject::AreaObject(veg_object));
+        map.lock().unwrap().add_object(veg_object);
     }
 }

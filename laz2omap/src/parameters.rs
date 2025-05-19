@@ -1,3 +1,4 @@
+use omap::symbols::AreaSymbol;
 use std::{fmt::Display, path::PathBuf};
 
 #[derive(Clone)]
@@ -20,10 +21,10 @@ pub struct MapParameters {
     // debug params
     pub contour_algo_steps: u8,
     pub contour_algo_lambda: f64,
-    pub formline_prune: f64,
+    pub form_line_prune: f64,
 
     pub basemap_contour: bool,
-    pub formlines: bool,
+    pub form_lines: bool,
     pub bezier_bool: bool,
 }
 
@@ -38,10 +39,10 @@ impl Default for MapParameters {
             green: (0.4, 0.6, 0.8),
             yellow: 0.01,
             contour_algo_steps: 0,
-            contour_algo_lambda: 0.02,
+            contour_algo_lambda: 0.01,
             basemap_contour: false,
-            formlines: false,
-            formline_prune: 0.5,
+            form_lines: false,
+            form_line_prune: 0.5,
             bezier_bool: true,
             cliff: 0.75,
             contour_algorithm: Default::default(),
@@ -86,7 +87,7 @@ impl Display for ContourAlgo {
 pub struct IntensityFilter {
     pub low: f64,
     pub high: f64,
-    pub symbol: omap::Symbol,
+    pub symbol: AreaSymbol,
 }
 
 impl Default for IntensityFilter {
@@ -94,7 +95,7 @@ impl Default for IntensityFilter {
         Self {
             low: 0.4,
             high: 0.6,
-            symbol: omap::Symbol::BareRock,
+            symbol: AreaSymbol::BareRock,
         }
     }
 }

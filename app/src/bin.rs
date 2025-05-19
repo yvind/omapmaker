@@ -9,7 +9,7 @@ use eframe::egui;
 use std::sync::Arc;
 
 fn main() {
-    let icon_bytes = include_bytes!("./assets/icon.data");
+    let icon_bytes = include_bytes!("./assets/icon.raw");
     let rgba = icon_bytes.to_vec();
 
     let icon = eframe::egui::IconData {

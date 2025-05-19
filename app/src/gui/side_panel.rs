@@ -1,5 +1,4 @@
-use laz2omap::{comms::messages::*, parameters::ContourAlgo};
-use strum::IntoEnumIterator;
+use laz2omap::{comms::messages::*, drawable::DrawOrder, parameters::ContourAlgo};
 
 use super::modals::OmapModal;
 use crate::OmapMaker;
@@ -405,14 +404,14 @@ impl OmapMaker {
                     );
                 });
                 ui.checkbox(
-                    &mut self.gui_variables.map_params.formlines,
+                    &mut self.gui_variables.map_params.form_lines,
                     "Add formlines to the map.",
                 );
-                ui.add_enabled_ui(self.gui_variables.map_params.formlines, |ui| {
+                ui.add_enabled_ui(self.gui_variables.map_params.form_lines, |ui| {
                     ui.label("Formline pruning parameter. \nBigger number gives more formlines.");
                     ui.add(
                         egui::Slider::new(
-                            &mut self.gui_variables.map_params.formline_prune,
+                            &mut self.gui_variables.map_params.form_line_prune,
                             0.0..=1.,
                         )
                         .show_value(true),
@@ -516,10 +515,10 @@ impl OmapMaker {
                         egui::ComboBox::from_id_salt(format!("Intensity filter {}", i + 1))
                             .selected_text(format!("{:?}", intensity_filter.symbol))
                             .show_ui(ui, |ui| {
-                                for area_symbol in omap::AreaSymbol::iter() {
+                                for area_symbol in omap::symbols::AreaSymbol::draw_order() {
                                     ui.selectable_value(
                                         &mut intensity_filter.symbol,
-                                        area_symbol.into(),
+                                        area_symbol,
                                         format!("{:?}", area_symbol),
                                     );
                                 }

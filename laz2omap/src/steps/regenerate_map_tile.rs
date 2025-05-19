@@ -1,6 +1,9 @@
 #![allow(clippy::too_many_arguments)]
 
-use omap::{AreaSymbol, Omap, Symbol};
+use omap::{
+    symbols::{AreaSymbol, LineSymbol},
+    Omap,
+};
 
 use crate::{
     comms::messages::*,
@@ -24,11 +27,10 @@ pub fn regenerate_map_tile(
     params: MapParameters,
     old_params: Option<MapParameters>,
 ) {
-    let omap = Arc::new(Mutex::new(Omap::new(
-        ref_point,
-        params.output_epsg,
-        params.scale,
-    )));
+    let omap = Arc::new(Mutex::new(
+        Omap::new(ref_point, params.scale, params.output_epsg, None)
+            .expect("Could not generate new map tile"),
+    ));
 
     let needs_update = needs_regeneration(&params, old_params.as_ref());
 
@@ -71,8 +73,8 @@ pub fn regenerate_map_tile(
         } else if !params.basemap_contour {
             // make sure that the basemap gets removed if it is toggeled off
             let mut ac_map = omap.lock().unwrap();
-            ac_map.reserve_capacity(Symbol::NegBasemapContour, 0);
-            ac_map.reserve_capacity(Symbol::BasemapContour, 0);
+            ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
+            ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
         }
 
         if needs_update.yellow {
@@ -217,8 +219,8 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
     update_map.contours = new.contour_algorithm != old.contour_algorithm
         || new.contour_algo_lambda != old.contour_algo_lambda
         || new.contour_algo_steps != old.contour_algo_steps
-        || new.formlines != old.formlines
-        || (new.formlines && (new.formline_prune != old.formline_prune))
+        || new.form_lines != old.form_lines
+        || (new.form_lines && (new.form_line_prune != old.form_line_prune))
         || new.contour_interval != old.contour_interval;
 
     update_map

@@ -38,7 +38,7 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
         let crs_res = las_crs::parse_las_crs(reader.header());
 
         if let Ok(epsg) = crs_res {
-            crs_epsg.push(epsg.0);
+            crs_epsg.push(epsg.horizontal);
         } else {
             crs_epsg.push(u16::MAX);
             num_crs_less += 1;

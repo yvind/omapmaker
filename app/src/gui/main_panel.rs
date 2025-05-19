@@ -26,19 +26,27 @@ impl OmapMaker {
         } else {
             Self::clamp_zoom_pos(&mut self.map_memory);
 
-            map_controls::render_acknowledge(ui, self.http_tiles.attribution(), rect);
+            let http_tiles = match self.gui_variables.tile_provider {
+                super::gui_variables::TileProvider::OpenStreetMap => &mut self.http_tiles.0,
+                super::gui_variables::TileProvider::OpenTopoMap => &mut self.http_tiles.1,
+            };
 
-            ui.colored_label(
-                egui::Color32::RED,
-                "If you see this the OSM background-map did not load.\nThe app still works, just not as nice to look at.",
-            );
+            map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
+            map_controls::render_background_map_choice(ui, &mut self.gui_variables.tile_provider);
+
+            let error_text = match self.gui_variables.tile_provider {
+                super::gui_variables::TileProvider::OpenStreetMap => {
+                    "If you see this the OSM background-map did not load."
+                }
+                super::gui_variables::TileProvider::OpenTopoMap => {
+                    "If you see this the OTM background-map did not load."
+                }
+            };
+
+            ui.vertical_centered(|ui| ui.colored_label(egui::Color32::RED, error_text));
 
             // OSM map
-            Maps::Map(Map::new(
-                Some(&mut self.http_tiles),
-                &mut self.map_memory,
-                self.home,
-            ))
+            Maps::Map(Map::new(Some(http_tiles), &mut self.map_memory, self.home))
         };
 
         // add plugins
@@ -64,7 +72,7 @@ impl OmapMaker {
                     &self.gui_variables.subtile_boundaries,
                     self.gui_variables.selected_tile,
                     true,
-                    Some(&self.gui_variables.subtile_neighbours),
+                    Some(&self.gui_variables.subtile_neighbors),
                 ));
                 map.with_plugin(map_plugins::ClickListener::new(
                     &self.gui_variables.subtile_boundaries,
@@ -85,7 +93,7 @@ impl OmapMaker {
             }
             ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
                 &self.gui_variables.map_tile,
-                &self.gui_variables.visability_checkboxes,
+                &self.gui_variables.visibility_checkboxes,
                 self.gui_variables.map_opacity,
             )),
             ProcessStage::ExportDone => {
@@ -141,7 +149,7 @@ impl OmapMaker {
                 map_controls::render_symbol_toggles(
                     ui,
                     &self.gui_variables.map_tile,
-                    &mut self.gui_variables.visability_checkboxes,
+                    &mut self.gui_variables.visibility_checkboxes,
                 );
             }
             _ => (),

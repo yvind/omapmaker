@@ -3,7 +3,11 @@ use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
 use crate::SIDE_LENGTH;
 
-use omap::{LineObject, LineSymbol, MapObject, Omap, TagTrait};
+use omap::{
+    objects::{LineObject, TagTrait},
+    symbols::LineSymbol,
+    Omap,
+};
 
 use geo::{BooleanOps, LineString, Polygon, Simplify};
 
@@ -21,14 +25,14 @@ pub fn compute_naive_contours(
     {
         // to make sure the old drawable map features are cleared even if no features are added
         let mut map = map.lock().unwrap();
-        map.reserve_capacity(omap::Symbol::Contour, 1);
-        map.reserve_capacity(omap::Symbol::Formline, 1);
-        map.reserve_capacity(omap::Symbol::IndexContour, 1);
+        map.reserve_capacity(LineSymbol::Contour, 1);
+        map.reserve_capacity(LineSymbol::FormLine, 1);
+        map.reserve_capacity(LineSymbol::IndexContour, 1);
     }
 
     let (min_threshold, conv_threshold) = thresholds;
 
-    let effective_interval = if params.formlines {
+    let effective_interval = if params.form_lines {
         params.contour_interval / 2.
     } else {
         params.contour_interval
@@ -126,15 +130,13 @@ pub fn compute_naive_contours(
         } else if z % params.contour_interval == 0. {
             LineSymbol::Contour
         } else {
-            LineSymbol::Formline
+            LineSymbol::FormLine
         };
         for c in c_contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
             c_object.add_elevation_tag(z);
 
-            map.lock()
-                .unwrap()
-                .add_object(MapObject::LineObject(c_object));
+            map.lock().unwrap().add_object(c_object);
         }
     }
 
@@ -153,12 +155,12 @@ pub fn extract_contours(
     {
         // to make sure the old drawable map features are cleared even if no features are added
         let mut map = map.lock().unwrap();
-        map.reserve_capacity(omap::Symbol::Contour, 1);
-        map.reserve_capacity(omap::Symbol::Formline, 1);
-        map.reserve_capacity(omap::Symbol::IndexContour, 1);
+        map.reserve_capacity(LineSymbol::Contour, 1);
+        map.reserve_capacity(LineSymbol::FormLine, 1);
+        map.reserve_capacity(LineSymbol::IndexContour, 1);
     }
 
-    let effective_interval = if params.formlines {
+    let effective_interval = if params.form_lines {
         params.contour_interval / 2.
     } else {
         params.contour_interval
@@ -213,15 +215,13 @@ pub fn extract_contours(
         } else if c_level.z % params.contour_interval == 0. {
             LineSymbol::Contour
         } else {
-            LineSymbol::Formline
+            LineSymbol::FormLine
         };
         for c in contours {
             let mut c_object = LineObject::from_line_string(c, symbol);
             c_object.add_elevation_tag(c_level.z);
 
-            map.lock()
-                .unwrap()
-                .add_object(MapObject::LineObject(c_object));
+            map.lock().unwrap().add_object(c_object);
         }
     }
     (error, energy)

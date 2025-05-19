@@ -4,7 +4,7 @@ use eframe::egui;
 use laz2omap::DrawableOmap;
 use walkers::{sources::Attribution, MapMemory, Position};
 
-use super::ProcessStage;
+use super::{gui_variables::TileProvider, ProcessStage};
 
 pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
     egui::Window::new("Zoom")
@@ -132,18 +132,18 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
 pub fn render_symbol_toggles(
     ui: &mut egui::Ui,
     map_tile: &Option<DrawableOmap>,
-    checkboxes: &mut HashMap<omap::Symbol, bool>,
+    checkboxes: &mut HashMap<omap::symbols::Symbol, bool>,
 ) {
     if let Some(map) = map_tile {
-        // add a window for toggeling visabilities
-        egui::Window::new("Symbol Visability Toggles")
+        // add a window for toggling visibilities
+        egui::Window::new("Symbol Visibility Toggles")
             .default_open(false)
             .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
             .show(ui.ctx(), |ui| {
                 let mut keys = map.keys().collect::<Vec<_>>();
                 keys.sort();
                 for symbol in keys {
-                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{:?}", symbol));
+                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{symbol}"));
                 }
             });
     }
@@ -182,9 +182,22 @@ pub fn render_acknowledge(ui: &egui::Ui, attribution: Attribution, rect: egui::R
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
+        .max_width(300.)
         .anchor(egui::Align2::LEFT_BOTTOM, [rect.min.x + 10., -10.])
         .show(ui.ctx(), |ui| {
             ui.hyperlink_to(attribution.text, attribution.url)
                 .on_hover_text(attribution.url);
+        });
+}
+
+pub fn render_background_map_choice(ui: &egui::Ui, source: &mut TileProvider) {
+    egui::Window::new("Background Map")
+        .collapsible(false)
+        .resizable(false)
+        .title_bar(false)
+        .anchor(egui::Align2::RIGHT_TOP, [-120., 20.])
+        .show(ui.ctx(), |ui| {
+            ui.radio_value(source, TileProvider::OpenStreetMap, "OpenStreetMap");
+            ui.radio_value(source, TileProvider::OpenTopoMap, "OpenTopoMap");
         });
 }
