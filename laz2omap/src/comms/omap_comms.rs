@@ -2,7 +2,7 @@ use std::sync::mpsc;
 
 use super::messages::{BackendTask, FrontendTask};
 
-// Multiple Producer Singel Consumer, i.e. a sender is cloneable but the receiver not
+// Multiple Producer Single Consumer, i.e. a sender is cloneable but the receiver not
 // A dual message passing channel for the frontend and backend
 // OmapComms are created in pairs, one for the backend and one for the frontend
 // so they can both both send and receive FrontendTask/BackendTask

@@ -1,3 +1,4 @@
+use crate::Result;
 use std::collections::{hash_map::Keys, HashMap};
 
 use eframe::{
@@ -5,6 +6,7 @@ use eframe::{
     emath,
 };
 use geo::Coord;
+use log::{log, Level};
 use proj4rs::{transform::transform, Proj};
 
 use omap::{objects::MapObject, symbols::*, Omap};
@@ -13,13 +15,13 @@ use super::*;
 
 trait Drawable {
     /// converting a symbol to something drawable to screen
-    /// needs to know what crs to project to lat/lon
+    /// needs to know what crs to unproject to lat/lon
     fn into_drawable_geometry(
         self,
         ref_point: Coord,
         crs: Option<u16>,
         bezier_error: Option<f64>,
-    ) -> DrawableGeometry;
+    ) -> Result<DrawableGeometry>;
 }
 
 impl Drawable for MapObject {
@@ -28,13 +30,13 @@ impl Drawable for MapObject {
         ref_point: Coord,
         crs: Option<u16>,
         bezier_error: Option<f64>,
-    ) -> DrawableGeometry {
-        match self {
+    ) -> Result<DrawableGeometry> {
+        let dg = match self {
             MapObject::AreaObject(area_object) => DrawableGeometry::Polygon(
-                DrawablePolygonObject::from_geo(area_object.polygon, ref_point, crs, bezier_error),
+                DrawablePolygonObject::from_geo(area_object.polygon, ref_point, crs, bezier_error)?,
             ),
             MapObject::LineObject(line_object) => DrawableGeometry::Line(
-                DrawableLineObject::from_geo(line_object.line, ref_point, crs, bezier_error),
+                DrawableLineObject::from_geo(line_object.line, ref_point, crs, bezier_error)?,
             ),
             MapObject::PointObject(point_object) => {
                 DrawableGeometry::Point(DrawablePointObject::from_geo(
@@ -42,12 +44,13 @@ impl Drawable for MapObject {
                     point_object.rotation,
                     ref_point,
                     crs,
-                ))
+                )?)
             }
             MapObject::TextObject(text_object) => DrawableGeometry::Text(
-                DrawableTextObject::from_geo(text_object.point, text_object.text, ref_point, crs),
+                DrawableTextObject::from_geo(text_object.point, text_object.text, ref_point, crs)?,
             ),
-        }
+        };
+        Ok(dg)
     }
 }
 pub struct DrawableOmap {
@@ -87,11 +90,6 @@ impl DrawableOmap {
                 .collect()
         };
 
-        // draw-order is determined by the order in the vec
-        // should be in reverse order of ISOM color appendix,
-        // ie yellow first and so on
-        // this must be revised when multithreading is added as
-        // the order may vary then
         DrawableOmap {
             hull: global_hull,
             map_objects: Self::into_drawable(omap.objects, ref_point, crs, bezier_error),
@@ -116,7 +114,16 @@ impl DrawableOmap {
             drawable_objs.insert(
                 symbol,
                 objs.into_iter()
-                    .map(|o| o.into_drawable_geometry(ref_point, crs, bezier))
+                    .filter_map(|o| match o.into_drawable_geometry(ref_point, crs, bezier) {
+                        Ok(o) => Some(o),
+                        Err(e) => {
+                            log!(
+                                Level::Warn,
+                                "Unable to convert a map object to drawable map object with error {e}"
+                            );
+                            None
+                        }
+                    })
                     .collect(),
             );
         }
@@ -126,9 +133,12 @@ impl DrawableOmap {
 
     pub fn update(&mut self, mut other: Self) {
         // assumes that the omap used for any update and only differs in the contained map_objects
-
         for (key, objs) in other.map_objects.drain() {
-            let _ = self.map_objects.insert(key, objs);
+            if objs.is_empty() {
+                let _ = self.map_objects.remove(&key);
+            } else {
+                let _ = self.map_objects.insert(key, objs);
+            }
         }
     }
 
@@ -155,8 +165,7 @@ impl DrawableOmap {
         ));
 
         for symbol in Symbol::draw_order() {
-            let vis = visibilities.get(&symbol);
-            if let Some(vis) = vis {
+            if let Some(vis) = visibilities.get(&symbol) {
                 if !vis {
                     continue;
                 }

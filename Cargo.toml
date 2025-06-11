@@ -45,7 +45,10 @@ las-crs = "0.1.1"
 copc-rs = "0.5.0"
 
 # omap-writing
-omap = { version = "0.2.0", features = ["merge_lines"] }
+omap = { version = "0.2.3", features = ["merge_lines"] }
 
 # better error enums
 thiserror = "2.0.8"
+
+# logging warnings and non-panic errors
+log = "0.4.27"

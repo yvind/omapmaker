@@ -3127,9 +3127,9 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ed1fba90c97f6abdee0d9c82d98cd892819200e844d7a0581071aecb2e9f359"
+checksum = "9544d143b6c8f0af61bff77fa2f50d1165288f8cc1d1a54389feae000cf5375b"
 dependencies = [
  "chrono",
  "geo-types",
@@ -3155,6 +3155,7 @@ dependencies = [
  "las",
  "las-crs",
  "linestring2bezier",
+ "log",
  "omap",
  "proj4rs",
  "rfd",
@@ -3442,6 +3443,7 @@ checksum = "fed6bd261b7a9ec9308845b375e7d8bcf19394b30d2fcc150bd9c04b2fd14788"
 dependencies = [
  "console_log",
  "crs-definitions",
+ "geo-types",
  "js-sys",
  "lazy_static",
  "thiserror 1.0.69",

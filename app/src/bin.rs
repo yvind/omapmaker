@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 mod assets;
 mod backend;
 mod frontend;

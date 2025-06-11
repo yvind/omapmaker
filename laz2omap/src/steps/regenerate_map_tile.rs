@@ -71,7 +71,7 @@ pub fn regenerate_map_tile(
                 &omap,
             );
         } else if !params.basemap_contour {
-            // make sure that the basemap gets removed if it is toggeled off
+            // make sure that the basemap gets removed if it is toggled off
             let mut ac_map = omap.lock().unwrap();
             ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
             ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
@@ -159,15 +159,33 @@ pub fn regenerate_map_tile(
         .into_inner()
         .unwrap();
 
+    if old_params.is_none() {
+        // remove empty hashmap entries
+        // no need to do this if the tile is simply an update
+        // as then the empty entries are used to mark
+        // removal of objects from the map
+        let mut remove_keys = vec![];
+        for key in omap.objects.keys() {
+            if let Some(vals) = omap.objects.get(key) {
+                if vals.is_empty() {
+                    remove_keys.push(*key);
+                }
+            }
+        }
+        for key in remove_keys {
+            let _ = omap.objects.remove(&key);
+        }
+    }
+
+    omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+    omap.mark_basemap_depressions();
+    omap.make_dotknolls_and_depressions(params.dot_knoll_area.0, params.dot_knoll_area.1, 1.5);
+
     let bez_error = if params.bezier_bool {
         Some(params.bezier_error)
     } else {
         None
     };
-
-    omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
-    omap.mark_basemap_depressions();
-    omap.make_dotknolls_and_depressions(10., 160., 1.5);
 
     let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
 
@@ -221,7 +239,9 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
         || new.contour_algo_steps != old.contour_algo_steps
         || new.form_lines != old.form_lines
         || (new.form_lines && (new.form_line_prune != old.form_line_prune))
-        || new.contour_interval != old.contour_interval;
+        || new.contour_interval != old.contour_interval
+        || new.dot_knoll_area.0 != old.dot_knoll_area.0
+        || new.dot_knoll_area.1 != old.dot_knoll_area.1;
 
     update_map
 }

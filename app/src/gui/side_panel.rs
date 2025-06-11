@@ -366,9 +366,9 @@ impl OmapMaker {
                     if self.gui_variables.map_params.contour_algorithm
                         == ContourAlgo::NormalFieldSmoothing
                     {
-                        ui.label("Number of smoothing iterations");
+                        ui.label("Number of smoothing iterations (usual range 5-15)");
                     } else {
-                        ui.label("Number of error correction iterations");
+                        ui.label("Number of error correction iterations (usual range 1-3)");
                     }
                     ui.add(
                         egui::Slider::new(
@@ -405,16 +405,35 @@ impl OmapMaker {
                 });
                 ui.checkbox(
                     &mut self.gui_variables.map_params.form_lines,
-                    "Add formlines to the map.",
+                    "Add form lines to the map.",
                 );
                 ui.add_enabled_ui(self.gui_variables.map_params.form_lines, |ui| {
-                    ui.label("Formline pruning parameter. \nBigger number gives more formlines.");
+                    ui.label("Form line pruning parameter. \nBigger number gives more form lines.");
                     ui.add(
                         egui::Slider::new(
                             &mut self.gui_variables.map_params.form_line_prune,
                             0.0..=1.,
                         )
                         .show_value(true),
+                    );
+                });
+                ui.label("Area filter for marking small knolls as dotknolls:");
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::DragValue::new(&mut self.gui_variables.map_params.dot_knoll_area.0)
+                            .range(0.0..=225.0),
+                    );
+                    ui.add(
+                        DoubleSlider::new(
+                            &mut self.gui_variables.map_params.dot_knoll_area.0,
+                            &mut self.gui_variables.map_params.dot_knoll_area.1,
+                            0.0..=225.0,
+                        )
+                        .separation_distance(0.),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut self.gui_variables.map_params.dot_knoll_area.1)
+                            .range(0.0..=225.0),
                     );
                 });
 

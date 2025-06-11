@@ -1,30 +1,35 @@
 # OmapMaker
-### Generate geo-refrenced and magnetic north aligned .omap files directly from lidar data
+### Generate georeferenced and magnetic north aligned .omap files directly from lidar data
 
 An application for generating orienteering maps (.omap file) from ground-classified lidar data.
 
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
-The written omap-file is automatically georefrenced.
+The written omap-file is automatically georeferenced.
 
 Overlapping lidar files not yet handled
 
 ### Implemented:
-- GUI
+- GUI with live map parameter tuning
 - Raw, smoothed and interpolation-based (experimental) contours
-- Basemap-contours
+- Basemap-contours (with marked depressions)
 - Vegetation
-- Writes to Omap-file
+- Writes Omap-files that are 
+    - georeferenced (if a CRS is detected in the lidar files or provided)
+    - aligned towards the Magnetic North according to the world magnetic model based on the maps creation date and geographical position
+    - correctly scaled including calculating the auxiliary scale factor based on the map centre's elevation
+    - in scales 1:10_000 or 1:15_000 with minimum symbol size filtering
 - Supports both bezier and polyline output
 - Polygon filter for only mapping parts of the provided lidar files
-- Magnetic North calculation from the world magnetic model based on the date and geographical map position
-- .las and .laz to .copc.laz conversion tool
-- Coordinate system assignment tool for CRS-less lidar-files (Lantmäteriet in Sweden uses EPSG:3006, but often does not write the _mandatory_ CRS-VLR to their files)
+- .las and .laz to .copc.laz conversion
+- Coordinate system assignment tool for CRS-less lidar-files (Lantmäteriet in Sweden uses EPSG:3006, but often skips writing the __mandatory__ CRS-VLR to their files)
 - CRS-less files are supported if the CRS is unknown
-- Non-connected lidar file detection (Usefull when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
-- OpenStreetMap background map
+- Non-connected lidar file detection (Useful when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
+- OpenStreetMap or OpenTopoMap background map
+- Experimental lidar-intensity filter
 
 ### WIP:
-- AI based contours
+- AI contours
+- Buffering on polygons to remove small holes and too thin areas or exaggerating small details
 
 ### Wish List:
 - Water detection
@@ -39,9 +44,9 @@ Overlapping lidar files not yet handled
 ### Parameter tuning in OmapMaker
 Tune the map parameters on a test tile before generating the whole map
 
-![Parameter tuning in OmapMaker](./docs/parameter_tuning.png)
+![Parameter tuning in OmapMaker](./images/parameter_tuning.png)
 
 ### Adding a polygon filter to lidar files
 Add a polygon filter. Only lidar points inside the filter are used in map generation
 
-![Polygon filter in OmapMaker](./docs/polygon_filter.png)
+![Polygon filter in OmapMaker](./images/polygon_filter.png)

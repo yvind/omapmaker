@@ -1,3 +1,4 @@
+use crate::Result;
 use eframe::{
     egui::{self, Align2, Color32, Stroke},
     epaint::CubicBezierShape,
@@ -58,25 +59,25 @@ impl DrawablePolygonObject {
         ref_point: Coord,
         crs: Option<u16>,
         _bezier_error: Option<f64>,
-    ) -> Self {
+    ) -> Result<Self> {
         let tri = poly.earcut_triangles_raw();
 
-        let mut verts: Vec<(f64, f64)> = tri
+        let mut vertices: Vec<(f64, f64)> = tri
             .vertices
             .chunks(2)
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
         let obj = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326).unwrap();
-            let local_proj = Proj::from_epsg_code(epsg).unwrap();
+            let geo_proj = Proj::from_epsg_code(4326)?;
+            let local_proj = Proj::from_epsg_code(epsg)?;
 
-            let _ = transform(&local_proj, &geo_proj, verts.as_mut_slice());
-            verts
+            transform(&local_proj, &geo_proj, vertices.as_mut_slice())?;
+            vertices
                 .iter()
                 .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
                 .collect()
         } else {
-            verts
+            vertices
                 .iter()
                 .map(|c| walkers::pos_from_lon_lat(c.0, c.1))
                 .collect()
@@ -87,7 +88,7 @@ impl DrawablePolygonObject {
             vertices: obj,
         };
 
-        DrawablePolygonObject(triangulation)
+        Ok(DrawablePolygonObject(triangulation))
     }
 }
 
@@ -172,8 +173,8 @@ impl DrawableLineObject {
             ui.painter().add(egui::Shape::dashed_line(
                 &points,
                 *stroke,
-                20. * stroke.width,
-                2. * stroke.width,
+                40. * stroke.width,
+                8. * stroke.width,
             ));
         } else {
             ui.painter().line(points, *stroke);
@@ -185,25 +186,21 @@ impl DrawableLineObject {
         ref_point: Coord,
         crs: Option<u16>,
         bezier_error: Option<f64>,
-    ) -> Self {
+    ) -> Result<Self> {
         let line = if let Some(bezier_error) = bezier_error {
             let mut vec = Vec::with_capacity(line.0.len());
             let bezier_string = BezierString::from_linestring(line, bezier_error);
 
             for segment in bezier_string.0 {
+                vec.push(segment.start);
                 if let Some(handles) = segment.handles {
-                    vec.push(segment.start);
                     vec.push(handles.0);
                     vec.push(handles.1);
-                    vec.push(segment.end);
                 } else {
-                    let a = segment.start + (segment.end - segment.start) / 3.;
-                    let b = segment.start + (segment.end - segment.start) * 2. / 3.;
-                    vec.push(segment.start);
-                    vec.push(a);
-                    vec.push(b);
-                    vec.push(segment.end);
+                    vec.push(segment.start + (segment.end - segment.start) / 3.);
+                    vec.push(segment.start + (segment.end - segment.start) * 2. / 3.);
                 }
+                vec.push(segment.end);
             }
             LineString::new(vec)
         } else {
@@ -211,8 +208,8 @@ impl DrawableLineObject {
         };
 
         let obj = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326).unwrap();
-            let local_proj = Proj::from_epsg_code(epsg).unwrap();
+            let geo_proj = Proj::from_epsg_code(4326)?;
+            let local_proj = Proj::from_epsg_code(epsg)?;
 
             let mut line: Vec<(f64, f64)> = line
                 .0
@@ -220,7 +217,7 @@ impl DrawableLineObject {
                 .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
                 .collect();
 
-            let _ = transform(&local_proj, &geo_proj, line.as_mut_slice());
+            transform(&local_proj, &geo_proj, line.as_mut_slice())?;
 
             line.iter()
                 .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
@@ -231,7 +228,7 @@ impl DrawableLineObject {
                 .collect()
         };
 
-        DrawableLineObject(obj, bezier_error.is_some())
+        Ok(DrawableLineObject(obj, bezier_error.is_some()))
     }
 }
 
@@ -271,20 +268,20 @@ impl DrawablePointObject {
         rot: f64,
         ref_point: Coord,
         crs: Option<u16>,
-    ) -> Self {
+    ) -> Result<Self> {
         let pos = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326).unwrap();
-            let local_proj = Proj::from_epsg_code(epsg).unwrap();
+            let geo_proj = Proj::from_epsg_code(4326)?;
+            let local_proj = Proj::from_epsg_code(epsg)?;
 
             let mut p = (point.x() + ref_point.x, point.y() + ref_point.y);
-            let _ = transform(&local_proj, &geo_proj, &mut p);
+            transform(&local_proj, &geo_proj, &mut p)?;
 
             walkers::pos_from_lon_lat(p.0.to_degrees(), p.1.to_degrees())
         } else {
             walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
         };
 
-        DrawablePointObject(pos, rot as f32)
+        Ok(DrawablePointObject(pos, rot as f32))
     }
 }
 
@@ -309,10 +306,10 @@ impl DrawableTextObject {
         text: String,
         ref_point: Coord,
         crs: Option<u16>,
-    ) -> Self {
+    ) -> Result<Self> {
         let pos = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326).unwrap();
-            let local_proj = Proj::from_epsg_code(epsg).unwrap();
+            let geo_proj = Proj::from_epsg_code(4326)?;
+            let local_proj = Proj::from_epsg_code(epsg)?;
 
             let mut p = (point.x() + ref_point.x, point.y() + ref_point.y);
             let _ = transform(&local_proj, &geo_proj, &mut p);
@@ -322,6 +319,6 @@ impl DrawableTextObject {
             walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
         };
 
-        DrawableTextObject(pos, text)
+        Ok(DrawableTextObject(pos, text))
     }
 }

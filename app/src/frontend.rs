@@ -31,7 +31,7 @@ pub struct OmapMaker {
 
 impl eframe::App for OmapMaker {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // register all events that has occured and monitor for backend panic
+        // register all events that has occurred and monitor for backend panic
         loop {
             match self.comms.try_recv() {
                 Ok(event) => self.on_frontend_task(event),
@@ -111,9 +111,15 @@ impl OmapMaker {
         // starts the backend on its own thread
         OmapBackend::boot(backend_comms, ctx.clone());
 
+        let rand_server = fastrand::choice([
+            sources::OpenTopoServer::A,
+            sources::OpenTopoServer::B,
+            sources::OpenTopoServer::C,
+        ])
+        .unwrap();
         let http_tiles = (
             HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
-            HttpTiles::new(sources::OpenTopoMap, ctx.clone()),
+            HttpTiles::new(sources::OpenTopoMap(rand_server), ctx.clone()),
         );
 
         Self {
