@@ -1,3 +1,4 @@
+use crate::comms::messages::FrontendTask;
 use crate::geometry::{ContourLevel, ContourSet};
 use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
@@ -11,10 +12,11 @@ use omap::{
 
 use geo::{BooleanOps, LineString, Polygon, Simplify};
 
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc::Sender, Arc, Mutex};
 
 // used for the naive iterative interpolation error correction contour algorithm
 pub fn compute_naive_contours(
+    sender: &Sender<FrontendTask>,
     true_dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
@@ -84,7 +86,7 @@ pub fn compute_naive_contours(
 
         // interpolate the contour set
         contours
-            .interpolate(&mut interpolated_dem, &adjusted_dem)
+            .interpolate(&mut interpolated_dem, &adjusted_dem, sender)
             .unwrap();
 
         // calculate the error
@@ -146,6 +148,7 @@ pub fn compute_naive_contours(
 // used for raw and smoothed contour extraction, with scoring which complicates it a bit
 // smoothing happens on the DEM level
 pub fn extract_contours(
+    sender: &Sender<FrontendTask>,
     true_dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
@@ -202,7 +205,9 @@ pub fn extract_contours(
     }
 
     let mut interpolated_dem = dem.clone();
-    contour_set.interpolate(&mut interpolated_dem, dem).unwrap();
+    contour_set
+        .interpolate(&mut interpolated_dem, dem, sender)
+        .unwrap();
 
     let error = true_dem.error(&interpolated_dem);
     let energy = contour_set.energy(1);

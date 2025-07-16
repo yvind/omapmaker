@@ -479,17 +479,16 @@ impl OmapMaker {
                         .show_value(true),
                 );
 
-                ui.add_space(20.);
+                // clamp the greens to the correct order
+                clamp_greens(&mut self.gui_variables.map_params.green);
 
+                ui.add_space(20.);
                 ui.label(egui::RichText::new("Cliff parameters").strong());
                 ui.add(
                     egui::Slider::new(&mut self.gui_variables.map_params.cliff, 0.2..=2.0)
                         .text("Cliff")
                         .show_value(true),
                 );
-
-                // clamp the greens to the correct order
-                clamp_greens(&mut self.gui_variables.map_params.green);
 
                 ui.add_space(20.);
                 ui.label(egui::RichText::new("Geometry simplification parameters").strong());
@@ -503,7 +502,7 @@ impl OmapMaker {
                     ui.add(
                         egui::Slider::new(
                             &mut self.gui_variables.map_params.bezier_error,
-                            0.01..=1.0,
+                            0.01..=2.0,
                         )
                         .fixed_decimals(2)
                         .show_value(true),
@@ -611,8 +610,8 @@ impl OmapMaker {
 
         ui.add_space(20.);
         ui.label("If you like this application. Please star the project on Github:)");
-        ui.hyperlink_to("OmapMaker on Github", "https://github.com/oyhj1801/")
-            .on_hover_text("https://github.com/oyhj1801/");
+        ui.hyperlink_to("OmapMaker on Github", "https://github.com/yvind/")
+            .on_hover_text("https://github.com/yvind/");
 
         ui.add_space(20.);
         if ui.button("Start a new map").clicked() {

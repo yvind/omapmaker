@@ -160,7 +160,7 @@ impl DrawableOmap {
         // not necessarily a convex polygon, but close
         ui.painter().add(egui::Shape::convex_polygon(
             points,
-            Color32::WHITE.gamma_multiply(0.8).gamma_multiply(opacity),
+            Color32::WHITE.gamma_multiply(opacity), //.gamma_multiply(0.8),
             Stroke::new(2., Color32::RED),
         ));
 

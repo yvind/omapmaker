@@ -13,6 +13,7 @@ use crate::{
 };
 
 use std::sync::{mpsc::Sender, Arc, Mutex};
+use std::thread;
 
 pub fn regenerate_map_tile(
     sender: Sender<FrontendTask>,
@@ -24,135 +25,173 @@ pub fn regenerate_map_tile(
     hull: &geo::Polygon,
     ref_point: geo::Coord,
     z_range: (f64, f64),
-    params: MapParameters,
-    old_params: Option<MapParameters>,
+    params: &MapParameters,
+    old_params: &Option<MapParameters>,
 ) {
     let omap = Arc::new(Mutex::new(
         Omap::new(ref_point, params.scale, params.output_epsg, None)
             .expect("Could not generate new map tile"),
     ));
 
-    let needs_update = needs_regeneration(&params, old_params.as_ref());
+    let needs_update = needs_regeneration(params, old_params.as_ref());
 
-    let mut tot_energy = 0.;
-    let mut tot_error = 0.;
-
-    for i in 0..dem.len() {
-        if needs_update.contours {
-            let (error, energy) = match params.contour_algorithm {
-                crate::parameters::ContourAlgo::AI => (0., 0.),
-                crate::parameters::ContourAlgo::NaiveIterations => {
-                    crate::steps::compute_naive_contours(
-                        &dem[i],
-                        z_range,
-                        &cut_bounds[i],
-                        (0.1, 0.0),
-                        &params,
-                        &omap,
-                    )
-                }
-                crate::parameters::ContourAlgo::NormalFieldSmoothing => {
-                    crate::steps::extract_contours(&dem[i], z_range, &cut_bounds[i], &params, &omap)
-                }
-                crate::parameters::ContourAlgo::Raw => {
-                    crate::steps::extract_contours(&dem[i], z_range, &cut_bounds[i], &params, &omap)
-                }
-            };
-            tot_error += error;
-            tot_energy += energy;
-        }
-
-        if params.basemap_contour && params.basemap_interval >= 0.1 && needs_update.basemap {
-            crate::steps::compute_basemap(
-                &dem[i],
-                z_range,
-                &cut_bounds[i],
-                params.basemap_interval,
-                &omap,
-            );
-        } else if !params.basemap_contour {
-            // make sure that the basemap gets removed if it is toggled off
-            let mut ac_map = omap.lock().unwrap();
-            ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
-            ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
-        }
-
-        if needs_update.yellow {
-            crate::steps::compute_vegetation(
-                &drm[i],
-                Threshold::Upper(params.yellow),
-                hull.exterior(),
-                &cut_bounds[i],
-                AreaSymbol::RoughOpenLand,
-                &params,
-                &omap,
-            );
-        }
-
-        if needs_update.l_green {
-            crate::steps::compute_vegetation(
-                &drm[i],
-                Threshold::Lower(params.green.0),
-                hull.exterior(),
-                &cut_bounds[i],
-                AreaSymbol::LightGreen,
-                &params,
-                &omap,
-            );
-        }
-
-        if needs_update.m_green {
-            crate::steps::compute_vegetation(
-                &drm[i],
-                Threshold::Lower(params.green.1),
-                hull.exterior(),
-                &cut_bounds[i],
-                AreaSymbol::MediumGreen,
-                &params,
-                &omap,
-            );
-        }
-
-        if needs_update.d_green {
-            crate::steps::compute_vegetation(
-                &drm[i],
-                Threshold::Lower(params.green.2),
-                hull.exterior(),
-                &cut_bounds[i],
-                AreaSymbol::DarkGreen,
-                &params,
-                &omap,
-            );
-        }
-
-        if needs_update.cliff {
-            crate::steps::compute_cliffs(
-                &g_dem[i],
-                hull.exterior(),
-                &cut_bounds[i],
-                &params,
-                &omap,
-            );
-        }
-
-        if needs_update.intensities {
-            // make sure the symbols used in the prev generation are cleared
-            if let Some(old_params) = &old_params {
-                let mut map = omap.lock().unwrap();
-                for filter in old_params.intensity_filters.iter() {
-                    map.reserve_capacity(filter.symbol, 0);
-                }
+    if needs_update.intensities {
+        // make sure the symbols used in the prev generation are cleared
+        if let Some(old_params) = &old_params {
+            let mut map = omap.lock().unwrap();
+            for filter in old_params.intensity_filters.iter() {
+                map.reserve_capacity(filter.symbol, 0);
             }
-
-            crate::steps::compute_intensity(
-                &dim[i],
-                hull.exterior(),
-                &cut_bounds[i],
-                &params,
-                &omap,
-            )
         }
     }
+    if !params.basemap_contour {
+        // make sure that the basemap gets removed if it is toggled off
+        let mut ac_map = omap.lock().unwrap();
+        ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
+        ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
+    }
+
+    let tot_energy = Arc::new(Mutex::new(0.));
+    let tot_error = Arc::new(Mutex::new(0.));
+
+    thread::scope(|s| {
+        for i in 0..dem.len() {
+            let omap = omap.clone();
+            let tot_energy = tot_energy.clone();
+            let tot_error = tot_error.clone();
+            let sender = sender.clone();
+
+            let _ = thread::Builder::new()
+                .stack_size(crate::STACK_SIZE * 1024 * 1024)
+                .spawn_scoped(s, move || {
+                    if needs_update.contours {
+                        let (error, energy) = match &params.contour_algorithm {
+                            crate::parameters::ContourAlgo::AI => (0., 0.),
+                            crate::parameters::ContourAlgo::NaiveIterations => {
+                                crate::steps::compute_naive_contours(
+                                    &sender,
+                                    &dem[i],
+                                    z_range,
+                                    &cut_bounds[i],
+                                    (0.1, 0.0),
+                                    params,
+                                    &omap,
+                                )
+                            }
+                            crate::parameters::ContourAlgo::NormalFieldSmoothing => {
+                                crate::steps::extract_contours(
+                                    &sender,
+                                    &dem[i],
+                                    z_range,
+                                    &cut_bounds[i],
+                                    params,
+                                    &omap,
+                                )
+                            }
+                            crate::parameters::ContourAlgo::Raw => crate::steps::extract_contours(
+                                &sender,
+                                &dem[i],
+                                z_range,
+                                &cut_bounds[i],
+                                params,
+                                &omap,
+                            ),
+                        };
+                        {
+                            let mut energy_lock =
+                                tot_energy.lock().expect("Could not lock energy mutex");
+                            *energy_lock += energy;
+                        }
+                        {
+                            let mut error_lock =
+                                tot_error.lock().expect("Could not lock error mutex");
+                            *error_lock += error;
+                        }
+                    }
+
+                    if params.basemap_contour
+                        && params.basemap_interval >= 0.1
+                        && needs_update.basemap
+                    {
+                        crate::steps::compute_basemap(
+                            &dem[i],
+                            z_range,
+                            &cut_bounds[i],
+                            params.basemap_interval,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.yellow {
+                        crate::steps::compute_vegetation(
+                            &drm[i],
+                            Threshold::Upper(params.yellow),
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            AreaSymbol::RoughOpenLand,
+                            params,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.l_green {
+                        crate::steps::compute_vegetation(
+                            &drm[i],
+                            Threshold::Lower(params.green.0),
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            AreaSymbol::LightGreen,
+                            params,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.m_green {
+                        crate::steps::compute_vegetation(
+                            &drm[i],
+                            Threshold::Lower(params.green.1),
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            AreaSymbol::MediumGreen,
+                            params,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.d_green {
+                        crate::steps::compute_vegetation(
+                            &drm[i],
+                            Threshold::Lower(params.green.2),
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            AreaSymbol::DarkGreen,
+                            params,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.cliff {
+                        crate::steps::compute_cliffs(
+                            &g_dem[i],
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            params,
+                            &omap,
+                        );
+                    }
+
+                    if needs_update.intensities {
+                        crate::steps::compute_intensity(
+                            &dim[i],
+                            hull.exterior(),
+                            &cut_bounds[i],
+                            params,
+                            &omap,
+                        )
+                    }
+                });
+        }
+    });
 
     let mut omap = Arc::<Mutex<Omap>>::into_inner(omap)
         .unwrap()
@@ -190,13 +229,20 @@ pub fn regenerate_map_tile(
     let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
 
     if needs_update.contours {
-        tot_energy /= dem.len() as f64;
-        tot_error /= dem.len() as f64;
+        let mut tot_energy = tot_energy
+            .lock()
+            .expect("Could not lock energy mutex after scoped threads");
+        let mut tot_error = tot_error
+            .lock()
+            .expect("Could not lock error mutex after scoped threads");
+
+        *tot_energy /= dem.len() as f64;
+        *tot_error /= dem.len() as f64;
 
         sender
             .send(FrontendTask::UpdateVariable(Variable::ContourScore((
-                tot_error as f32,
-                tot_energy as f32,
+                *tot_error as f32,
+                *tot_energy as f32,
             ))))
             .unwrap();
     }

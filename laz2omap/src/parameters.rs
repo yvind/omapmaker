@@ -1,7 +1,7 @@
 use omap::symbols::AreaSymbol;
 use std::{fmt::Display, path::PathBuf};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MapParameters {
     pub output_epsg: Option<u16>,
 

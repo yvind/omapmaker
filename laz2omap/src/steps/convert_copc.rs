@@ -62,7 +62,7 @@ pub fn convert_copc(
                 transform_file(path, input_epsg[pi], output_epsg.unwrap())
             } else if conversion_needed && !transform_needed {
                 // the lidar file needs to be converted to copc
-                convert_file(path, input_epsg[pi])
+                convert_file(path, input_epsg[pi], sender.clone())
             } else {
                 // the lidar file needs both to be transformed into another CRS and written to COPC
                 convert_and_transform_file(path, input_epsg[pi], output_epsg.unwrap())
@@ -94,7 +94,7 @@ fn transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf
     unimplemented!("Transforming CRS not yet supported");
 }
 
-fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
+fn convert_file(mut path: PathBuf, current_epsg: u16, sender: Sender<FrontendTask>) -> PathBuf {
     let mut las_reader = Reader::from_path(&path).unwrap();
 
     let raw_path = path.clone();
@@ -104,7 +104,7 @@ fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
     let mut header = las_reader.header().clone();
 
     if current_epsg == u16::MAX {
-        // Local coords => remove all crs vlrs from the header (should not be any) and add our own
+        // Local coords => remove all CRS VLRs from the header (should not be any) and add our own
         // Needs to be done because copc demands a crs vlr to exist
         let mut raw_head = header.clone().into_raw().unwrap();
 
@@ -114,14 +114,14 @@ fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
 
         for evlr in header.evlrs() {
             match (evlr.user_id.to_lowercase().as_str(), evlr.record_id) {
-                // not forwarding these vlrs
+                // not forwarding these VLRs
                 ("lasf_projection", 2112 | 34735..=34737) => (),
                 _ => builder.evlrs.push(evlr.clone()),
             }
         }
         for vlr in header.vlrs() {
             match (vlr.user_id.to_lowercase().as_str(), vlr.record_id) {
-                // not forwarding these vlrs
+                // not forwarding these VLRs
                 ("lasf_projection", 2112 | 34735..=34737) => (),
                 _ => builder.vlrs.push(vlr.clone()),
             }
@@ -203,10 +203,11 @@ fn convert_file(mut path: PathBuf, current_epsg: u16) -> PathBuf {
     let result = copc_writer.write(points, num_points);
 
     if let Err(error) = result {
-        println!(
+        let _ = sender.send(FrontendTask::Log(
+        format!(
             "Invalidity of type {:?} discovered in lidar file: {:?}, one or more point(s) ignored when converting to copc",
             error, raw_path
-        );
+        )));
     }
 
     path

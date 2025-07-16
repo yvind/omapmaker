@@ -8,6 +8,7 @@ use omap::Omap;
 use std::{
     num::NonZero,
     sync::{mpsc::Sender, Arc, Mutex},
+    thread,
 };
 
 pub fn make_map(
@@ -16,93 +17,86 @@ pub fn make_map(
     file_params: FileParameters,
     polygon_filter: Option<geo::Polygon>,
 ) {
-    sender
-        .send(FrontendTask::Log("Map Generation!".to_string()))
-        .unwrap();
+    let _ = sender.send(FrontendTask::Log("Starting map generation!".to_string()));
 
     let num_threads = std::thread::available_parallelism()
         .unwrap_or(NonZero::new(8_usize).unwrap())
         .get();
 
-    sender
-        .send(FrontendTask::Log(format!(
-            "Running on {} threads",
-            num_threads
-        )))
-        .unwrap();
+    let _ = sender.send(FrontendTask::Log(format!(
+        "Running on {} threads",
+        num_threads
+    )));
 
     // step 0: figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
+    /*
     let (laz_neighbour_map, laz_paths, ref_point) = steps::map_laz(file_params.paths.clone());
     let laz_paths = Arc::new(laz_paths);
+    */
 
-    let map = Arc::new(Mutex::new(Omap::new(
-        ref_point,
-        map_params.output_epsg,
-        map_params.scale,
-    )));
+    let laz_paths = file_params.paths;
+
+    /*
+    let map = Arc::new(Mutex::new(
+        Omap::new(ref_point, map_params.scale, map_params.output_epsg, masl)
+            .expect("Could not create map file"),
+    ));
+    */
 
     for fi in 0..laz_paths.len() {
         #[rustfmt::skip]
-        sender.send(FrontendTask::Log("\n***********************************************".to_string())).unwrap();
+        let _ = sender.send(FrontendTask::Log("\n***********************************************".to_string()));
         #[rustfmt::skip]
-        sender.send(FrontendTask::Log(format!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len()))).unwrap();
+        let _ = sender.send(FrontendTask::Log(format!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len())));
         #[rustfmt::skip]
-        sender.send(FrontendTask::Log(format!("\t{:?}", laz_paths[fi].file_name().unwrap()))).unwrap();
+        let _ = sender.send(FrontendTask::Log(format!("\t{:?}", laz_paths[fi].file_name().unwrap())));
         #[rustfmt::skip]
-        sender.send(FrontendTask::Log("-----------------------------------------------".to_string())).unwrap();
-        sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
+        let _ = sender.send(FrontendTask::Log("-----------------------------------------------".to_string()));
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
 
+        /*
         // first get the sub-tile bounds for the current lidar file
-        // need tile-neighbour maps, bounds, cut-bounds and touched files (for the edge tiles)
+        // need tile-neighbor maps, bounds, cut-bounds and touched files (for the edge tiles)
         let (tile_paths, tile_cut_bounds) =
-            steps::retile_laz(num_threads, &laz_neighbour_map[fi], laz_paths.clone());
+            steps::
+            (num_threads, &laz_neighbour_map[fi], laz_paths.clone());
 
-        for thread_i in 0..num_threads {
-            let map = map.clone();
-            let tile_path = tile_paths.clone();
-            let args = args.clone();
-            let cut_bounds = cut_bounds.clone();
-            let sender = sender.clone();
+        thread::scope(|s| {
+            for thread_i in 0..num_threads {
+                let map = map.clone();
+                let tile_path = tile_paths.clone();
+                let cut_bounds = cut_bounds.clone();
+                let sender = sender.clone();
 
-            thread_handles.push(
-                std::thread::Builder::new()
-                    .stack_size(crate::STACK_SIZE * 1024 * 1024) // needs to increase thread stack size as dfms are kept on the stack
+                thread::Builder::new()
+                    .stack_size(crate::STACK_SIZE * 1024 * 1024)
                     .spawn(move || {
-                        // start mt here
-                        // first get the point iterator for each tile
-                        // pass that iterator to compute map objects
                         steps::compute_map_objects(
                             sender.clone(),
-                            map.clone(),
+                            map,
                             &map_params,
                             tile_paths,
                             ref_point,
                             tile_cut_bounds,
                             num_threads,
                         );
-                    })
-                    .unwrap(),
-            );
-        }
-        for handle in thread_handles {
-            handle.join().unwrap();
-        }
+                    });
+            }
+        });
+        */
 
-        // join threads here
-
-        // merge line symbols
-        {
-            let map_guard = map.lock().unwrap();
-            map_guard.merge_lines(crate::MERGE_DELTA);
-        }
-
-        sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
     }
 
-    let omap = Arc::<Mutex<Omap>>::into_inner(map)
-        .expect("Could not get inner value of arc, stray refrence somewhere")
+    /*
+
+    let mut omap = Arc::<Mutex<Omap>>::into_inner(map)
+        .expect("Could not get inner value of arc, stray reference somewhere")
         .into_inner()
         .expect("Map mutex poisoned, a thread panicked while holding mutex");
+
+    // merge line symbols
+    omap.merge_lines(crate::MERGE_DELTA);
 
     sender
         .send(FrontendTask::Log("Writing Omap file...".to_string()))
@@ -115,9 +109,8 @@ pub fn make_map(
     };
 
     omap.write_to_file(file_params.save_location.clone(), bezier_error);
-    sender.send(FrontendTask::Log("Done!".to_string())).unwrap();
+    */
 
-    sender
-        .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
-        .unwrap();
+    thread::sleep(std::time::Duration::from_millis(5000));
+    sender.send(FrontendTask::Log("Done!".to_string())).unwrap();
 }

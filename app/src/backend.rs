@@ -84,6 +84,7 @@ impl OmapBackend {
                             polygon,
                         );
                     }
+
                     BackendTask::InitializeMapTile(path, tiles) => {
                         let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
                             steps::initialize_map_tile(self.comms.clone_sender(), path, tiles);
@@ -96,6 +97,7 @@ impl OmapBackend {
                         self.ref_point = ref_point;
                         self.z_range = z_range;
                     }
+
                     BackendTask::RegenerateMap(params) => {
                         assert!(!self.map_tile_dem.is_empty());
                         steps::regenerate_map_tile(
@@ -108,14 +110,15 @@ impl OmapBackend {
                             &self.hull,
                             self.ref_point,
                             self.z_range,
-                            *params.clone(),
-                            self.map_params.clone(),
+                            &params,
+                            &self.map_params,
                         );
 
                         self.map_params = Some(*params);
                         // to force the update function to run
                         self.ctx.request_repaint();
                     }
+
                     BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
                         // transform the linestring to output coords
                         let local_polygon_filter = project::polygon::from_walkers_map_coords(
@@ -123,17 +126,15 @@ impl OmapBackend {
                             polygon_filter,
                         );
 
-                        // we are not going back here so can clear the dems to free some memory
+                        // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        /*
                         steps::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
                             local_polygon_filter,
                         );
-                        */
 
                         self.comms
                             .send(FrontendTask::TaskComplete(TaskDone::MakeMap))

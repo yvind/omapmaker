@@ -1,4 +1,6 @@
-use crate::{geometry::MapLineString, raster::Dfm, SIDE_LENGTH};
+use std::sync::mpsc;
+
+use crate::{comms::messages::FrontendTask, geometry::MapLineString, raster::Dfm, SIDE_LENGTH};
 
 use geo::{Coord, MultiLineString, Vector2DOps};
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
@@ -10,7 +12,12 @@ impl ContourSet {
         ContourSet(Vec::with_capacity(num_levels))
     }
 
-    pub fn interpolate(&self, interpolated_dem: &mut Dfm, adjusted_dem: &Dfm) -> crate::Result<()> {
+    pub fn interpolate(
+        &self,
+        interpolated_dem: &mut Dfm,
+        adjusted_dem: &Dfm,
+        sender: &mpsc::Sender<FrontendTask>,
+    ) -> crate::Result<()> {
         let tri = self.triangulate(adjusted_dem);
         let nn = tri.natural_neighbor();
 
@@ -23,12 +30,16 @@ impl ContourSet {
                     nn.interpolate_gradient(|p| p.data().z, |p| p.data().grad, 1., coords)
                 {
                     if elev.is_nan() {
-                        println!("Nan in c1 interpolating!");
+                        let _ = sender.send(FrontendTask::Log(
+                            "WARN: Nan in c1 interpolating!".to_string(),
+                        ));
                     } else {
                         interpolated_dem[(y_index, x_index)] = elev;
                     }
                 } else {
-                    println!("DEM coord outside of contour hull");
+                    let _ = sender.send(FrontendTask::Log(
+                        "WARN: DEM coord outside of contour hull!".to_string(),
+                    ));
                 }
             }
         }
@@ -116,12 +127,12 @@ impl ContourSet {
             }
         }
 
-        // must be loaded in a stable way bc the gradient lenghts in the triangulation
-        // needs to derived from the neighbours defined by the triangulation
+        // must be loaded in a stable way bc the gradient lengths in the triangulation
+        // needs to derived from the neighbors defined by the triangulation
         let mut tri = DelaunayTriangulation::bulk_load_stable(points.clone()).unwrap();
 
         // We have the normalized direction of the gradients. Now get the length
-        // skip 4 beacuse of the 4 ghosts
+        // skip 4 because of the 4 ghosts
         let mut grads = vec![];
         let mut vertices = vec![];
         for v in tri.vertices().skip(4) {
@@ -131,7 +142,7 @@ impl ContourSet {
             let v_norm_grad = v.data().grad;
 
             for neighbour in v.out_edges().map(|e| e.to()) {
-                // get vec from v to neighbour
+                // get vec from v to neighbor
                 let n_pos = neighbour.position();
 
                 let diff = [
