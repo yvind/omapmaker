@@ -44,9 +44,9 @@ Overlapping lidar files not yet handled
 ### Parameter tuning in OmapMaker
 Tune the map parameters on a test tile before generating the whole map
 
-![Parameter tuning in OmapMaker](./images/parameter_tuning.png)
+![Parameter tuning in OmapMaker](./readme_images/parameter_tuning.png)
 
 ### Adding a polygon filter to lidar files
 Add a polygon filter. Only lidar points inside the filter are used in map generation
 
-![Polygon filter in OmapMaker](./images/polygon_filter.png)
+![Polygon filter in OmapMaker](./readme_images/polygon_filter.png)

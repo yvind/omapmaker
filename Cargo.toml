@@ -6,13 +6,9 @@ authors = ["Øyvind Hjermstad"]
 description = "An application for generating orienteering maps from lidar data using AI"
 repository = "https://github.com/yvind/omapmaker"
 
-[lib]
-name = "laz2omap"
-path = "laz2omap/src/lib.rs"
-
 [[bin]]
 name = "OmapMaker"
-path = "app/src/bin.rs"
+path = "src/bin.rs"
 
 [dependencies]
 # gui
@@ -36,7 +32,7 @@ fastrand = "2.1.1"
 spade = { path = "../spade" }
 
 # geometry
-geo = "0.29.3"
+geo = "0.30.0"
 linestring2bezier = "0.2.0"
 
 # read/write las/laz/copc
