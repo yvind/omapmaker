@@ -1,6 +1,7 @@
 use crate::{
     drawable::DrawableOmap,
     gui::modals::OmapModal,
+    neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
 };
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ pub enum FrontendTask {
 pub enum BackendTask {
     ClearParams,
     TileSelectedFile(PathBuf, Option<u16>),
-    InitializeMapTile(PathBuf, [Option<usize>; 9]),
+    InitializeMapTile(PathBuf, Neighborhood),
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<u16>>),
     ConvertCopc(
@@ -78,7 +79,7 @@ pub enum SetCrs {
 pub enum Variable {
     MapTile(Box<DrawableOmap>),
     TileBounds(Vec<[walkers::Position; 4]>),
-    TileNeighbours(Vec<[Option<usize>; 9]>),
+    TileNeighbours(Vec<Neighborhood>),
     Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     Home(walkers::Position),

@@ -124,7 +124,7 @@ pub fn regenerate_map_tile(
                         crate::tile_gen::compute_vegetation(
                             &drm[i],
                             Threshold::Upper(params.yellow),
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             AreaSymbol::RoughOpenLand,
                             params,
@@ -136,7 +136,7 @@ pub fn regenerate_map_tile(
                         crate::tile_gen::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.0),
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             AreaSymbol::LightGreen,
                             params,
@@ -148,7 +148,7 @@ pub fn regenerate_map_tile(
                         crate::tile_gen::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.1),
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             AreaSymbol::MediumGreen,
                             params,
@@ -160,7 +160,7 @@ pub fn regenerate_map_tile(
                         crate::tile_gen::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.2),
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             AreaSymbol::DarkGreen,
                             params,
@@ -171,7 +171,7 @@ pub fn regenerate_map_tile(
                     if needs_update.cliff {
                         crate::tile_gen::compute_cliffs(
                             &g_dem[i],
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             params,
                             &omap,
@@ -181,7 +181,7 @@ pub fn regenerate_map_tile(
                     if needs_update.intensities {
                         crate::tile_gen::compute_intensity(
                             &dim[i],
-                            hull.exterior(),
+                            hull,
                             &cut_bounds[i],
                             params,
                             &omap,

@@ -10,6 +10,7 @@ mod frontend;
 mod geometry;
 mod gui;
 mod map_gen;
+mod neighbors;
 mod parameters;
 mod project;
 mod raster;

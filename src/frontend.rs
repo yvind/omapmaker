@@ -278,7 +278,8 @@ impl OmapMaker {
                             [self.gui_variables.file_params.selected_file.unwrap_or(0)]
                         .clone(),
                         self.gui_variables.subtile_neighbors
-                            [self.gui_variables.selected_tile.unwrap_or(0)],
+                            [self.gui_variables.selected_tile.unwrap_or(0)]
+                        .clone(),
                     ))
                     .unwrap();
             }

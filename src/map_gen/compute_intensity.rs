@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
+use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
 use omap::{objects::AreaObject, symbols::SymbolTrait, Omap};
 
 use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
 pub fn compute_intensity(
     dim: &Dfm,
-    convex_hull: &LineString,
+    convex_hull: &Polygon,
     cut_overlay: &Polygon,
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,

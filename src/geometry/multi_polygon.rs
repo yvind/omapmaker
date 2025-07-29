@@ -1,11 +1,11 @@
 use super::MapLineString;
 use geo::{BooleanOps, Contains};
-use geo::{LineString, MultiLineString, MultiPolygon, Polygon};
+use geo::{MultiLineString, MultiPolygon, Polygon};
 
 pub trait MapMultiPolygon {
     fn from_contours(
         contours: MultiLineString,
-        convex_hull: &LineString,
+        convex_hull: &Polygon,
         min_size: f64,
         invert: bool,
     ) -> MultiPolygon;
@@ -14,7 +14,7 @@ pub trait MapMultiPolygon {
 impl MapMultiPolygon for MultiPolygon {
     fn from_contours(
         mut contours: MultiLineString,
-        convex_hull: &LineString,
+        convex_hull: &Polygon,
         min_size: f64,
         invert: bool,
     ) -> MultiPolygon {
@@ -22,7 +22,7 @@ impl MapMultiPolygon for MultiPolygon {
 
         if contours.0.is_empty() {
             if invert {
-                polygons.push(Polygon::new(convex_hull.clone(), vec![]))
+                polygons.push(convex_hull.clone())
             }
             return MultiPolygon::new(polygons);
         }
@@ -58,7 +58,7 @@ impl MapMultiPolygon for MultiPolygon {
 
         // invert the polygons with respect to the convex hull if we want area below the contours
         if invert {
-            let hull = Polygon::new(convex_hull.clone(), vec![]);
+            let hull = convex_hull.clone();
             polygons = hull.difference(&polygons);
 
             // some edge connected polygons makes

@@ -6,6 +6,7 @@ use walkers::Position;
 use super::terminal_like::TerminalLike;
 use crate::{
     drawable::{DrawOrder, DrawableOmap},
+    neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
 };
 
@@ -47,7 +48,7 @@ pub struct GuiVariables {
     // sub_tile parameters
     pub selected_tile: Option<usize>,
     pub subtile_boundaries: Vec<[walkers::Position; 4]>,
-    pub subtile_neighbors: Vec<[Option<usize>; 9]>,
+    pub subtile_neighbors: Vec<Neighborhood>,
 
     // for storing the generated map tile for drawing
     pub map_tile: Option<DrawableOmap>,

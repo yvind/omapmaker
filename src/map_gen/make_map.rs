@@ -1,8 +1,11 @@
 use crate::{
     comms::messages::*,
     map_gen,
+    neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
+    Result,
 };
+use geo::{Area, BooleanOps, Intersects};
 use omap::Omap;
 
 use std::{
@@ -15,8 +18,8 @@ pub fn make_map(
     sender: Sender<FrontendTask>,
     map_params: MapParameters,
     file_params: FileParameters,
-    polygon_filter: Option<geo::Polygon>,
-) {
+    mut polygon_filter: Option<geo::Polygon>,
+) -> Result<()> {
     let _ = sender.send(FrontendTask::Log("Starting map generation!".to_string()));
 
     let num_threads = std::thread::available_parallelism()
@@ -28,17 +31,24 @@ pub fn make_map(
         num_threads
     )));
 
-    // step 0: figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
-    let (laz_neighbour_map, laz_paths, ref_point, masl) =
-        map_gen::map_laz(file_params.paths.clone(), &polygon_filter);
-    let laz_paths = Arc::new(laz_paths);
+    // Figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
+    let (laz_paths, laz_neighbour_map, bounds, ref_point, masl) =
+        map_gen::map_laz(&file_params.paths, &polygon_filter)?;
 
-    let laz_paths = file_params.paths;
+    let map = Arc::new(Mutex::new(Omap::new(
+        ref_point,
+        map_params.scale,
+        map_params.output_epsg,
+        Some(masl),
+    )?));
 
-    let map = Arc::new(Mutex::new(
-        Omap::new(ref_point, map_params.scale, map_params.output_epsg, masl)
-            .expect("Could not create map file"),
-    ));
+    if let Some(polygon) = &mut polygon_filter {
+        polygon.exterior_mut(|l| {
+            for c in l.0.iter_mut() {
+                *c = *c - ref_point;
+            }
+        });
+    }
 
     for fi in 0..laz_paths.len() {
         #[rustfmt::skip]
@@ -53,28 +63,90 @@ pub fn make_map(
 
         // first get the sub-tile bounds for the current lidar file
         // need tile-neighbor maps, bounds, cut-bounds and touched files (for the edge tiles)
-        let (tile_paths, tile_cut_bounds) =
-            map_gen::retile_bounds(num_threads, &laz_neighbour_map[fi], laz_paths.clone());
+        let (tile_bounds, mut cut_bounds, nx, ny) =
+            map_gen::retile_bounds(&bounds[fi], &laz_neighbour_map[fi]);
+
+        for cb in cut_bounds.iter_mut() {
+            *cb = geo::Rect::new(cb.min() - ref_point, cb.max() - ref_point);
+        }
+
+        let num_tiles = nx * ny;
+        let inc = 1. / num_tiles as f32;
 
         thread::scope(|s| {
-            for thread_i in 0..num_threads {
+            for mut thread_i in 0..num_threads {
                 let map = map.clone();
-                let tile_path = tile_paths.clone();
+                let tile_bounds = tile_bounds.clone();
                 let cut_bounds = cut_bounds.clone();
                 let sender = sender.clone();
+                let laz_neighbour_map = laz_neighbour_map.clone();
+                let laz_paths = laz_paths.clone();
+                let map_params = map_params.clone();
+                let polygon_filter = polygon_filter.clone();
 
-                thread::Builder::new()
+                let _ = thread::Builder::new()
                     .stack_size(crate::STACK_SIZE * 1024 * 1024)
-                    .spawn(move || {
-                        map_gen::compute_map_objects(
-                            sender.clone(),
-                            map,
-                            &map_params,
-                            tile_paths,
-                            ref_point,
-                            tile_cut_bounds,
-                            num_threads,
-                        );
+                    .spawn_scoped(s, move || {
+                        while thread_i < num_tiles {
+                            let edge_tile = NeighborSide::is_edge_tile(thread_i, nx, ny);
+
+                            if let Some(polygon) = &polygon_filter {
+                                if !cut_bounds[thread_i].intersects(polygon) {
+                                    thread_i += num_threads;
+                                    continue;
+                                }
+                            }
+
+                            let (cloud, mut hull) = match map_gen::read_laz(
+                                &laz_paths,
+                                &laz_neighbour_map[fi],
+                                tile_bounds[thread_i],
+                                edge_tile,
+                                ref_point,
+                            ) {
+                                Ok(p) => p,
+                                Err(e) => match e {
+                                    crate::Error::NoGroundPoints => {
+                                        thread_i += num_threads;
+                                        continue;
+                                    }
+                                    e => {
+                                        sender
+                                            .send(FrontendTask::Error(e.to_string(), true))
+                                            .unwrap();
+                                        continue;
+                                    }
+                                },
+                            };
+
+                            if let Some(polygon) = &polygon_filter {
+                                let mut mp = polygon.intersection(&hull);
+
+                                if mp.0.is_empty() {
+                                    thread_i += num_threads;
+                                    continue;
+                                }
+
+                                mp.0.sort_by(|a, b| {
+                                    a.signed_area()
+                                        .partial_cmp(&b.signed_area())
+                                        .expect("Non-normal polygon area")
+                                });
+                                hull = mp.0.swap_remove(0);
+                            }
+
+                            map_gen::compute_map_objects(
+                                &map,
+                                &map_params,
+                                cloud,
+                                hull,
+                                cut_bounds[thread_i],
+                            );
+                            sender
+                                .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)))
+                                .unwrap();
+                            thread_i += num_threads;
+                        }
                     });
             }
         });
@@ -87,8 +159,20 @@ pub fn make_map(
         .into_inner()
         .expect("Map mutex poisoned, a thread panicked while holding mutex");
 
+    sender
+        .send(FrontendTask::Log("Merging contour lines...".to_string()))
+        .unwrap();
+
     // merge line symbols
     omap.merge_lines(crate::MERGE_DELTA);
+    // mark basemap depressions as such
+    omap.mark_basemap_depressions();
+    // convert the smallest knolls and depressions to point symbols
+    omap.make_dotknolls_and_depressions(
+        map_params.dot_knoll_area.0,
+        map_params.dot_knoll_area.1,
+        1.5,
+    );
 
     sender
         .send(FrontendTask::Log("Writing Omap file...".to_string()))
@@ -100,7 +184,8 @@ pub fn make_map(
         None
     };
 
-    omap.write_to_file(file_params.save_location.clone(), bezier_error);
+    let _ = omap.write_to_file(file_params.save_location.clone(), bezier_error);
 
     sender.send(FrontendTask::Log("Done!".to_string())).unwrap();
+    Ok(())
 }

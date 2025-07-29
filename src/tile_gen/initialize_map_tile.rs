@@ -11,13 +11,14 @@ use std::{num::NonZero, path::PathBuf, sync::mpsc::Sender};
 use crate::{
     comms::messages::*,
     geometry::{MapRect, PointCloud, PointLaz},
+    neighbors::Neighborhood,
     raster::Dfm,
 };
 
 pub fn initialize_map_tile(
     sender: Sender<FrontendTask>,
     path: PathBuf,
-    tile_indecies: [Option<usize>; 9],
+    tile_indecies: Neighborhood,
 ) -> (
     Vec<Dfm>,
     Vec<Dfm>,
@@ -37,7 +38,7 @@ pub fn initialize_map_tile(
         .send(FrontendTask::ProgressBar(ProgressBar::Start))
         .unwrap();
 
-    let tile_indecies = tile_indecies.into_iter().flatten().collect::<Vec<usize>>();
+    let tile_indecies = tile_indecies.all_indices();
 
     let inc_size = 1. / tile_indecies.len() as f32;
 
@@ -166,8 +167,6 @@ pub fn initialize_map_tile(
         let dfm_bounds = point_cloud.get_dfm_dimensions();
 
         let hull = point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
-
-        let hull = Polygon::new(hull, vec![]);
 
         let tl = Coord {
             x: dfm_bounds.min.x,

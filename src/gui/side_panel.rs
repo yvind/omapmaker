@@ -483,7 +483,12 @@ impl OmapMaker {
                 );
 
                 // clamp the greens to the correct order
-                clamp_greens(&mut self.gui_variables.map_params.green);
+                {
+                    let greens = &mut self.gui_variables.map_params.green;
+                    greens.0 = greens.0.clamp(0., greens.1);
+                    greens.2 = greens.2.clamp(greens.1, 1.);
+                    greens.1 = greens.1.clamp(greens.0, greens.2);
+                }
 
                 ui.add_space(20.);
                 ui.label(egui::RichText::new("Cliff parameters").strong());
@@ -646,10 +651,4 @@ impl OmapMaker {
             }
         });
     }
-}
-
-fn clamp_greens(greens: &mut (f64, f64, f64)) {
-    greens.0 = greens.0.clamp(0., greens.1);
-    greens.2 = greens.2.clamp(greens.1, 1.);
-    greens.1 = greens.1.clamp(greens.0, greens.2);
 }

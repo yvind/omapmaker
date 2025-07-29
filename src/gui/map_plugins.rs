@@ -5,7 +5,7 @@ use geo::{LineString, Polygon, TriangulateEarcut};
 use walkers::{Plugin, Position, Projector};
 
 use super::ProcessStage;
-use crate::drawable::DrawableOmap;
+use crate::{drawable::DrawableOmap, neighbors::Neighborhood};
 
 const COLOR_LIST: [egui::Color32; 9] = [
     egui::Color32::ORANGE,
@@ -62,7 +62,7 @@ pub struct LasBoundaryPainter<'a> {
     boundaries: &'a Vec<[Position; 4]>,
     selected: Option<usize>,
     hover: bool,
-    neighbour_map: Option<&'a Vec<[Option<usize>; 9]>>,
+    neighbour_map: Option<&'a Vec<Neighborhood>>,
 }
 
 impl<'a> LasBoundaryPainter<'a> {
@@ -70,7 +70,7 @@ impl<'a> LasBoundaryPainter<'a> {
         b: &'a Vec<[Position; 4]>,
         si: Option<usize>,
         hover: bool,
-        neighbour_map: Option<&'a Vec<[Option<usize>; 9]>>,
+        neighbour_map: Option<&'a Vec<Neighborhood>>,
     ) -> LasBoundaryPainter<'a> {
         LasBoundaryPainter {
             boundaries: b,
@@ -89,10 +89,10 @@ impl Plugin for LasBoundaryPainter<'_> {
             None
         };
 
-        let mut ni: Option<Vec<&usize>> = None;
+        let mut ni: Option<Vec<usize>> = None;
         if let Some(neighbour_map) = self.neighbour_map {
             if let Some(i) = self.selected {
-                ni = Some(neighbour_map[i].iter().skip(1).flatten().collect());
+                ni = Some(neighbour_map[i].neighbor_indices().collect());
             }
         }
 
@@ -111,7 +111,7 @@ impl Plugin for LasBoundaryPainter<'_> {
                 } else if let Some(neighbours) = &ni {
                     let mut c = Color32::RED.gamma_multiply(0.2);
                     for j in neighbours {
-                        if i == **j {
+                        if i == *j {
                             c = Color32::RED.gamma_multiply(0.35);
                             break;
                         }

@@ -1,6 +1,6 @@
 use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
 
-use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
+use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
 use omap::{
     objects::AreaObject,
     symbols::{AreaSymbol, SymbolTrait},
@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 pub fn compute_cliffs(
     slope: &Dfm,
-    convex_hull: &LineString,
+    convex_hull: &Polygon,
     cut_overlay: &Polygon,
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,

@@ -4,7 +4,7 @@ use crate::geometry::MapMultiPolygon;
 use crate::parameters::MapParameters;
 use crate::raster::{Dfm, Threshold};
 
-use geo::{BooleanOps, LineString, MultiPolygon, Polygon, Simplify};
+use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
 use omap::{
     objects::AreaObject,
     symbols::{AreaSymbol, SymbolTrait},
@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 pub fn compute_vegetation(
     dfm: &Dfm,
     threshold: Threshold,
-    convex_hull: &LineString,
+    convex_hull: &Polygon,
     cut_overlay: &Polygon,
     symbol: AreaSymbol,
     params: &MapParameters,

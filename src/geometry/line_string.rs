@@ -1,9 +1,8 @@
-use geo::{BooleanOps, Vector2DOps};
-use geo::{LineString, Polygon};
+use geo::LineString;
+use geo::Vector2DOps;
 
 pub trait MapLineString {
     fn line_string_signed_area(&self) -> Option<f64>;
-    fn inner_line(&self, other: &LineString) -> Option<Polygon>;
     fn adjusted_bending_force(&self, length_exp: i32) -> f64;
 }
 
@@ -17,26 +16,6 @@ impl MapLineString for LineString {
             area += self.0[i].x * self.0[i + 1].y - self.0[i].y * self.0[i + 1].x;
         }
         Some(0.5 * area)
-    }
-
-    fn inner_line(&self, other: &LineString) -> Option<Polygon> {
-        let p1 = Polygon::new(self.clone(), vec![]);
-        let p2 = Polygon::new(other.clone(), vec![]);
-
-        let multipolygon = p1.intersection(&p2);
-        if multipolygon.0.is_empty() {
-            None
-        } else if multipolygon.0.len() == 1 {
-            let mut i = multipolygon.into_iter().next().unwrap();
-
-            if i.exterior().line_string_signed_area().unwrap() < 0. {
-                i.exterior_mut(|e| e.0.reverse());
-            }
-
-            Some(i)
-        } else {
-            panic!("Multiple disjoint overlaps between the convex hull and the clipping region");
-        }
     }
 
     fn adjusted_bending_force(&self, lenght_exp: i32) -> f64 {

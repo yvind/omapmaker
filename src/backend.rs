@@ -3,6 +3,7 @@ use las::Reader;
 
 use crate::comms::{messages::*, OmapComms};
 use crate::geometry::MapRect;
+use crate::neighbors;
 use crate::parameters::MapParameters;
 use crate::project;
 use crate::raster::Dfm;
@@ -129,16 +130,21 @@ impl Backend {
                         // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        crate::map_gen::make_map(
+                        match crate::map_gen::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
                             local_polygon_filter,
-                        );
-
-                        self.comms
-                            .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
-                            .unwrap();
+                        ) {
+                            Ok(_) => self
+                                .comms
+                                .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
+                                .unwrap(),
+                            Err(e) => self
+                                .comms
+                                .send(FrontendTask::Error(e.to_string(), true))
+                                .unwrap(),
+                        };
                     }
                     BackendTask::Reset => {
                         self.reset();
@@ -157,7 +163,7 @@ impl Backend {
                                 geo::Coord { x: 0., y: 0. },
                             ),
                         );
-                        let neighbours = tile_gen::neighbours_on_grid(n_x, n_y);
+                        let neighbours = neighbors::neighbors_on_grid(n_x, n_y);
 
                         let cb = project::rectangles::to_walkers_map_coords(epsg, &cb);
 

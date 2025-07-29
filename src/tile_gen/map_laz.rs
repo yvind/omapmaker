@@ -1,7 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
 
-use geo::{Coord, Rect};
+use geo::Rect;
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::Reader;
 use proj4rs::{transform::transform, Proj};
@@ -11,6 +11,7 @@ use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
 
 use crate::comms::messages::*;
 use crate::geometry::MapRect;
+use crate::neighbors::{NeighborSide, Neighborhood};
 use crate::Result;
 
 pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Option<Vec<u16>>) {
@@ -54,7 +55,7 @@ fn read_boundaries(
     walkers::Position,
     Vec<Vec<usize>>,
 )> {
-    let (_neighbour_graph, bounds, _ref_point, components) = spatial_laz_analysis(&paths);
+    let (bounds, components) = spatial_laz_analysis(&paths);
 
     let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
 
@@ -108,9 +109,7 @@ fn read_boundaries(
     Ok((walkers_boundaries, mid_point, components))
 }
 
-fn spatial_laz_analysis(
-    paths: &Vec<PathBuf>,
-) -> (Vec<[Option<usize>; 9]>, Vec<Rect>, Coord, Vec<Vec<usize>>) {
+fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<Rect>, Vec<Vec<usize>>) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
 
@@ -123,34 +122,16 @@ fn spatial_laz_analysis(
     }
 
     if tile_centers.len() == 1 {
-        let mut center_point = tile_centers.swap_remove(0); // round ref_point to nearest 10m
-        center_point[0] = (center_point[0] / 10.).round() * 10.;
-        center_point[1] = (center_point[1] / 10.).round() * 10.;
-
-        return (
-            vec![[Some(0), None, None, None, None, None, None, None, None]],
-            tile_bounds,
-            Coord::from(center_point),
-            vec![vec![0]],
-        );
+        return (tile_bounds, vec![vec![0]]);
     }
 
     let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds);
-
     let components = connected_components(&neighbours);
 
-    let mut ref_point: Coord<f64> = Coord::default();
-    tile_centers.iter().for_each(|tc| {
-        ref_point.x += tc[0];
-        ref_point.y += tc[1]
-    });
-    ref_point.x = (ref_point.x / (10 * tile_centers.len()) as f64).round() * 10.;
-    ref_point.y = (ref_point.y / (10 * tile_centers.len()) as f64).round() * 10.;
-
-    (neighbours, tile_bounds, ref_point, components)
+    (tile_bounds, components)
 }
 
-fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[Option<usize>; 9]> {
+fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<Neighborhood> {
     let tree: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(tile_centers);
 
     let mut avg_tile_size = 0.;
@@ -170,11 +151,10 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
 
         neighbours_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
 
-        let mut orderd_neighbours = [Some(i), None, None, None, None, None, None, None, None];
+        let mut orderd_neighbours = Neighborhood::new(i);
         for ni in neighbours_index.iter().skip(1) {
-            if let Some(j) = get_neighbour_side(bounds, tile_centers[*ni]) {
-                orderd_neighbours[j] = Some(*ni)
-            }
+            let side = NeighborSide::get_side(bounds, tile_centers[*ni]);
+            orderd_neighbours.register_neighbor(*ni, side);
         }
 
         tile_neighbours.push(orderd_neighbours);
@@ -182,135 +162,11 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
     tile_neighbours
 }
 
-pub fn neighbours_on_grid(nx: usize, ny: usize) -> Vec<[Option<usize>; 9]> {
-    let mut neighbours = Vec::with_capacity(nx * ny);
-
-    for yi in 0..ny {
-        for xi in 0..nx {
-            if xi == 0 && yi == 0 {
-                //no neighbours to the left or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + 1 + nx),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == 0 {
-                // no neighbours to the right or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 && yi == ny - 1 {
-                // no neighbours to the left or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == ny - 1 {
-                // no neighbours to the right or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 {
-                // no neighbours to the left
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == 0 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == ny - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            }
-        }
-    }
-    neighbours
-}
-
-fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
+fn connected_components(graph: &Vec<Neighborhood>) -> Vec<Vec<usize>> {
     let mut cc: Vec<HashSet<usize>> = vec![];
 
     for node in graph {
-        let middle = node[0].unwrap();
+        let middle = node.center;
         let mut belongs_to = usize::MAX;
 
         for (i, component) in cc.iter().enumerate() {
@@ -322,17 +178,17 @@ fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
 
         if belongs_to != usize::MAX {
             // the main node belongs to a component and so all
-            // of its neighbours also belong to that component
-            for ni in node.iter().skip(1).flatten() {
-                let _ = cc[belongs_to].insert(*ni);
+            // of its neighbors also belong to that component
+            for ni in node.neighbor_indices() {
+                let _ = cc[belongs_to].insert(ni);
             }
         } else {
             // the main node does not belong to a component
-            // create a new component and add it and all of its neighbours to that component
+            // create a new component and add it and all of its neighbors to that component
             let mut new_component = HashSet::new();
 
-            for ni in node.iter().flatten() {
-                let _ = new_component.insert(*ni);
+            for ni in node.neighbor_indices() {
+                let _ = new_component.insert(ni);
             }
             cc.push(new_component);
         }
@@ -361,32 +217,4 @@ fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
         }
     }
     cc.into_iter().map(|mut h| h.drain().collect()).collect()
-}
-
-fn get_neighbour_side(bounds: &Rect, tile_center: [f64; 2]) -> Option<usize> {
-    if tile_center[0] < bounds.min().x && tile_center[1] > bounds.max().y {
-        return Some(1);
-    }
-    if tile_center[0] > bounds.max().x && tile_center[1] > bounds.max().y {
-        return Some(3);
-    }
-    if tile_center[0] > bounds.max().x && tile_center[1] < bounds.min().y {
-        return Some(5);
-    }
-    if tile_center[0] < bounds.min().x && tile_center[1] < bounds.min().y {
-        return Some(7);
-    }
-    if tile_center[1] > bounds.max().y {
-        return Some(2);
-    }
-    if tile_center[0] > bounds.max().x {
-        return Some(4);
-    }
-    if tile_center[1] < bounds.min().y {
-        return Some(6);
-    }
-    if tile_center[0] < bounds.min().x {
-        return Some(8);
-    }
-    None
 }

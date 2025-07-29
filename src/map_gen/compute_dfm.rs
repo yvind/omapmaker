@@ -5,7 +5,13 @@ use crate::SIDE_LENGTH;
 use geo::Coord;
 use spade::DelaunayTriangulation;
 
-pub fn compute_dfms(ground_cloud: PointCloud, tl: Coord) -> (Dfm, Dfm, Dfm) {
+pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm) {
+    let dem_bounds = ground_cloud.get_dfm_dimensions();
+    let tl = Coord {
+        x: dem_bounds.min.x,
+        y: dem_bounds.max.y,
+    };
+
     let mut dem = Dfm::new(tl);
     let mut drm = Dfm::new(tl);
     let mut dim = Dfm::new(tl);

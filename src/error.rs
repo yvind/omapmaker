@@ -11,4 +11,12 @@ pub enum Error {
     OmapError(#[from] omap::OmapError),
     #[error(transparent)]
     ProjError(#[from] proj4rs::errors::Error),
+    #[error("The chosen polygon filter does not intersect the lidar files")]
+    MapAreaDistinctFromLidarArea,
+    #[error("Cannot create a neighborhood without a center")]
+    NeighborhoodError,
+    #[error(transparent)]
+    CopcError(#[from] copc_rs::Error),
+    #[error("The area contains no ground points")]
+    NoGroundPoints,
 }

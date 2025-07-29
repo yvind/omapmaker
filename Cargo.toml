@@ -3,18 +3,18 @@ name = "omap_maker"
 version = "0.1.0"
 edition = "2021"
 authors = ["Øyvind Hjermstad"]
-description = "An application for generating orienteering maps from lidar data using AI"
+description = "An application for generating orienteering maps from lidar data"
 repository = "https://github.com/yvind/omapmaker"
 
 [[bin]]
 name = "OmapMaker"
-path = "src/bin.rs"
+path = "src/main.rs"
 
 [dependencies]
 # gui
-eframe = "0.31.1"
-egui_autocomplete = "10.2.0"
-egui_double_slider = "0.7.0"
+eframe = "0.32"
+egui_autocomplete = { git = "https://github.com/yvind/egui_autocomplete" }
+egui_double_slider = "0.9.0"
 # choose files
 rfd = "0.15.1"
 # slippy map tiles
@@ -33,7 +33,7 @@ spade = { path = "../spade" }
 
 # geometry
 geo = "0.30.0"
-linestring2bezier = "0.2.0"
+linestring2bezier = { path = "../linestring2bezier" }
 
 # read/write las/laz/copc
 las = { version = "0.9.3", features = ["laz"] }
@@ -41,7 +41,7 @@ las-crs = "0.1.1"
 copc-rs = "0.5.0"
 
 # omap-writing
-omap = { version = "0.2.3", features = ["merge_lines"] }
+omap = { path = "../omap", features = ["merge_lines"] }
 
 # better error enums
 thiserror = "2.0.8"

@@ -1,143 +1,63 @@
-#![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
 
-use geo::{Coord, Rect};
+use geo::{Coord, Intersects, Polygon, Rect};
 use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::Reader;
-use proj4rs::{transform::transform, Proj};
 
 use std::num::NonZero;
-use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
+use std::path::PathBuf;
 
-use crate::comms::messages::*;
 use crate::geometry::MapRect;
-use crate::Result;
+use crate::neighbors::{NeighborSide, Neighborhood};
+use crate::{Error, Result};
 
-pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Option<Vec<u16>>) {
-    let (boundaries, mid_point, components) = match read_boundaries(paths, crs_epsg) {
-        Ok(bm) => bm,
-        Err(e) => {
-            sender
-                .send(FrontendTask::Error(e.to_string(), true))
-                .unwrap();
-            return;
-        }
-    };
-
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Boundaries(
-            boundaries.clone(),
-        )))
-        .unwrap();
-
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Home(mid_point)))
-        .unwrap();
-
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::ConnectedComponents(
-            components,
-        )))
-        .unwrap();
-    sender
-        .send(FrontendTask::TaskComplete(
-            TaskDone::MapSpatialLidarRelations,
-        ))
-        .unwrap();
-}
-
-fn read_boundaries(
-    paths: Vec<PathBuf>,
-    crs_epsg: Option<Vec<u16>>,
-) -> Result<(
-    Vec<[walkers::Position; 4]>,
-    walkers::Position,
-    Vec<Vec<usize>>,
-)> {
-    let (_neighbour_graph, bounds, _ref_point, components) = spatial_laz_analysis(&paths);
-
-    let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
-
-    let mut walkers_boundaries = Vec::with_capacity(bounds.len());
-
-    for (i, bound) in bounds.iter().enumerate() {
-        let mut points = [
-            (bound.min().x, bound.max().y),
-            (bound.min().x, bound.min().y),
-            (bound.max().x, bound.min().y),
-            (bound.max().x, bound.max().y),
-        ];
-
-        if crs_epsg.is_some() {
-            // transform bounds to lat lon
-            let to = Proj::from_user_string("WGS84").unwrap();
-            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
-
-            transform(&from, &to, points.as_mut_slice())?;
-
-            for (x, y) in points.iter_mut() {
-                *x = x.to_degrees();
-                *y = y.to_degrees();
-            }
-        }
-
-        walkers_boundaries.push([
-            walkers::pos_from_lon_lat(points[0].0, points[0].1),
-            walkers::pos_from_lon_lat(points[1].0, points[1].1),
-            walkers::pos_from_lon_lat(points[2].0, points[2].1),
-            walkers::pos_from_lon_lat(points[3].0, points[3].1),
-        ]);
-
-        if all_lidar_bounds[0].0 > points[0].0 {
-            all_lidar_bounds[0].0 = points[0].0;
-        }
-        if all_lidar_bounds[0].1 < points[0].1 {
-            all_lidar_bounds[0].1 = points[0].1;
-        }
-        if all_lidar_bounds[1].0 < points[2].0 {
-            all_lidar_bounds[1].0 = points[2].0;
-        }
-        if all_lidar_bounds[1].1 > points[2].1 {
-            all_lidar_bounds[1].1 = points[2].1;
-        }
-    }
-    let mid_point = walkers::pos_from_lon_lat(
-        (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
-        (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
-    );
-    Ok((walkers_boundaries, mid_point, components))
-}
-
-fn spatial_laz_analysis(
+pub fn map_laz(
     paths: &Vec<PathBuf>,
-) -> (Vec<[Option<usize>; 9]>, Vec<Rect>, Coord, Vec<Vec<usize>>) {
+    polygon_filter: &Option<Polygon>,
+) -> Result<(Vec<PathBuf>, Vec<Neighborhood>, Vec<Rect>, Coord, f64)> {
     let mut tile_centers = Vec::with_capacity(paths.len());
+    let mut las_paths = Vec::with_capacity(paths.len());
+    let mut avg_elevation = 0.;
     let mut tile_bounds = Vec::with_capacity(paths.len());
 
-    for las_path in paths {
-        if let Ok(las_reader) = Reader::from_path(las_path) {
+    for path in paths {
+        if let Ok(las_reader) = Reader::from_path(path) {
             let b = las_reader.header().bounds();
+
+            if let Some(polygon) = polygon_filter {
+                let rect = Rect::from_bounds(b);
+                if !polygon.intersects(&rect) {
+                    continue;
+                }
+            }
+
+            las_paths.push(path.clone());
+            avg_elevation += (b.min.z + b.max.z) / 2.;
             tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
             tile_bounds.push(Rect::from_bounds(b));
         }
+    }
+
+    if las_paths.is_empty() {
+        return Err(Error::MapAreaDistinctFromLidarArea);
     }
 
     if tile_centers.len() == 1 {
         let mut center_point = tile_centers.swap_remove(0); // round ref_point to nearest 10m
         center_point[0] = (center_point[0] / 10.).round() * 10.;
         center_point[1] = (center_point[1] / 10.).round() * 10.;
+        avg_elevation = (avg_elevation / 10.).round() * 10.;
 
-        return (
-            vec![[Some(0), None, None, None, None, None, None, None, None]],
+        return Ok((
+            las_paths,
+            vec![Default::default()],
             tile_bounds,
             Coord::from(center_point),
-            vec![vec![0]],
-        );
+            avg_elevation,
+        ));
     }
 
-    let neighbours = neighbouring_tiles(&tile_centers, &tile_bounds);
-
-    let components = connected_components(&neighbours);
+    let neighbors = neighboring_tiles(&tile_centers, &tile_bounds);
 
     let mut ref_point: Coord<f64> = Coord::default();
     tile_centers.iter().for_each(|tc| {
@@ -146,11 +66,12 @@ fn spatial_laz_analysis(
     });
     ref_point.x = (ref_point.x / (10 * tile_centers.len()) as f64).round() * 10.;
     ref_point.y = (ref_point.y / (10 * tile_centers.len()) as f64).round() * 10.;
+    avg_elevation = (avg_elevation / (10 * tile_centers.len()) as f64).round() * 10.;
 
-    (neighbours, tile_bounds, ref_point, components)
+    Ok((las_paths, neighbors, tile_bounds, ref_point, avg_elevation))
 }
 
-fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[Option<usize>; 9]> {
+fn neighboring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<Neighborhood> {
     let tree: ImmutableKdTree<f64, usize, 2, 32> = ImmutableKdTree::new_from_slice(tile_centers);
 
     let mut avg_tile_size = 0.;
@@ -161,232 +82,22 @@ fn neighbouring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<[O
 
     let margin = 0.1 * avg_tile_size;
 
-    let mut tile_neighbours = Vec::with_capacity(tile_centers.len());
+    let mut tile_neighbors = Vec::with_capacity(tile_centers.len());
     for (i, point) in tile_centers.iter().enumerate() {
         let bounds = &tile_bounds[i];
 
         let nn = tree.nearest_n::<SquaredEuclidean>(point, NonZero::new(9).unwrap());
-        let mut neighbours_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
+        let mut neighbors_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
 
-        neighbours_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
+        neighbors_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
 
-        let mut orderd_neighbours = [Some(i), None, None, None, None, None, None, None, None];
-        for ni in neighbours_index.iter().skip(1) {
-            if let Some(j) = get_neighbour_side(bounds, tile_centers[*ni]) {
-                orderd_neighbours[j] = Some(*ni)
-            }
+        let mut orderd_neighbors = Neighborhood::new(i);
+        for ni in neighbors_index.iter().skip(1) {
+            let side = NeighborSide::get_side(bounds, tile_centers[*ni]);
+            orderd_neighbors.register_neighbor(*ni, side);
         }
 
-        tile_neighbours.push(orderd_neighbours);
+        tile_neighbors.push(orderd_neighbors);
     }
-    tile_neighbours
-}
-
-pub fn neighbours_on_grid(nx: usize, ny: usize) -> Vec<[Option<usize>; 9]> {
-    let mut neighbours = Vec::with_capacity(nx * ny);
-
-    for yi in 0..ny {
-        for xi in 0..nx {
-            if xi == 0 && yi == 0 {
-                //no neighbours to the left or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + 1 + nx),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == 0 {
-                // no neighbours to the right or top
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 && yi == ny - 1 {
-                // no neighbours to the left or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 && yi == ny - 1 {
-                // no neighbours to the right or bottom
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if xi == 0 {
-                // no neighbours to the left
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    None,
-                    None,
-                ]);
-            } else if xi == nx - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == 0 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else if yi == ny - 1 {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    None,
-                    None,
-                    None,
-                    Some(yi * nx + xi - 1),
-                ]);
-            } else {
-                neighbours.push([
-                    Some(yi * nx + xi),
-                    Some(yi * nx + xi - 1 - nx),
-                    Some(yi * nx + xi - nx),
-                    Some(yi * nx + xi - nx + 1),
-                    Some(yi * nx + xi + 1),
-                    Some(yi * nx + xi + nx + 1),
-                    Some(yi * nx + xi + nx),
-                    Some(yi * nx + xi + nx - 1),
-                    Some(yi * nx + xi - 1),
-                ]);
-            }
-        }
-    }
-    neighbours
-}
-
-fn connected_components(graph: &Vec<[Option<usize>; 9]>) -> Vec<Vec<usize>> {
-    let mut cc: Vec<HashSet<usize>> = vec![];
-
-    for node in graph {
-        let middle = node[0].unwrap();
-        let mut belongs_to = usize::MAX;
-
-        for (i, component) in cc.iter().enumerate() {
-            if component.contains(&middle) {
-                belongs_to = i;
-                break;
-            }
-        }
-
-        if belongs_to != usize::MAX {
-            // the main node belongs to a component and so all
-            // of its neighbours also belong to that component
-            for ni in node.iter().skip(1).flatten() {
-                let _ = cc[belongs_to].insert(*ni);
-            }
-        } else {
-            // the main node does not belong to a component
-            // create a new component and add it and all of its neighbours to that component
-            let mut new_component = HashSet::new();
-
-            for ni in node.iter().flatten() {
-                let _ = new_component.insert(*ni);
-            }
-            cc.push(new_component);
-        }
-
-        // check for overlaps, i.e. that some node exists in
-        // multiple components if so merge those components
-        let mut i = 0;
-        while i < cc.len() {
-            // the components that should be merged to component i
-            let mut merge = vec![];
-            for j in i + 1..cc.len() {
-                if !cc[i].is_disjoint(&cc[j]) {
-                    // component i and j are connected
-                    // mark them for merging
-                    merge.push(j);
-                }
-            }
-
-            // walk through backwards to not affect the marked indices with the swap_remove
-            for j in merge.iter().rev() {
-                let com = cc.swap_remove(*j);
-
-                cc[i].extend(com);
-            }
-            i += 1;
-        }
-    }
-    cc.into_iter().map(|mut h| h.drain().collect()).collect()
-}
-
-fn get_neighbour_side(bounds: &Rect, tile_center: [f64; 2]) -> Option<usize> {
-    if tile_center[0] < bounds.min().x && tile_center[1] > bounds.max().y {
-        return Some(1);
-    }
-    if tile_center[0] > bounds.max().x && tile_center[1] > bounds.max().y {
-        return Some(3);
-    }
-    if tile_center[0] > bounds.max().x && tile_center[1] < bounds.min().y {
-        return Some(5);
-    }
-    if tile_center[0] < bounds.min().x && tile_center[1] < bounds.min().y {
-        return Some(7);
-    }
-    if tile_center[1] > bounds.max().y {
-        return Some(2);
-    }
-    if tile_center[0] > bounds.max().x {
-        return Some(4);
-    }
-    if tile_center[1] < bounds.min().y {
-        return Some(6);
-    }
-    if tile_center[0] < bounds.min().x {
-        return Some(8);
-    }
-    None
+    tile_neighbors
 }

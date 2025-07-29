@@ -1,66 +1,189 @@
-use crate::geometry::{PointCloud, PointLaz};
+use crate::{
+    geometry::{MapRect, PointCloud, PointLaz},
+    neighbors::{NeighborSide, Neighborhood},
+    Error, Result,
+};
 
-use geo::{Coord, LineString};
+use geo::{Coord, Polygon, Rect};
 
+use copc_rs::CopcReader;
 use fastrand::f64 as random;
-use las::{point::Classification, Reader};
-use std::path::PathBuf;
+use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
+use las::point::Classification;
 
-pub fn read_laz(las_path: &PathBuf, ref_point: Coord) -> (PointCloud, LineString, Coord) {
-    let mut las_reader = Reader::from_path(las_path).unwrap_or_else(|_| {
-        panic!(
-            "Could not read given laz/las file with path: {}",
-            las_path.to_string_lossy()
-        )
-    });
+use std::{num::NonZero, path::PathBuf};
+
+pub fn read_laz(
+    las_paths: &[PathBuf],
+    neighbour_map: &Neighborhood,
+    tile_bounds: Rect,
+    edge_tile: NeighborSide,
+    ref_point: Coord,
+) -> Result<(PointCloud, Polygon)> {
+    let mut las_reader = CopcReader::from_path(&las_paths[neighbour_map.center])?;
 
     let header = las_reader.header();
-    let mut las_bounds = header.bounds();
 
-    las_bounds.max.x -= ref_point.x;
-    las_bounds.min.x -= ref_point.x;
-    las_bounds.max.y -= ref_point.y;
-    las_bounds.min.y -= ref_point.y;
+    let query_bounds = tile_bounds.into_bounds(header.bounds().min.z, header.bounds().max.z);
+    let mut rel_bounds = query_bounds;
+    rel_bounds.max.x -= ref_point.x;
+    rel_bounds.min.x -= ref_point.x;
+    rel_bounds.max.y -= ref_point.y;
+    rel_bounds.min.y -= ref_point.y;
 
-    // read only ground points into a cloud so that
-    // the convex hull only contains the ground points
-    let mut ground_cloud = PointCloud::new(
+    let mut point_cloud = PointCloud::new(
         las_reader
-            .points()
-            .filter_map(Result::ok)
+            .points(
+                copc_rs::LodSelection::All,
+                copc_rs::BoundsSelection::Within(query_bounds),
+            )?
             .filter_map(|mut p| {
                 (p.classification == Classification::Ground && !p.is_withheld).then(|| {
                     p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
                     p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
                     PointLaz(p)
                 })
-            }) // add noise on the order of mm for KD-tree stability
+            })
             .collect(),
-        las_bounds,
+        rel_bounds,
     );
 
-    let map_bounds = ground_cloud.get_dfm_dimensions();
-    let tl = Coord {
-        x: map_bounds.min.x,
-        y: map_bounds.max.y,
+    // skip this tile if there is almost no ground points
+    if point_cloud.points.len() < 4 {
+        return Err(Error::NoGroundPoints);
+    }
+
+    // get the indices for neighboring laz file if edge tile
+    let edge_paths_index = match edge_tile {
+        NeighborSide::TopLeft => [
+            neighbour_map.left,
+            neighbour_map.top_left,
+            neighbour_map.top,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        NeighborSide::Top => [neighbour_map.top].into_iter().flatten().collect(),
+        NeighborSide::TopRight => [
+            neighbour_map.right,
+            neighbour_map.top_right,
+            neighbour_map.top,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        NeighborSide::Right => [neighbour_map.right].into_iter().flatten().collect(),
+        NeighborSide::BottomRight => [
+            neighbour_map.right,
+            neighbour_map.bottom_right,
+            neighbour_map.bottom,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        NeighborSide::Bottom => [neighbour_map.bottom].into_iter().flatten().collect(),
+        NeighborSide::BottomLeft => [
+            neighbour_map.bottom,
+            neighbour_map.bottom_left,
+            neighbour_map.left,
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        NeighborSide::Left => [neighbour_map.left].into_iter().flatten().collect(),
+        _ => vec![],
     };
-    let convex_hull = ground_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE);
+
+    for ei in edge_paths_index.iter() {
+        let mut edge_reader = CopcReader::from_path(&las_paths[*ei])?;
+
+        point_cloud.add(
+            edge_reader
+                .points(
+                    copc_rs::LodSelection::All,
+                    copc_rs::BoundsSelection::Within(query_bounds),
+                )?
+                .filter_map(|mut p| {
+                    (p.classification == Classification::Ground && !p.is_withheld).then(|| {
+                        p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                        p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                        PointLaz(p)
+                    })
+                })
+                .collect(),
+        );
+    }
+
+    let map_bounds = point_cloud.get_dfm_dimensions();
+
+    let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE);
 
     // add the water points to the ground cloud
-    let mut las_reader = Reader::from_path(las_path).unwrap();
-    ground_cloud.add(
-        las_reader
-            .points()
-            .filter_map(Result::ok)
-            .filter_map(|mut p| {
-                (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                    p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                    p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                    PointLaz(p)
-                })
-            }) // add noise on the order of mm for KD-tree stability
-            .collect::<Vec<_>>(),
-    );
+    let water_points = las_reader
+        .points(
+            copc_rs::LodSelection::All,
+            copc_rs::BoundsSelection::Within(query_bounds),
+        )?
+        .filter_map(|mut p| {
+            (p.classification == Classification::Water && !p.is_withheld).then(|| {
+                p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                PointLaz(p)
+            })
+        })
+        .collect();
+    point_cloud.add(water_points);
 
-    (ground_cloud, convex_hull, tl)
+    for ei in edge_paths_index.iter() {
+        let mut edge_reader = CopcReader::from_path(&las_paths[*ei])?;
+
+        point_cloud.add(
+            edge_reader
+                .points(
+                    copc_rs::LodSelection::All,
+                    copc_rs::BoundsSelection::Within(query_bounds),
+                )?
+                .filter_map(|mut p| {
+                    (p.classification == Classification::Water && !p.is_withheld).then(|| {
+                        p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
+                        p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                        PointLaz(p)
+                    })
+                })
+                .collect(),
+        );
+    }
+
+    // add ghost points at the corners of the bounds to make the entire dem interpolate-able
+    // IDW interpolating the ghost points from the 4 closest real points
+    let query_points = [
+        [rel_bounds.min.x, rel_bounds.max.y],
+        [rel_bounds.min.x, rel_bounds.min.y],
+        [rel_bounds.max.x, rel_bounds.min.y],
+        [rel_bounds.max.x, rel_bounds.max.y],
+    ];
+    let mut zs = [0.; 4];
+
+    {
+        let pt: ImmutableKdTree<f64, usize, 2, 32> =
+            ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
+        for (i, qp) in query_points.iter().enumerate() {
+            let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
+            let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
+
+            zs[i] = neighbours
+                .iter()
+                .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
+                / tot_weight;
+        }
+    }
+
+    point_cloud.add(vec![
+        PointLaz::new(query_points[0][0], query_points[0][1], zs[0]),
+        PointLaz::new(query_points[1][0], query_points[1][1], zs[1]),
+        PointLaz::new(query_points[2][0], query_points[2][1], zs[2]),
+        PointLaz::new(query_points[3][0], query_points[3][1], zs[3]),
+    ]);
+
+    Ok((point_cloud, convex_hull))
 }

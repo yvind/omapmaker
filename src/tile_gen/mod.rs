@@ -19,7 +19,7 @@ pub use self::compute_intensity::compute_intensity;
 pub use self::compute_vegetation::compute_vegetation;
 pub use self::convert_copc::convert_copc;
 pub use self::initialize_map_tile::initialize_map_tile;
-pub use self::map_laz::{map_laz, neighbours_on_grid};
+pub use self::map_laz::map_laz;
 pub use self::parse_crs::parse_crs;
 pub use self::regenerate_map_tile::regenerate_map_tile;
 pub use self::retile_laz::retile_bounds;

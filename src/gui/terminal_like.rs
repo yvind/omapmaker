@@ -1,69 +1,65 @@
-use std::sync::{Arc, Mutex};
-
 use eframe::egui::TextBuffer;
-use log::Log;
 
 // must be used with a monospace font for the progress bar to look ok
 #[derive(Clone)]
 pub struct TerminalLike {
-    string_logger: StringLogger,
     progress_bar: Option<ProgressBar>,
+    string: String,
 }
 
 impl Default for TerminalLike {
     fn default() -> Self {
+        let str = "PROGRESS LOG\n\n";
+
         Self {
-            string_logger: StringLogger::new("PROGRESS LOG\n", log::Level::Warn),
             progress_bar: Default::default(),
+            string: String::from(str),
         }
     }
 }
 
 impl<'a> TerminalLike {
     pub fn println(&mut self, s: impl Into<&'a str>) {
-        let mut log = self.string_logger.log_output.lock().unwrap();
-
-        // needs to check for active progress bar
-
-        log.push('\n');
-        log.push_str(s.into());
+        if let Some(pb) = &self.progress_bar {
+            let len = self.string.len();
+            self.string.delete_char_range(pb.start_char_pos..len);
+            self.string.push_str(s.into());
+            pb.draw_to_string(&mut self.string);
+        } else {
+            self.string.push_str(s.into());
+        }
+        self.string.push('\n');
     }
 
     pub fn inc_progress_bar(&mut self, delta: f32) {
         if let Some(pb) = &mut self.progress_bar {
-            let mut log = self.string_logger.log_output.lock().unwrap();
-
-            let len = log.len();
-
-            log.delete_char_range(pb.start_char_pos..len);
+            self.string
+                .delete_char_range(pb.start_char_pos..self.string.len());
             pb.inc(delta);
-            pb.draw_to_string(&mut log);
+            pb.draw_to_string(&mut self.string);
+            self.string.push('\n');
         }
     }
 
     pub fn finish_progress_bar(&mut self) {
         if let Some(pb) = &mut self.progress_bar {
-            let mut log = self.string_logger.log_output.lock().unwrap();
-
-            let len = log.len();
-
-            log.delete_char_range(pb.start_char_pos..len);
+            self.string
+                .delete_char_range(pb.start_char_pos..self.string.len());
             pb.inc(1.);
-            pb.draw_to_string(&mut log);
+            pb.draw_to_string(&mut self.string);
             self.progress_bar = None;
-            log.push('\n'); // we want space after the progress bar
+            self.string.push('\n'); // we want space after the progress bar
         }
     }
 
     pub fn start_progress_bar(&mut self, width: u32) {
-        let mut log = self.string_logger.log_output.lock().unwrap();
+        self.string.push('\n');
 
-        log.push_str("\n\n");
-
-        let pb = ProgressBar::new(log.len(), width);
-        pb.draw_to_string(&mut log);
+        let pb = ProgressBar::new(self.string.len(), width);
+        pb.draw_to_string(&mut self.string);
 
         self.progress_bar = Some(pb);
+        self.string.push('\n');
     }
 }
 
@@ -73,55 +69,25 @@ impl TextBuffer for TerminalLike {
     }
 
     fn as_str(&self) -> &str {
-        self.string_logger.log_output.as_ref()
+        self.string.as_str()
     }
 
     fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
-        let mut log = self.string_logger.log_output.lock().unwrap();
-        log.insert_text(text, char_index)
+        self.string.insert_text(text, char_index)
     }
 
     fn delete_char_range(&mut self, char_range: std::ops::Range<usize>) {
-        let mut log = self.string_logger.log_output.lock().unwrap();
-        log.delete_char_range(char_range);
+        self.string.delete_char_range(char_range);
     }
 
     fn clear(&mut self) {
-        let mut log = self.string_logger.log_output.lock().unwrap();
-        log.clear();
+        self.string.clear();
         self.progress_bar = None;
     }
-}
 
-#[derive(Debug, Clone)]
-struct StringLogger {
-    log_output: Arc<Mutex<String>>,
-    level_filter: log::Level,
-}
-
-impl StringLogger {
-    pub fn new(title: &str, level_filter: log::Level) -> StringLogger {
-        let log_output = Arc::new(Mutex::new(String::from(title)));
-        StringLogger {
-            log_output,
-            level_filter,
-        }
+    fn type_id(&self) -> std::any::TypeId {
+        self.string.type_id()
     }
-}
-
-impl Log for StringLogger {
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= self.level_filter
-    }
-
-    fn log(&self, record: &log::Record) {
-        if self.enabled(record.metadata()) {
-            let mut log_string = self.log_output.lock().unwrap();
-            log_string.push_str(&format!("[{}] {}\n", record.level(), record.args()));
-        }
-    }
-
-    fn flush(&self) {}
 }
 
 #[derive(Clone)]
@@ -161,6 +127,6 @@ impl ProgressBar {
 
     fn inc(&mut self, delta: f32) {
         // clamp progress between 0 and 1
-        self.progress = 1.0_f32.min(self.progress + delta).max(0.0_f32);
+        self.progress = (self.progress + delta).clamp(0., 1.);
     }
 }

@@ -1,50 +1,42 @@
-use crate::comms::messages::FrontendTask;
-use crate::geometry::{MapLineString, MapRect};
+use crate::geometry::PointCloud;
 use crate::map_gen;
 use crate::parameters::MapParameters;
 use crate::raster::Threshold;
 
-use geo::{Coord, Rect};
+use geo::{Area, BooleanOps, Polygon, Rect};
 use omap::{
     objects::{LineObject, MapObject},
     symbols::{AreaSymbol, LineSymbol},
     Omap,
 };
 
-use std::fs::File;
-use std::io::BufReader;
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 pub fn compute_map_objects(
-    sender: Sender<FrontendTask>,
-    map: Arc<Mutex<Omap>>,
+    map: &Arc<Mutex<Omap>>,
     args: &MapParameters,
-    points: copc_rs::PointIter<BufReader<File>>,
-    ref_point: Coord,
-    mut cut_bounds: Rect,
-    threads: usize,
+    ground_cloud: PointCloud,
+    convex_hull: Polygon,
+    cut_bounds: Rect,
 ) {
-    // step 2: read each laz file and its neighbors and build point-cloud(s)
-    let (ground_cloud, convex_hull, tl) = map_gen::read_laz(tile_path, ref_point);
-
     let z_range = (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z);
 
-    // step 3: compute the DFMs
-    let (dem, drm, dim) = map_gen::compute_dfms(ground_cloud, tl);
+    // Compute the DFMs
+    let (dem, drm, dim) = map_gen::compute_dfms(ground_cloud);
     let grad_dem = dem.slope(3);
 
     // figure out the cut-overlay (intersect of cut-bounds and convex hull)
-    cut_bounds.set_min(cut_bounds.min() - ref_point);
-    cut_bounds.set_max(cut_bounds.max() - ref_point);
+    let mut mp = cut_bounds.to_polygon().intersection(&convex_hull);
+    if mp.0.is_empty() {
+        return;
+    }
 
-    let cut_overlay = match convex_hull.inner_line(&cut_bounds.into_line_string()) {
-        Some(l) => l,
-        None => {
-            // send inc message
-            return;
-        }
-    };
+    mp.0.sort_by(|a, b| {
+        a.signed_area()
+            .partial_cmp(&b.signed_area())
+            .expect("Non-normal polygon area!")
+    });
+    let cut_overlay = mp.0.swap_remove(0);
 
     map.lock()
         .unwrap()
@@ -53,9 +45,9 @@ pub fn compute_map_objects(
             LineSymbol::SmallCrossableWatercourse,
         )));
 
-    // step 4: contour generation
+    // Compute contours
     if args.basemap_interval >= 0.1 {
-        map_gen::compute_basemap(&dem, z_range, &cut_overlay, args.basemap_interval, &map);
+        map_gen::compute_basemap(&dem, z_range, &cut_overlay, args.basemap_interval, map);
     }
 
     match args.contour_algorithm {
@@ -63,78 +55,61 @@ pub fn compute_map_objects(
             unimplemented!("No AI contours yet...");
         }
         crate::parameters::ContourAlgo::NaiveIterations => {
-            map_gen::compute_contours::compute_naive_contours(
-                &dem,
-                z_range,
-                &cut_overlay,
-                (0.9, 1.1),
-                &args,
-                &map,
-            );
+            map_gen::compute_naive_contours(&dem, z_range, &cut_overlay, (0.9, 1.1), args, map);
         }
         crate::parameters::ContourAlgo::NormalFieldSmoothing => {
             let smooth_dem = dem.smoothen(15., 15, args.contour_algo_steps as usize);
-            map_gen::compute_contours::extract_contours(
-                &smooth_dem,
-                z_range,
-                &cut_overlay,
-                &args,
-                &map,
-            );
+            map_gen::extract_contours(&smooth_dem, z_range, &cut_overlay, args, map);
         }
         crate::parameters::ContourAlgo::Raw => {
-            map_gen::compute_contours::extract_contours(&dem, z_range, &cut_overlay, &args, &map);
+            map_gen::extract_contours(&dem, z_range, &cut_overlay, args, map);
         }
     }
 
-    // TODO: make thresholds adaptive to local terrain (create a smoothed version of the dfm and use that value to adapt threshold)
-    // step 5: compute vegetation
+    // Compute vegetation
     map_gen::compute_vegetation(
         &drm,
-        Threshold::Upper(1.2),
+        Threshold::Upper(args.yellow),
         &convex_hull,
         &cut_overlay,
         AreaSymbol::RoughOpenLand,
-        &args,
-        &map,
+        args,
+        map,
     );
 
     map_gen::compute_vegetation(
         &drm,
-        Threshold::Lower(2.1),
+        Threshold::Lower(args.green.0),
         &convex_hull,
         &cut_overlay,
         AreaSymbol::LightGreen,
-        &args,
-        &map,
+        args,
+        map,
     );
 
     map_gen::compute_vegetation(
         &drm,
-        Threshold::Lower(3.0),
+        Threshold::Lower(args.green.1),
         &convex_hull,
         &cut_overlay,
         AreaSymbol::MediumGreen,
-        &args,
-        &map,
+        args,
+        map,
     );
 
     map_gen::compute_vegetation(
         &drm,
-        Threshold::Lower(4.0),
+        Threshold::Lower(args.green.2),
         &convex_hull,
         &cut_overlay,
         AreaSymbol::DarkGreen,
-        &args,
-        &map,
+        args,
+        map,
     );
 
-    // step 6: compute cliffs
-    map_gen::compute_cliffs(&grad_dem, &convex_hull, &cut_overlay, &args, &map);
+    // Compute cliffs
+    map_gen::compute_cliffs(&grad_dem, &convex_hull, &cut_overlay, args, map);
 
-    sender
-        .send(FrontendTask::ProgressBar(
-            crate::comms::messages::ProgressBar::Inc(1.),
-        ))
-        .unwrap();
+    // Compute lidar intensity filters
+    map_gen::compute_intensity(&dim, &convex_hull, &cut_overlay, args, map);
 }
