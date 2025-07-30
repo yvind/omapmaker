@@ -1,3 +1,3 @@
 pub mod common;
 pub mod egui_map;
-pub mod omap;
+pub mod final_map;

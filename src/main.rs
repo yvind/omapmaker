@@ -1,4 +1,4 @@
-//#![windows_subsystem = "windows"]
+//#![windows_subsystem = "windows"] // removes the background terminal that opens with the program
 
 mod assets;
 mod backend;

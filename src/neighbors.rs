@@ -1,3 +1,10 @@
+use std::num::NonZero;
+
+use geo::Rect;
+use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
+
+use crate::geometry::MapRect;
+
 #[derive(Debug, Clone, Default)]
 pub struct Neighborhood {
     pub center: usize,
@@ -82,6 +89,38 @@ impl Neighborhood {
 
     pub fn has_neighbor_left(&self) -> bool {
         self.top_left.is_some() || self.left.is_some() || self.bottom_left.is_some()
+    }
+
+    pub fn neighboring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<Neighborhood> {
+        let tree: ImmutableKdTree<f64, usize, 2, 32> =
+            ImmutableKdTree::new_from_slice(tile_centers);
+
+        let mut avg_tile_size = 0.;
+        tile_bounds
+            .iter()
+            .for_each(|r| avg_tile_size += r.max().x - r.min().x + r.max().y - r.min().y);
+        avg_tile_size /= (2 * tile_bounds.len()) as f64;
+
+        let margin = 0.1 * avg_tile_size;
+
+        let mut tile_neighbours = Vec::with_capacity(tile_centers.len());
+        for (i, point) in tile_centers.iter().enumerate() {
+            let bounds = &tile_bounds[i];
+
+            let nn = tree.nearest_n::<SquaredEuclidean>(point, NonZero::new(9).unwrap());
+            let mut neighbours_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
+
+            neighbours_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
+
+            let mut orderd_neighbours = Neighborhood::new(i);
+            for ni in neighbours_index.iter().skip(1) {
+                let side = NeighborSide::get_side(bounds, tile_centers[*ni]);
+                orderd_neighbours.register_neighbor(*ni, side);
+            }
+
+            tile_neighbours.push(orderd_neighbours);
+        }
+        tile_neighbours
     }
 }
 

@@ -130,7 +130,7 @@ impl Backend {
                         // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        match crate::map_gen::omap::make_map(
+                        match crate::map_gen::final_map::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,

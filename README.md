@@ -29,6 +29,7 @@ Overlapping lidar files not yet handled
 
 ### WIP:
 - AI contours
+- Form lines
 - Buffering on polygons to remove small holes and too thin areas or exaggerating small details
 
 ### Wish List:
@@ -40,6 +41,7 @@ Overlapping lidar files not yet handled
 - Road/path detection
 - Marsh detection
 - Lidar CRS transformation
+- Overlapping Lidar handling
 
 ### Parameter tuning in OmapMaker
 Tune the map parameters on a test tile before generating the whole map
