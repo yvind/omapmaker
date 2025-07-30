@@ -1,4 +1,4 @@
-use crate::{neighbors::Neighborhood, MIN_NEIGHBOUR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE};
+use crate::{neighbors::Neighborhood, MIN_NEIGHBOR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE};
 
 use geo::{Coord, Rect};
 
@@ -8,16 +8,16 @@ pub fn retile_bounds(
 ) -> (Vec<Rect>, Vec<Rect>, usize, usize) {
     let mut neighbor_file_margin = [(0., 0.), (0., 0.)];
     if neighbors.has_neighbor_above() {
-        neighbor_file_margin[1].1 = MIN_NEIGHBOUR_MARGIN;
+        neighbor_file_margin[1].1 = MIN_NEIGHBOR_MARGIN;
     }
     if neighbors.has_neighbor_below() {
-        neighbor_file_margin[0].1 = -MIN_NEIGHBOUR_MARGIN;
+        neighbor_file_margin[0].1 = -MIN_NEIGHBOR_MARGIN;
     }
     if neighbors.has_neighbor_right() {
-        neighbor_file_margin[1].0 = MIN_NEIGHBOUR_MARGIN;
+        neighbor_file_margin[1].0 = MIN_NEIGHBOR_MARGIN;
     }
     if neighbors.has_neighbor_left() {
-        neighbor_file_margin[0].0 = -MIN_NEIGHBOUR_MARGIN;
+        neighbor_file_margin[0].0 = -MIN_NEIGHBOR_MARGIN;
     }
     let neighbor_file_margin = Rect::new(neighbor_file_margin[0], neighbor_file_margin[1]);
 
@@ -26,10 +26,10 @@ pub fn retile_bounds(
     let y_range = bounds.max().y - bounds.min().y - neighbor_file_margin.min().y
         + neighbor_file_margin.max().y;
 
-    let num_x_tiles = ((x_range - MIN_NEIGHBOUR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOUR_MARGIN))
+    let num_x_tiles = ((x_range - MIN_NEIGHBOR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOR_MARGIN))
         .ceil()
         .max(2.0) as usize;
-    let num_y_tiles = ((y_range - MIN_NEIGHBOUR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOUR_MARGIN))
+    let num_y_tiles = ((y_range - MIN_NEIGHBOR_MARGIN) / (TILE_SIZE - MIN_NEIGHBOR_MARGIN))
         .ceil()
         .max(2.0) as usize;
 

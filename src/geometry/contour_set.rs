@@ -131,14 +131,14 @@ impl ContourSet {
             let v_height = v.data().z;
             let v_norm_grad = v.data().grad;
 
-            for neighbour in v.out_edges().map(|e| e.to()) {
+            for neighbor in v.out_edges().map(|e| e.to()) {
                 // get vec from v to neighbor
-                let n_pos = neighbour.position();
+                let n_pos = neighbor.position();
 
                 let diff = [
                     n_pos.x - v_pos.x,
                     n_pos.y - v_pos.y,
-                    neighbour.data().z - v_height,
+                    neighbor.data().z - v_height,
                 ];
 
                 // if z-component is 0 move on

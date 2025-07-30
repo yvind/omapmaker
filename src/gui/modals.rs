@@ -298,12 +298,12 @@ impl OmapMaker {
             ui.separator();
             if self.gui_variables.connected_components.len() > 9 {
                 ui.label(
-                    "The Lidar neighbour graph forms too many components (more than 9).\
+                    "The Lidar neighbor graph forms too many components (more than 9).\
                 \nPlease start over.",
                 );
             } else {
                 ui.label(
-                    "Multiple graph components have been detected in the lidar neighbour graph. \
+                    "Multiple graph components have been detected in the lidar neighbor graph. \
                 Only the largest will be kept.",
                 );
                 ui.vertical_centered(|ui| {

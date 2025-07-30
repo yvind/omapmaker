@@ -428,18 +428,17 @@ impl Dfm {
                 let mut a = 0.;
                 let mut b = 0.;
                 for n in 0..filter_size * filter_size {
-                    let x_neighbour =
+                    let x_neighbor =
                         (x as isize + dx[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
-                    let y_neighbour =
+                    let y_neighbor =
                         (y as isize + dy[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
-                    let neighbour_normal = normal_vecs[y_neighbour * SIDE_LENGTH + x_neighbour];
-                    let diff =
-                        cos_angle_between(normal_vecs[y * SIDE_LENGTH + x], neighbour_normal);
+                    let neighbor_normal = normal_vecs[y_neighbor * SIDE_LENGTH + x_neighbor];
+                    let diff = cos_angle_between(normal_vecs[y * SIDE_LENGTH + x], neighbor_normal);
                     if diff > threshold {
                         let weight = (diff - threshold).powi(2);
                         sum_weights += weight;
-                        a += neighbour_normal.0 * weight;
-                        b += neighbour_normal.1 * weight;
+                        a += neighbor_normal.0 * weight;
+                        b += neighbor_normal.1 * weight;
                     }
                 }
 
@@ -479,21 +478,21 @@ impl Dfm {
                     let mut sum_weight = 0.;
                     let mut z = 0.;
                     for n in 0..8 {
-                        let x_neighbour = xs[n];
-                        let y_neighbour = ys[n];
+                        let x_neighbor = xs[n];
+                        let y_neighbor = ys[n];
 
-                        let smooth_neighbour_normal =
-                            smooth_normal_vecs[y_neighbour * SIDE_LENGTH + x_neighbour];
+                        let smooth_neighbor_normal =
+                            smooth_normal_vecs[y_neighbor * SIDE_LENGTH + x_neighbor];
                         let diff = cos_angle_between(
                             smooth_normal_vecs[yi * SIDE_LENGTH + xi],
-                            smooth_neighbour_normal,
+                            smooth_neighbor_normal,
                         );
                         if diff > threshold {
                             let weight = (diff - threshold).powi(2);
                             sum_weight += weight;
-                            z += -(smooth_neighbour_normal.0 * x[n]
-                                + smooth_neighbour_normal.1 * y[n]
-                                - output[(y_neighbour, x_neighbour)])
+                            z += -(smooth_neighbor_normal.0 * x[n]
+                                + smooth_neighbor_normal.1 * y[n]
+                                - output[(y_neighbor, x_neighbor)])
                                 * weight;
                         }
                     }

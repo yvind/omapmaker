@@ -143,7 +143,7 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label(
             "Checking readabilty of the files, coordinate refrence systems \
-            and doing connected component analysis on the lidar-neighbour-graph.",
+            and doing connected component analysis on the lidar-neighbor-graph.",
         );
 
         ui.add_space(10.);
@@ -174,7 +174,7 @@ impl OmapMaker {
         ui.heading("Connected components");
         ui.label(
             "All given lidar files are displayed on the map to the right. \
-        The different connected components of the lidar neighbour graph is colored differently.",
+        The different connected components of the lidar neighbor graph is colored differently.",
         );
         ui.add_space(10.);
         ui.label("Clicking a file in the list will center the map at that file's location.");
@@ -631,7 +631,7 @@ impl OmapMaker {
         ui.heading("Select a sub-tile");
         ui.add_space(20.);
         ui.label("The chosen Lidar file is too large to use the entire file for adjusting parameters.\
-        Select a sub-tile to use for parameter adjusting. Both the selected tile and all its neighbours will be used.\
+        Select a sub-tile to use for parameter adjusting. Both the selected tile and all its neighbors will be used.\
         Select by clicking on the tile in the map.");
 
         ui.add_space(20.);

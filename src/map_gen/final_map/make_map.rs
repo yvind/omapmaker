@@ -32,7 +32,7 @@ pub fn make_map(
     )));
 
     // Figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
-    let (laz_paths, laz_neighbour_map, bounds, ref_point, masl) =
+    let (laz_paths, laz_neighbor_map, bounds, ref_point, masl) =
         super::map_laz(&file_params.paths, &polygon_filter)?;
 
     let map = Arc::new(Mutex::new(Omap::new(
@@ -64,7 +64,7 @@ pub fn make_map(
         // first get the sub-tile bounds for the current lidar file
         // need tile-neighbor maps, bounds, cut-bounds and touched files (for the edge tiles)
         let (tile_bounds, mut cut_bounds, nx, ny) =
-            map_gen::common::retile_bounds(&bounds[fi], &laz_neighbour_map[fi]);
+            map_gen::common::retile_bounds(&bounds[fi], &laz_neighbor_map[fi]);
 
         for cb in cut_bounds.iter_mut() {
             *cb = geo::Rect::new(cb.min() - ref_point, cb.max() - ref_point);
@@ -79,7 +79,7 @@ pub fn make_map(
                 let tile_bounds = tile_bounds.clone();
                 let cut_bounds = cut_bounds.clone();
                 let sender = sender.clone();
-                let laz_neighbour_map = laz_neighbour_map.clone();
+                let laz_neighbor_map = laz_neighbor_map.clone();
                 let laz_paths = laz_paths.clone();
                 let map_params = map_params.clone();
                 let polygon_filter = polygon_filter.clone();
@@ -99,7 +99,7 @@ pub fn make_map(
 
                             let (cloud, mut hull) = match super::read_laz(
                                 &laz_paths,
-                                &laz_neighbour_map[fi],
+                                &laz_neighbor_map[fi],
                                 tile_bounds[thread_i],
                                 edge_tile,
                                 ref_point,

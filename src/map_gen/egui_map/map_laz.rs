@@ -123,8 +123,8 @@ fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<Rect>, Vec<Vec<usize>>) {
         return (tile_bounds, vec![vec![0]]);
     }
 
-    let neighbours = Neighborhood::neighboring_tiles(&tile_centers, &tile_bounds);
-    let components = connected_components(&neighbours);
+    let neighbors = Neighborhood::neighboring_tiles(&tile_centers, &tile_bounds);
+    let components = connected_components(&neighbors);
 
     (tile_bounds, components)
 }

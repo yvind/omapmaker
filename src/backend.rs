@@ -158,7 +158,7 @@ impl Backend {
 
                         let (_, cb, n_x, n_y) =
                             map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
-                        let neighbours = neighbors::neighbors_on_grid(n_x, n_y);
+                        let neighbors = neighbors::neighbors_on_grid(n_x, n_y);
 
                         let cb = project::rectangles::to_walkers_map_coords(epsg, &cb);
 
@@ -166,8 +166,8 @@ impl Backend {
                             .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)))
                             .unwrap();
                         self.comms
-                            .send(FrontendTask::UpdateVariable(Variable::TileNeighbours(
-                                neighbours,
+                            .send(FrontendTask::UpdateVariable(Variable::TileNeighbors(
+                                neighbors,
                             )))
                             .unwrap();
                         self.comms

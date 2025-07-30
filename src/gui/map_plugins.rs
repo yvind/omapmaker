@@ -62,7 +62,7 @@ pub struct LasBoundaryPainter<'a> {
     boundaries: &'a Vec<[Position; 4]>,
     selected: Option<usize>,
     hover: bool,
-    neighbour_map: Option<&'a Vec<Neighborhood>>,
+    neighbor_map: Option<&'a Vec<Neighborhood>>,
 }
 
 impl<'a> LasBoundaryPainter<'a> {
@@ -70,13 +70,13 @@ impl<'a> LasBoundaryPainter<'a> {
         b: &'a Vec<[Position; 4]>,
         si: Option<usize>,
         hover: bool,
-        neighbour_map: Option<&'a Vec<Neighborhood>>,
+        neighbor_map: Option<&'a Vec<Neighborhood>>,
     ) -> LasBoundaryPainter<'a> {
         LasBoundaryPainter {
             boundaries: b,
             selected: si,
             hover,
-            neighbour_map,
+            neighbor_map,
         }
     }
 }
@@ -90,9 +90,9 @@ impl Plugin for LasBoundaryPainter<'_> {
         };
 
         let mut ni: Option<Vec<usize>> = None;
-        if let Some(neighbour_map) = self.neighbour_map {
+        if let Some(neighbor_map) = self.neighbor_map {
             if let Some(i) = self.selected {
-                ni = Some(neighbour_map[i].neighbor_indices().collect());
+                ni = Some(neighbor_map[i].neighbor_indices().collect());
             }
         }
 
@@ -108,9 +108,9 @@ impl Plugin for LasBoundaryPainter<'_> {
             let fill = if let Some(index) = self.selected {
                 if i == index {
                     Color32::RED.gamma_multiply(0.5)
-                } else if let Some(neighbours) = &ni {
+                } else if let Some(neighbors) = &ni {
                     let mut c = Color32::RED.gamma_multiply(0.2);
-                    for j in neighbours {
+                    for j in neighbors {
                         if i == *j {
                             c = Color32::RED.gamma_multiply(0.35);
                             break;

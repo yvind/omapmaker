@@ -15,12 +15,12 @@ use std::{num::NonZero, path::PathBuf};
 
 pub fn read_laz(
     las_paths: &[PathBuf],
-    neighbour_map: &Neighborhood,
+    neighbor_map: &Neighborhood,
     tile_bounds: Rect,
     edge_tile: NeighborSide,
     ref_point: Coord,
 ) -> Result<(PointCloud, Polygon)> {
-    let mut las_reader = CopcReader::from_path(&las_paths[neighbour_map.center])?;
+    let mut las_reader = CopcReader::from_path(&las_paths[neighbor_map.center])?;
 
     let header = las_reader.header();
 
@@ -55,42 +55,34 @@ pub fn read_laz(
 
     // get the indices for neighboring laz file if edge tile
     let edge_paths_index = match edge_tile {
-        NeighborSide::TopLeft => [
-            neighbour_map.left,
-            neighbour_map.top_left,
-            neighbour_map.top,
-        ]
-        .into_iter()
-        .flatten()
-        .collect(),
-        NeighborSide::Top => [neighbour_map.top].into_iter().flatten().collect(),
-        NeighborSide::TopRight => [
-            neighbour_map.right,
-            neighbour_map.top_right,
-            neighbour_map.top,
-        ]
-        .into_iter()
-        .flatten()
-        .collect(),
-        NeighborSide::Right => [neighbour_map.right].into_iter().flatten().collect(),
+        NeighborSide::TopLeft => [neighbor_map.left, neighbor_map.top_left, neighbor_map.top]
+            .into_iter()
+            .flatten()
+            .collect(),
+        NeighborSide::Top => [neighbor_map.top].into_iter().flatten().collect(),
+        NeighborSide::TopRight => [neighbor_map.right, neighbor_map.top_right, neighbor_map.top]
+            .into_iter()
+            .flatten()
+            .collect(),
+        NeighborSide::Right => [neighbor_map.right].into_iter().flatten().collect(),
         NeighborSide::BottomRight => [
-            neighbour_map.right,
-            neighbour_map.bottom_right,
-            neighbour_map.bottom,
+            neighbor_map.right,
+            neighbor_map.bottom_right,
+            neighbor_map.bottom,
         ]
         .into_iter()
         .flatten()
         .collect(),
-        NeighborSide::Bottom => [neighbour_map.bottom].into_iter().flatten().collect(),
+        NeighborSide::Bottom => [neighbor_map.bottom].into_iter().flatten().collect(),
         NeighborSide::BottomLeft => [
-            neighbour_map.bottom,
-            neighbour_map.bottom_left,
-            neighbour_map.left,
+            neighbor_map.bottom,
+            neighbor_map.bottom_left,
+            neighbor_map.left,
         ]
         .into_iter()
         .flatten()
         .collect(),
-        NeighborSide::Left => [neighbour_map.left].into_iter().flatten().collect(),
+        NeighborSide::Left => [neighbor_map.left].into_iter().flatten().collect(),
         _ => vec![],
     };
 
@@ -168,10 +160,10 @@ pub fn read_laz(
         let pt: ImmutableKdTree<f64, usize, 2, 32> =
             ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
         for (i, qp) in query_points.iter().enumerate() {
-            let neighbours = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
-            let tot_weight = neighbours.iter().fold(0., |acc, n| acc + 1. / n.distance);
+            let neighbors = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
+            let tot_weight = neighbors.iter().fold(0., |acc, n| acc + 1. / n.distance);
 
-            zs[i] = neighbours
+            zs[i] = neighbors
                 .iter()
                 .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
                 / tot_weight;

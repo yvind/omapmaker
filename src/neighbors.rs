@@ -103,24 +103,24 @@ impl Neighborhood {
 
         let margin = 0.1 * avg_tile_size;
 
-        let mut tile_neighbours = Vec::with_capacity(tile_centers.len());
+        let mut tile_neighbors = Vec::with_capacity(tile_centers.len());
         for (i, point) in tile_centers.iter().enumerate() {
             let bounds = &tile_bounds[i];
 
             let nn = tree.nearest_n::<SquaredEuclidean>(point, NonZero::new(9).unwrap());
-            let mut neighbours_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
+            let mut neighbors_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
 
-            neighbours_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
+            neighbors_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
 
-            let mut orderd_neighbours = Neighborhood::new(i);
-            for ni in neighbours_index.iter().skip(1) {
+            let mut orderd_neighbors = Neighborhood::new(i);
+            for ni in neighbors_index.iter().skip(1) {
                 let side = NeighborSide::get_side(bounds, tile_centers[*ni]);
-                orderd_neighbours.register_neighbor(*ni, side);
+                orderd_neighbors.register_neighbor(*ni, side);
             }
 
-            tile_neighbours.push(orderd_neighbours);
+            tile_neighbors.push(orderd_neighbors);
         }
-        tile_neighbours
+        tile_neighbors
     }
 }
 
@@ -206,13 +206,13 @@ impl NeighborSide {
 }
 
 pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
-    let mut neighbours = Vec::with_capacity(nx * ny);
+    let mut neighbors = Vec::with_capacity(nx * ny);
 
     for yi in 0..ny {
         for xi in 0..nx {
             if xi == 0 && yi == 0 {
                 //no neighbors to the left or top
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         None,
@@ -228,7 +228,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                 );
             } else if xi == nx - 1 && yi == 0 {
                 // no neighbors to the right or top
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         None,
@@ -244,7 +244,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                 );
             } else if xi == 0 && yi == ny - 1 {
                 // no neighbors to the left or bottom
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         None,
@@ -260,7 +260,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                 );
             } else if xi == nx - 1 && yi == ny - 1 {
                 // no neighbors to the right or bottom
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         Some(yi * nx + xi - 1 - nx),
@@ -276,7 +276,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                 );
             } else if xi == 0 {
                 // no neighbors to the left
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         None,
@@ -291,7 +291,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                     .unwrap(),
                 );
             } else if xi == nx - 1 {
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         Some(yi * nx + xi - 1 - nx),
@@ -306,7 +306,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                     .unwrap(),
                 );
             } else if yi == 0 {
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         None,
@@ -321,7 +321,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                     .unwrap(),
                 );
             } else if yi == ny - 1 {
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         Some(yi * nx + xi - 1 - nx),
@@ -336,7 +336,7 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
                     .unwrap(),
                 );
             } else {
-                neighbours.push(
+                neighbors.push(
                     Neighborhood::try_from([
                         Some(yi * nx + xi),
                         Some(yi * nx + xi - 1 - nx),
@@ -353,5 +353,5 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
             }
         }
     }
-    neighbours
+    neighbors
 }

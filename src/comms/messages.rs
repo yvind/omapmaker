@@ -79,7 +79,7 @@ pub enum SetCrs {
 pub enum Variable {
     MapTile(Box<DrawableOmap>),
     TileBounds(Vec<[walkers::Position; 4]>),
-    TileNeighbours(Vec<Neighborhood>),
+    TileNeighbors(Vec<Neighborhood>),
     Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     Home(walkers::Position),
