@@ -31,8 +31,13 @@ pub fn compute_vegetation(
         threshold.is_upper(),
     );
 
-    veg_polygons = cut_overlay.intersection(&veg_polygons);
     veg_polygons = veg_polygons.simplify(&crate::SIMPLIFICATION_DIST);
+    veg_polygons = cut_overlay.intersection(&veg_polygons);
+
+    let num_polys = veg_polygons.0.len();
+    {
+        map.lock().unwrap().reserve_capacity(symbol, num_polys);
+    }
 
     for polygon in veg_polygons {
         let veg_object = AreaObject::from_polygon(polygon, symbol, 0.);

@@ -1,23 +1,3 @@
-mod compute_basemap;
-mod compute_cliffs;
-mod compute_contours;
-mod compute_dfm;
-mod compute_intensity;
-mod compute_map_objects;
-mod compute_vegetation;
-mod make_map;
-mod map_laz;
-mod read_laz;
-mod retile_laz;
-
-pub use self::compute_basemap::compute_basemap;
-pub use self::compute_cliffs::compute_cliffs;
-pub use self::compute_contours::{compute_naive_contours, extract_contours};
-pub use self::compute_dfm::compute_dfms;
-pub use self::compute_intensity::compute_intensity;
-pub use self::compute_map_objects::compute_map_objects;
-pub use self::compute_vegetation::compute_vegetation;
-pub use self::make_map::make_map;
-pub use self::map_laz::map_laz;
-pub use self::read_laz::read_laz;
-pub use self::retile_laz::retile_bounds;
+pub mod common;
+pub mod egui_map;
+pub mod omap;

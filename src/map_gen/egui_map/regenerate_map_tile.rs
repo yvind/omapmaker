@@ -1,14 +1,15 @@
 #![allow(clippy::too_many_arguments)]
 
 use omap::{
-    symbols::{AreaSymbol, LineSymbol},
+    symbols::{AreaSymbol, LineSymbol, PointSymbol},
     Omap,
 };
 
 use crate::{
     comms::messages::*,
     drawable::DrawableOmap,
-    parameters::MapParameters,
+    map_gen,
+    parameters::{ContourAlgo, MapParameters},
     raster::{Dfm, Threshold},
 };
 
@@ -65,9 +66,9 @@ pub fn regenerate_map_tile(
                 .spawn_scoped(s, move || {
                     if needs_update.contours {
                         let (error, energy) = match &params.contour_algorithm {
-                            crate::parameters::ContourAlgo::AI => (0., 0.),
-                            crate::parameters::ContourAlgo::NaiveIterations => {
-                                crate::tile_gen::compute_naive_contours(
+                            ContourAlgo::AI => (0., 0.),
+                            ContourAlgo::NaiveIterations => {
+                                map_gen::common::compute_naive_contours(
                                     &dem[i],
                                     z_range,
                                     &cut_bounds[i],
@@ -76,24 +77,22 @@ pub fn regenerate_map_tile(
                                     &omap,
                                 )
                             }
-                            crate::parameters::ContourAlgo::NormalFieldSmoothing => {
-                                crate::tile_gen::extract_contours(
-                                    &dem[i],
-                                    z_range,
-                                    &cut_bounds[i],
-                                    params,
-                                    &omap,
-                                )
-                            }
-                            crate::parameters::ContourAlgo::Raw => {
-                                crate::tile_gen::extract_contours(
-                                    &dem[i],
-                                    z_range,
-                                    &cut_bounds[i],
-                                    params,
-                                    &omap,
-                                )
-                            }
+                            ContourAlgo::NormalFieldSmoothing => map_gen::common::extract_contours(
+                                &dem[i],
+                                z_range,
+                                &cut_bounds[i],
+                                params,
+                                &omap,
+                                true,
+                            ),
+                            ContourAlgo::Raw => map_gen::common::extract_contours(
+                                &dem[i],
+                                z_range,
+                                &cut_bounds[i],
+                                params,
+                                &omap,
+                                true,
+                            ),
                         };
                         {
                             let mut energy_lock =
@@ -111,7 +110,7 @@ pub fn regenerate_map_tile(
                         && params.basemap_interval >= 0.1
                         && needs_update.basemap
                     {
-                        crate::tile_gen::compute_basemap(
+                        map_gen::common::compute_basemap(
                             &dem[i],
                             z_range,
                             &cut_bounds[i],
@@ -121,7 +120,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.yellow {
-                        crate::tile_gen::compute_vegetation(
+                        map_gen::common::compute_vegetation(
                             &drm[i],
                             Threshold::Upper(params.yellow),
                             hull,
@@ -133,7 +132,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.l_green {
-                        crate::tile_gen::compute_vegetation(
+                        map_gen::common::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.0),
                             hull,
@@ -145,7 +144,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.m_green {
-                        crate::tile_gen::compute_vegetation(
+                        map_gen::common::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.1),
                             hull,
@@ -157,7 +156,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.d_green {
-                        crate::tile_gen::compute_vegetation(
+                        map_gen::common::compute_vegetation(
                             &drm[i],
                             Threshold::Lower(params.green.2),
                             hull,
@@ -169,7 +168,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.cliff {
-                        crate::tile_gen::compute_cliffs(
+                        map_gen::common::compute_cliffs(
                             &g_dem[i],
                             hull,
                             &cut_bounds[i],
@@ -179,7 +178,7 @@ pub fn regenerate_map_tile(
                     }
 
                     if needs_update.intensities {
-                        crate::tile_gen::compute_intensity(
+                        map_gen::common::compute_intensity(
                             &dim[i],
                             hull,
                             &cut_bounds[i],
@@ -215,8 +214,17 @@ pub fn regenerate_map_tile(
     }
 
     omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
-    omap.mark_basemap_depressions();
-    omap.make_dotknolls_and_depressions(params.dot_knoll_area.0, params.dot_knoll_area.1, 1.5);
+
+    if needs_update.contours {
+        omap.reserve_capacity(LineSymbol::BasemapContour, 1);
+        omap.reserve_capacity(LineSymbol::NegBasemapContour, 1);
+        omap.mark_basemap_depressions();
+
+        omap.reserve_capacity(PointSymbol::DotKnoll, 1);
+        omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
+        omap.reserve_capacity(PointSymbol::UDepression, 1);
+        omap.make_dotknolls_and_depressions(params.dot_knoll_area.0, params.dot_knoll_area.1, 1.5);
+    }
 
     let bez_error = if params.bezier_bool {
         Some(params.bezier_error)

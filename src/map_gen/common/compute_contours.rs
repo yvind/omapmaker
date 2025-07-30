@@ -22,14 +22,6 @@ pub fn compute_naive_contours(
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
 ) -> (f64, f64) {
-    {
-        // to make sure the old drawable map features are cleared even if no features are added
-        let mut map = map.lock().unwrap();
-        map.reserve_capacity(LineSymbol::Contour, 1);
-        map.reserve_capacity(LineSymbol::FormLine, 1);
-        map.reserve_capacity(LineSymbol::IndexContour, 1);
-    }
-
     let (min_threshold, conv_threshold) = thresholds;
 
     let effective_interval = if params.form_lines {
@@ -63,6 +55,7 @@ pub fn compute_naive_contours(
     let mut score;
     let mut prev_score = f64::MAX;
     let mut iterations = 0;
+    let mut num_contours = 0;
     loop {
         // extract contour set from adjusted_dem
         for c_index in 0..c_levels {
@@ -74,6 +67,8 @@ pub fn compute_naive_contours(
 
             // should clip the contours
             c_contours = clip_poly.clip(&c_contours, false);
+
+            num_contours += c_contours.0.len();
 
             contours.0.push(ContourLevel::new(c_contours, c_level));
         }
@@ -117,7 +112,25 @@ pub fn compute_naive_contours(
         prev_score = score;
         iterations += 1;
 
+        num_contours = 0;
         contours.0.clear();
+    }
+
+    {
+        let (est_c, est_f, est_i) = if params.form_lines {
+            (
+                (num_contours / 2).max(1),
+                (num_contours / 2).max(1),
+                (num_contours / 5).max(1),
+            )
+        } else {
+            (num_contours.max(1), 1, (num_contours / 5).max(1))
+        };
+
+        let mut map = map.lock().unwrap();
+        map.reserve_capacity(LineSymbol::Contour, est_c);
+        map.reserve_capacity(LineSymbol::FormLine, est_f);
+        map.reserve_capacity(LineSymbol::IndexContour, est_i);
     }
 
     for c_level in contours.0 {
@@ -151,15 +164,8 @@ pub fn extract_contours(
     cut_overlay: &Polygon,
     params: &MapParameters,
     map: &Arc<Mutex<Omap>>,
+    compute_energy: bool,
 ) -> (f64, f64) {
-    {
-        // to make sure the old drawable map features are cleared even if no features are added
-        let mut map = map.lock().unwrap();
-        map.reserve_capacity(LineSymbol::Contour, 1);
-        map.reserve_capacity(LineSymbol::FormLine, 1);
-        map.reserve_capacity(LineSymbol::IndexContour, 1);
-    }
-
     let effective_interval = if params.form_lines {
         params.contour_interval / 2.
     } else {
@@ -188,6 +194,7 @@ pub fn extract_contours(
 
     let mut contour_set = ContourSet::with_capacity(c_levels);
 
+    let mut num_contours = 0;
     for c_index in 0..c_levels {
         let c_level = c_index as f64 * effective_interval + start_level;
 
@@ -195,17 +202,39 @@ pub fn extract_contours(
 
         contours = contours.simplify(&crate::SIMPLIFICATION_DIST);
 
+        num_contours += contours.0.len();
+
         // should clip the contours
         contours = clip_poly.clip(&contours, false);
 
         contour_set.0.push(ContourLevel::new(contours, c_level));
     }
 
-    let mut interpolated_dem = dem.clone();
-    contour_set.interpolate(&mut interpolated_dem, dem).unwrap();
+    let (error, energy) = if compute_energy {
+        let mut interpolated_dem = dem.clone();
+        contour_set.interpolate(&mut interpolated_dem, dem).unwrap();
 
-    let error = true_dem.error(&interpolated_dem);
-    let energy = contour_set.energy(1);
+        (true_dem.error(&interpolated_dem), contour_set.energy(1))
+    } else {
+        (0., 0.)
+    };
+
+    {
+        let (est_c, est_f, est_i) = if params.form_lines {
+            (
+                (num_contours / 2).max(1),
+                (num_contours / 2).max(1),
+                (num_contours / 5).max(1),
+            )
+        } else {
+            (num_contours.max(1), 1, (num_contours / 5).max(1))
+        };
+
+        let mut map = map.lock().unwrap();
+        map.reserve_capacity(LineSymbol::Contour, est_c);
+        map.reserve_capacity(LineSymbol::FormLine, est_f);
+        map.reserve_capacity(LineSymbol::IndexContour, est_i);
+    }
 
     for c_level in contour_set.0 {
         let contours = cut_overlay.clip(&c_level.lines, false);

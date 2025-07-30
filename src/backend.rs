@@ -3,11 +3,11 @@ use las::Reader;
 
 use crate::comms::{messages::*, OmapComms};
 use crate::geometry::MapRect;
-use crate::neighbors;
+use crate::map_gen::{self, egui_map};
+use crate::neighbors::{self, Neighborhood};
 use crate::parameters::MapParameters;
 use crate::project;
 use crate::raster::Dfm;
-use crate::tile_gen;
 
 use std::time::Duration;
 
@@ -62,10 +62,10 @@ impl Backend {
                         self.map_params = None;
                     }
                     BackendTask::ParseCrs(paths) => {
-                        tile_gen::parse_crs(self.comms.clone_sender(), paths);
+                        crate::parse_crs::parse_crs(self.comms.clone_sender(), paths);
                     }
                     BackendTask::MapSpatialLidarRelations(paths, crs) => {
-                        tile_gen::map_laz(self.comms.clone_sender(), paths, crs);
+                        egui_map::map_laz(self.comms.clone_sender(), paths, crs);
                     }
                     BackendTask::ConvertCopc(
                         paths,
@@ -75,7 +75,7 @@ impl Backend {
                         bounds,
                         polygon,
                     ) => {
-                        tile_gen::convert_copc(
+                        crate::convert_copc::convert_copc(
                             self.comms.clone_sender(),
                             paths,
                             in_epsg,
@@ -88,7 +88,7 @@ impl Backend {
 
                     BackendTask::InitializeMapTile(path, tiles) => {
                         let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
-                            tile_gen::initialize_map_tile(self.comms.clone_sender(), path, tiles);
+                            egui_map::initialize_map_tile(self.comms.clone_sender(), path, tiles);
                         self.map_tile_dem = dem;
                         self.map_tile_grad_dem = gdem;
                         self.map_tile_drm = drm;
@@ -101,7 +101,7 @@ impl Backend {
 
                     BackendTask::RegenerateMap(params) => {
                         assert!(!self.map_tile_dem.is_empty());
-                        tile_gen::regenerate_map_tile(
+                        egui_map::regenerate_map_tile(
                             self.comms.clone_sender(),
                             &self.map_tile_dem,
                             &self.map_tile_grad_dem,
@@ -130,7 +130,7 @@ impl Backend {
                         // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        match crate::map_gen::make_map(
+                        match crate::map_gen::omap::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
@@ -156,13 +156,8 @@ impl Backend {
                         let bounds = Reader::from_path(&path).unwrap().header().bounds();
                         let rect = geo::Rect::from_bounds(bounds);
 
-                        let (_, cb, n_x, n_y) = tile_gen::retile_bounds(
-                            &rect,
-                            &geo::Rect::new(
-                                geo::Coord { x: 0., y: 0. },
-                                geo::Coord { x: 0., y: 0. },
-                            ),
-                        );
+                        let (_, cb, n_x, n_y) =
+                            map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
                         let neighbours = neighbors::neighbors_on_grid(n_x, n_y);
 
                         let cb = project::rectangles::to_walkers_map_coords(epsg, &cb);

@@ -16,7 +16,7 @@ Overlapping lidar files not yet handled
 - Writes Omap-files that are 
     - georeferenced (if a CRS is detected in the lidar files or provided)
     - aligned towards the Magnetic North according to the world magnetic model based on the maps creation date and geographical position
-    - correctly scaled including calculating the auxiliary scale factor based on the map centre's elevation
+    - correctly scaled including calculating the auxiliary scale factor based on the map center's elevation
     - in scales 1:10_000 or 1:15_000 with minimum symbol size filtering
 - Supports both bezier and polyline output
 - Polygon filter for only mapping parts of the provided lidar files

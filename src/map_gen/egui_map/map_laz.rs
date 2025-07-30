@@ -166,11 +166,10 @@ fn connected_components(graph: &Vec<Neighborhood>) -> Vec<Vec<usize>> {
     let mut cc: Vec<HashSet<usize>> = vec![];
 
     for node in graph {
-        let middle = node.center;
         let mut belongs_to = usize::MAX;
 
         for (i, component) in cc.iter().enumerate() {
-            if component.contains(&middle) {
+            if component.contains(&node.center) {
                 belongs_to = i;
                 break;
             }
@@ -187,7 +186,7 @@ fn connected_components(graph: &Vec<Neighborhood>) -> Vec<Vec<usize>> {
             // create a new component and add it and all of its neighbors to that component
             let mut new_component = HashSet::new();
 
-            for ni in node.neighbor_indices() {
+            for ni in node.all_indices() {
                 let _ = new_component.insert(ni);
             }
             cc.push(new_component);

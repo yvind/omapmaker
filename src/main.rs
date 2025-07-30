@@ -4,6 +4,7 @@ mod assets;
 mod backend;
 mod comms;
 mod consts;
+mod convert_copc;
 mod drawable;
 mod error;
 mod frontend;
@@ -12,9 +13,9 @@ mod gui;
 mod map_gen;
 mod neighbors;
 mod parameters;
+mod parse_crs;
 mod project;
 mod raster;
-mod tile_gen;
 
 pub use consts::*;
 pub use error::*;

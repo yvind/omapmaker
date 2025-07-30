@@ -11,6 +11,7 @@ use std::{num::NonZero, path::PathBuf, sync::mpsc::Sender};
 use crate::{
     comms::messages::*,
     geometry::{MapRect, PointCloud, PointLaz},
+    map_gen,
     neighbors::Neighborhood,
     raster::Dfm,
 };
@@ -50,15 +51,10 @@ pub fn initialize_map_tile(
         y: ((header_bounds.min.y + header_bounds.max.y) / 20.).round() * 10.,
     };
 
-    let (all_tile_bounds, all_cut_bounds, _, _) = crate::tile_gen::retile_bounds(
-        &Rect::from_bounds(header_bounds),
-        &Rect::new(Coord { x: 0., y: 0. }, Coord { x: 0., y: 0. }),
-    );
+    let (all_tile_bounds, all_cut_bounds, _, _) =
+        map_gen::common::retile_bounds(&Rect::from_bounds(header_bounds), &Neighborhood::new(0));
 
     let mut z_range = (f64::MAX, f64::MIN);
-    let mut i_range = (u16::MAX, u16::MIN);
-    let mut r_range = (u8::MAX, u8::MIN);
-
     let mut cut_bounds = Vec::with_capacity(9);
     let mut all_hulls = Vec::with_capacity(9);
     let mut dems = Vec::with_capacity(9);
@@ -112,27 +108,6 @@ pub fn initialize_map_tile(
             shifted_bounds,
         );
 
-        // get the i and z bounds
-        for p in point_cloud.points.iter() {
-            if p.0.z > z_range.1 {
-                z_range.1 = p.0.z;
-            } else if p.0.z < z_range.0 {
-                z_range.0 = p.0.z;
-            }
-
-            if p.0.intensity > i_range.1 {
-                i_range.1 = p.0.intensity;
-            } else if p.0.intensity < i_range.0 {
-                i_range.0 = p.0.intensity;
-            }
-
-            if p.0.return_number > r_range.1 {
-                r_range.1 = p.0.return_number;
-            } else if p.0.return_number < r_range.0 {
-                r_range.0 = p.0.return_number;
-            }
-        }
-
         // add ghost points at the corners of the bounds to make the entire dem interpolate-able
         // IDW interpolating the ghost points from the 8 closest real points
         let query_points = [
@@ -168,13 +143,15 @@ pub fn initialize_map_tile(
 
         let hull = point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
 
-        let tl = Coord {
-            x: dfm_bounds.min.x,
-            y: dfm_bounds.max.y,
-        };
-
-        let (dem, drm, dim) = crate::tile_gen::compute_dfms(point_cloud, tl);
+        let (dem, drm, dim, tile_z_range) = map_gen::common::compute_dfms(point_cloud);
         let grad_dem = dem.slope(3);
+
+        if z_range.0 > tile_z_range.0 {
+            z_range.0 = tile_z_range.0;
+        }
+        if z_range.1 < tile_z_range.1 {
+            z_range.1 = tile_z_range.1;
+        }
 
         all_hulls.push(hull);
         dems.push(dem);
@@ -185,21 +162,6 @@ pub fn initialize_map_tile(
         sender
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap();
-    }
-    // normalize the return numbers
-    let r_range = (r_range.0 as f64, r_range.1 as f64);
-    for drm in drms.iter_mut() {
-        for r in drm.field.iter_mut() {
-            *r = (*r - r_range.0) / r_range.1;
-        }
-    }
-
-    // normalize the intensity
-    let i_range = (i_range.0 as f64, i_range.1 as f64);
-    for dim in dims.iter_mut() {
-        for i in dim.field.iter_mut() {
-            *i = (*i - i_range.0) / i_range.1;
-        }
     }
 
     let initial = all_hulls[0].clone();

@@ -1,14 +1,9 @@
-use crate::geometry::PointCloud;
-use crate::map_gen;
 use crate::parameters::MapParameters;
 use crate::raster::Threshold;
+use crate::{geometry::PointCloud, map_gen};
 
 use geo::{Area, BooleanOps, Polygon, Rect};
-use omap::{
-    objects::{LineObject, MapObject},
-    symbols::{AreaSymbol, LineSymbol},
-    Omap,
-};
+use omap::{symbols::AreaSymbol, Omap};
 
 use std::sync::{Arc, Mutex};
 
@@ -19,10 +14,8 @@ pub fn compute_map_objects(
     convex_hull: Polygon,
     cut_bounds: Rect,
 ) {
-    let z_range = (ground_cloud.bounds.min.z, ground_cloud.bounds.max.z);
-
     // Compute the DFMs
-    let (dem, drm, dim) = map_gen::compute_dfms(ground_cloud);
+    let (dem, drm, dim, z_range) = map_gen::common::compute_dfms(ground_cloud);
     let grad_dem = dem.slope(3);
 
     // figure out the cut-overlay (intersect of cut-bounds and convex hull)
@@ -38,16 +31,9 @@ pub fn compute_map_objects(
     });
     let cut_overlay = mp.0.swap_remove(0);
 
-    map.lock()
-        .unwrap()
-        .add_object(MapObject::LineObject(LineObject::from_line_string(
-            cut_overlay.exterior().clone(),
-            LineSymbol::SmallCrossableWatercourse,
-        )));
-
     // Compute contours
     if args.basemap_interval >= 0.1 {
-        map_gen::compute_basemap(&dem, z_range, &cut_overlay, args.basemap_interval, map);
+        map_gen::common::compute_basemap(&dem, z_range, &cut_overlay, args.basemap_interval, map);
     }
 
     match args.contour_algorithm {
@@ -55,19 +41,26 @@ pub fn compute_map_objects(
             unimplemented!("No AI contours yet...");
         }
         crate::parameters::ContourAlgo::NaiveIterations => {
-            map_gen::compute_naive_contours(&dem, z_range, &cut_overlay, (0.9, 1.1), args, map);
+            map_gen::common::compute_naive_contours(
+                &dem,
+                z_range,
+                &cut_overlay,
+                (0.9, 1.1),
+                args,
+                map,
+            );
         }
         crate::parameters::ContourAlgo::NormalFieldSmoothing => {
             let smooth_dem = dem.smoothen(15., 15, args.contour_algo_steps as usize);
-            map_gen::extract_contours(&smooth_dem, z_range, &cut_overlay, args, map);
+            map_gen::common::extract_contours(&smooth_dem, z_range, &cut_overlay, args, map, false);
         }
         crate::parameters::ContourAlgo::Raw => {
-            map_gen::extract_contours(&dem, z_range, &cut_overlay, args, map);
+            map_gen::common::extract_contours(&dem, z_range, &cut_overlay, args, map, false);
         }
     }
 
     // Compute vegetation
-    map_gen::compute_vegetation(
+    map_gen::common::compute_vegetation(
         &drm,
         Threshold::Upper(args.yellow),
         &convex_hull,
@@ -77,7 +70,7 @@ pub fn compute_map_objects(
         map,
     );
 
-    map_gen::compute_vegetation(
+    map_gen::common::compute_vegetation(
         &drm,
         Threshold::Lower(args.green.0),
         &convex_hull,
@@ -87,7 +80,7 @@ pub fn compute_map_objects(
         map,
     );
 
-    map_gen::compute_vegetation(
+    map_gen::common::compute_vegetation(
         &drm,
         Threshold::Lower(args.green.1),
         &convex_hull,
@@ -97,7 +90,7 @@ pub fn compute_map_objects(
         map,
     );
 
-    map_gen::compute_vegetation(
+    map_gen::common::compute_vegetation(
         &drm,
         Threshold::Lower(args.green.2),
         &convex_hull,
@@ -108,8 +101,8 @@ pub fn compute_map_objects(
     );
 
     // Compute cliffs
-    map_gen::compute_cliffs(&grad_dem, &convex_hull, &cut_overlay, args, map);
+    map_gen::common::compute_cliffs(&grad_dem, &convex_hull, &cut_overlay, args, map);
 
     // Compute lidar intensity filters
-    map_gen::compute_intensity(&dim, &convex_hull, &cut_overlay, args, map);
+    map_gen::common::compute_intensity(&dim, &convex_hull, &cut_overlay, args, map);
 }
