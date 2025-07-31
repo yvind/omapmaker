@@ -23,7 +23,7 @@ pub fn compute_basemap(
 
         let mut bm_contours = dem.marching_squares(bm_level);
 
-        bm_contours = bm_contours.simplify(&crate::SIMPLIFICATION_DIST);
+        bm_contours = bm_contours.simplify(crate::SIMPLIFICATION_DIST);
 
         bm_contours = cut_overlay.clip(&bm_contours, false);
 

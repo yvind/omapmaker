@@ -16,23 +16,19 @@ pub fn compute_intensity(
         let lower_contours = dim.marching_squares(filter.low);
         let upper_contours = dim.marching_squares(filter.high);
 
-        let lower_polygons = MultiPolygon::from_contours(
-            lower_contours,
-            convex_hull,
-            filter.symbol.min_size(params.scale),
-            false,
-        );
-        let upper_polygons = MultiPolygon::from_contours(
-            upper_contours,
-            convex_hull,
-            filter.symbol.min_size(params.scale),
-            true,
-        );
+        let lower_polygons = MultiPolygon::from_contours(lower_contours, convex_hull, false);
+        let upper_polygons = MultiPolygon::from_contours(upper_contours, convex_hull, true);
 
         let mut polygons = lower_polygons.intersection(&upper_polygons);
 
+        polygons = polygons.simplify(crate::SIMPLIFICATION_DIST);
+
+        for buffer in params.buffer_rules.iter() {
+            polygons = polygons.apply_buffer_rule(buffer);
+        }
+
+        polygons = polygons.remove_small_polygons(filter.symbol.min_size(params.scale));
         polygons = cut_overlay.intersection(&polygons);
-        polygons = polygons.simplify(&crate::SIMPLIFICATION_DIST);
 
         let num_polys = polygons.0.len();
         {

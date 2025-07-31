@@ -198,8 +198,7 @@ pub fn regenerate_map_tile(
     if old_params.is_none() {
         // remove empty hashmap entries
         // no need to do this if the tile is simply an update
-        // as then the empty entries are used to mark
-        // removal of objects from the map
+        // as then the empty entries are used to mark removal of objects from the map
         omap.remove_empty_keys();
     }
 
@@ -269,11 +268,38 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
         return update_map;
     }
 
-    update_map.yellow = new.yellow != old.yellow;
-    update_map.l_green = new.green.0 != old.green.0;
-    update_map.m_green = new.green.1 != old.green.1;
-    update_map.d_green = new.green.2 != old.green.2;
-    update_map.cliff = new.cliff != old.cliff;
+    let mut buffer_update = true;
+    if new.buffer_rules.len() == old.buffer_rules.len() {
+        buffer_update = false;
+
+        for (new, old) in new.buffer_rules.iter().zip(old.buffer_rules.iter()) {
+            if new != old {
+                buffer_update = true;
+                break;
+            }
+        }
+    }
+
+    if new.intensity_filters.len() == old.intensity_filters.len() && !buffer_update {
+        update_map.intensities = false;
+
+        for (new, old) in new
+            .intensity_filters
+            .iter()
+            .zip(old.intensity_filters.iter())
+        {
+            if new != old {
+                update_map.intensities = true;
+                break;
+            }
+        }
+    }
+
+    update_map.yellow = new.yellow != old.yellow || buffer_update;
+    update_map.l_green = new.green.0 != old.green.0 || buffer_update;
+    update_map.m_green = new.green.1 != old.green.1 || buffer_update;
+    update_map.d_green = new.green.2 != old.green.2 || buffer_update;
+    update_map.cliff = new.cliff != old.cliff || buffer_update;
 
     update_map.basemap =
         new.basemap_interval != old.basemap_interval || new.basemap_contour != old.basemap_contour;

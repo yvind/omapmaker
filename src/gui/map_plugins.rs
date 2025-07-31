@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, Response, Ui};
-use geo::{LineString, Polygon, TriangulateEarcut};
+use geo::{LineString, Polygon, TriangulateEarcut, Validation};
 use walkers::{Plugin, Position, Projector};
 
 use super::ProcessStage;
@@ -163,13 +163,10 @@ impl Plugin for PolygonDrawer<'_> {
                     self.area_of_interest.close();
                 }
 
-                // TODO!
-                // check for self intersections, if so clear the area_of_interest
-                // validation trait is added to the next release of geo
-                // let valid_check = Polygon::new(self.area_of_interest.clone(), vec![]);
-                // if !valid_check.is_valid() {
-                //   self.area_of_interest.0.clear();
-                // }
+                let valid_check = Polygon::new(self.area_of_interest.clone(), vec![]);
+                if !valid_check.is_valid() {
+                    self.area_of_interest.0.clear();
+                }
 
                 *self.state = ProcessStage::ChooseSquare;
             } else if response.clicked_by(egui::PointerButton::Primary) {

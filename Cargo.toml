@@ -32,7 +32,7 @@ fastrand = "2.1.1"
 spade = "2.14.0"
 
 # geometry
-geo = "0.30.0"
+geo = { git = "https://github.com/georust/geo" } #"0.30.0"
 linestring2bezier = "0.2.1"
 
 # read/write las/laz/copc
@@ -41,7 +41,7 @@ las-crs = "0.1.1"
 copc-rs = "0.5.0"
 
 # omap-writing
-omap = { version = "0.3.0", features = ["merge_lines"] }
+omap = { version = "0.4.0", features = ["merge_lines"] }
 
 # better error enums
 thiserror = "2.0.8"

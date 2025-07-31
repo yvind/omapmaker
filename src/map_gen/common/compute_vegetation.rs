@@ -24,14 +24,15 @@ pub fn compute_vegetation(
 ) {
     let contours = dfm.marching_squares(threshold.inner());
 
-    let mut veg_polygons = MultiPolygon::from_contours(
-        contours,
-        convex_hull,
-        symbol.min_size(params.scale),
-        threshold.is_upper(),
-    );
+    let mut veg_polygons = MultiPolygon::from_contours(contours, convex_hull, threshold.is_upper());
 
-    veg_polygons = veg_polygons.simplify(&crate::SIMPLIFICATION_DIST);
+    veg_polygons = veg_polygons.simplify(crate::SIMPLIFICATION_DIST);
+
+    for buffer in params.buffer_rules.iter() {
+        veg_polygons = veg_polygons.apply_buffer_rule(buffer);
+    }
+
+    veg_polygons = veg_polygons.remove_small_polygons(symbol.min_size(params.scale));
     veg_polygons = cut_overlay.intersection(&veg_polygons);
 
     let num_polys = veg_polygons.0.len();

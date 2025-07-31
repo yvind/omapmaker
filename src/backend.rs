@@ -3,7 +3,7 @@ use las::Reader;
 
 use crate::comms::{messages::*, OmapComms};
 use crate::geometry::MapRect;
-use crate::map_gen::{self, egui_map};
+use crate::map_gen;
 use crate::neighbors::{self, Neighborhood};
 use crate::parameters::MapParameters;
 use crate::project;
@@ -65,7 +65,7 @@ impl Backend {
                         crate::parse_crs::parse_crs(self.comms.clone_sender(), paths);
                     }
                     BackendTask::MapSpatialLidarRelations(paths, crs) => {
-                        egui_map::map_laz(self.comms.clone_sender(), paths, crs);
+                        map_gen::egui_map::map_laz(self.comms.clone_sender(), paths, crs);
                     }
                     BackendTask::ConvertCopc(
                         paths,
@@ -88,7 +88,11 @@ impl Backend {
 
                     BackendTask::InitializeMapTile(path, tiles) => {
                         let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
-                            egui_map::initialize_map_tile(self.comms.clone_sender(), path, tiles);
+                            map_gen::egui_map::initialize_map_tile(
+                                self.comms.clone_sender(),
+                                path,
+                                tiles,
+                            );
                         self.map_tile_dem = dem;
                         self.map_tile_grad_dem = gdem;
                         self.map_tile_drm = drm;
@@ -101,7 +105,7 @@ impl Backend {
 
                     BackendTask::RegenerateMap(params) => {
                         assert!(!self.map_tile_dem.is_empty());
-                        egui_map::regenerate_map_tile(
+                        map_gen::egui_map::regenerate_map_tile(
                             self.comms.clone_sender(),
                             &self.map_tile_dem,
                             &self.map_tile_grad_dem,
@@ -130,7 +134,7 @@ impl Backend {
                         // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        match crate::map_gen::final_map::make_map(
+                        match map_gen::final_map::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,

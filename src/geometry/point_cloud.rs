@@ -81,7 +81,7 @@ impl PointCloud {
         }
         hull_contour.close();
 
-        Polygon::new(hull_contour.simplify(&epsilon), vec![])
+        Polygon::new(hull_contour.simplify(epsilon), vec![])
     }
 
     fn convex_hull(&mut self) -> Vec<PointLaz> {

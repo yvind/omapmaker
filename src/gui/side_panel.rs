@@ -1,4 +1,8 @@
-use crate::{comms::messages::*, drawable::DrawOrder, parameters::ContourAlgo};
+use crate::{
+    comms::messages::*,
+    drawable::DrawOrder,
+    parameters::{BufferDirection, ContourAlgo},
+};
 
 use super::modals::OmapModal;
 use crate::OmapMaker;
@@ -515,6 +519,51 @@ impl OmapMaker {
                         .fixed_decimals(2)
                         .show_value(true),
                     );
+                });
+
+                ui.label("Add buffer rules for polygons. Rules are applied in order");
+                for (i, buffer_rule) in self
+                    .gui_variables
+                    .map_params
+                    .buffer_rules
+                    .iter_mut()
+                    .enumerate()
+                {
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt(format!("buffer_rule {i}"))
+                            .selected_text(format!("{:?}", buffer_rule.direction))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut buffer_rule.direction,
+                                    BufferDirection::Grow,
+                                    format!("{:?}", BufferDirection::Grow),
+                                );
+                                ui.selectable_value(
+                                    &mut buffer_rule.direction,
+                                    BufferDirection::Shrink,
+                                    format!("{:?}", BufferDirection::Shrink),
+                                );
+                            });
+                        ui.label("Distance: ");
+                        ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(1.0..=50.0));
+                    });
+                }
+                ui.horizontal(|ui| {
+                    if ui.button("Add rule").clicked() {
+                        self.gui_variables
+                            .map_params
+                            .buffer_rules
+                            .push(Default::default());
+                    }
+                    if ui
+                        .add_enabled(
+                            !self.gui_variables.map_params.buffer_rules.is_empty(),
+                            egui::Button::new("Remove rule"),
+                        )
+                        .clicked()
+                    {
+                        self.gui_variables.map_params.buffer_rules.pop();
+                    }
                 });
 
                 ui.add_space(20.);

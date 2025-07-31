@@ -1615,8 +1615,7 @@ dependencies = [
 [[package]]
 name = "geo"
 version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4416397671d8997e9a3e7ad99714f4f00a22e9eaa9b966a5985d2194fc9e02e1"
+source = "git+https://github.com/georust/geo#cae816cb1b2e3915e175ce8e7fe63edb15334f3e"
 dependencies = [
  "earcutr",
  "float_next_after",
@@ -2984,9 +2983,9 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5b9e513c9391e382b2336c75c19b93a02213647ea6f95d9f77f37055b02e865"
+checksum = "cf00025dfad061479df6f22a829653d2b66fadba0b5736d0bb4c196fae6f45f8"
 dependencies = [
  "chrono",
  "geo-types",

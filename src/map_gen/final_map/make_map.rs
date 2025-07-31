@@ -179,11 +179,12 @@ pub fn make_map(
         .send(FrontendTask::Log("Writing Omap file...".to_string()))
         .unwrap();
 
-    let bezier_error = if map_params.bezier_bool {
+    let bezier_line_error = if map_params.bezier_bool {
         Some(map_params.bezier_error)
     } else {
         None
     };
+    let bezier_error = omap::BezierError::new(bezier_line_error, None);
 
     let _ = omap.write_to_file(file_params.save_location.clone(), bezier_error);
 

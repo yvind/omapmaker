@@ -63,7 +63,7 @@ pub fn compute_naive_contours(
 
             let mut c_contours = adjusted_dem
                 .marching_squares(c_level)
-                .simplify(&crate::SIMPLIFICATION_DIST);
+                .simplify(crate::SIMPLIFICATION_DIST);
 
             // should clip the contours
             c_contours = clip_poly.clip(&c_contours, false);
@@ -200,7 +200,7 @@ pub fn extract_contours(
 
         let mut contours = dem.marching_squares(c_level);
 
-        contours = contours.simplify(&crate::SIMPLIFICATION_DIST);
+        contours = contours.simplify(crate::SIMPLIFICATION_DIST);
 
         num_contours += contours.0.len();
 

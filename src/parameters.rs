@@ -18,6 +18,7 @@ pub struct MapParameters {
     pub yellow: f64,
     pub cliff: f64,
     pub intensity_filters: Vec<IntensityFilter>,
+    pub buffer_rules: Vec<BufferRule>,
 
     // debug params
     pub contour_algo_steps: u8,
@@ -49,6 +50,7 @@ impl Default for MapParameters {
             cliff: 0.75,
             contour_algorithm: Default::default(),
             intensity_filters: Default::default(),
+            buffer_rules: Default::default(),
         }
     }
 }
@@ -85,7 +87,7 @@ impl Display for ContourAlgo {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct IntensityFilter {
     pub low: f64,
     pub high: f64,
@@ -100,4 +102,25 @@ impl Default for IntensityFilter {
             symbol: AreaSymbol::BareRock,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BufferRule {
+    pub direction: BufferDirection,
+    pub amount: f64,
+}
+
+impl Default for BufferRule {
+    fn default() -> Self {
+        Self {
+            direction: BufferDirection::Grow,
+            amount: 5.,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BufferDirection {
+    Grow,
+    Shrink,
 }

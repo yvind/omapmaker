@@ -1,21 +1,25 @@
+use crate::parameters::BufferRule;
+
 use super::MapLineString;
-use geo::{BooleanOps, Contains};
+use geo::{Area, BooleanOps, Buffer, Contains, Simplify};
 use geo::{MultiLineString, MultiPolygon, Polygon};
 
 pub trait MapMultiPolygon {
     fn from_contours(
         contours: MultiLineString,
         convex_hull: &Polygon,
-        min_size: f64,
         invert: bool,
     ) -> MultiPolygon;
+
+    fn apply_buffer_rule(self, buffer_rule: &BufferRule) -> MultiPolygon;
+
+    fn remove_small_polygons(self, min_size: f64) -> MultiPolygon;
 }
 
 impl MapMultiPolygon for MultiPolygon {
     fn from_contours(
         mut contours: MultiLineString,
         convex_hull: &Polygon,
-        min_size: f64,
         invert: bool,
     ) -> MultiPolygon {
         let mut polygons = Vec::with_capacity(contours.0.len());
@@ -27,17 +31,11 @@ impl MapMultiPolygon for MultiPolygon {
             return MultiPolygon::new(polygons);
         }
 
-        // add all contours of the right orientation to its own polygon
-        let invert_sign = -(invert as i8 * 2 - 1) as f64;
-
         let mut i = 0;
         while i < contours.0.len() {
-            let contour = &contours.0[i];
-            let area = contour.line_string_signed_area().unwrap();
-            let filter_area = area * invert_sign;
-            if filter_area > -min_size / 10. && filter_area < min_size {
-                contours.0.swap_remove(i);
-            } else if area > 0. {
+            let area = contours.0[i].line_string_signed_area().unwrap();
+
+            if area > 0. {
                 polygons.push(Polygon::new(contours.0.swap_remove(i), vec![]));
             } else {
                 i += 1;
@@ -58,13 +56,32 @@ impl MapMultiPolygon for MultiPolygon {
 
         // invert the polygons with respect to the convex hull if we want area below the contours
         if invert {
-            let hull = convex_hull.clone();
-            polygons = hull.difference(&polygons);
-
-            // some edge connected polygons makes
-            // it through the size filter for some reason
+            polygons = convex_hull.difference(&polygons);
         }
 
         polygons
+    }
+
+    fn apply_buffer_rule(self, buffer_rule: &BufferRule) -> MultiPolygon {
+        let sign = match buffer_rule.direction {
+            crate::parameters::BufferDirection::Grow => 1.,
+            crate::parameters::BufferDirection::Shrink => -1.,
+        };
+        let distance = sign * buffer_rule.amount;
+        self.buffer(distance).simplify(crate::SIMPLIFICATION_DIST)
+    }
+
+    fn remove_small_polygons(mut self, min_size: f64) -> MultiPolygon {
+        let mut i = 0;
+        while i < self.0.len() {
+            let area = self.0[i].signed_area();
+
+            if area < min_size {
+                self.0.swap_remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        self
     }
 }
