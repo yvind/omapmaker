@@ -18,7 +18,7 @@ egui_double_slider = "0.9.0"
 # choose files
 rfd = "0.15.1"
 # slippy map tiles
-walkers = { path = "../walkers" } #{git = "https://github.com/yvind/walkers"}
+walkers = { git = "https://github.com/yvind/walkers" }
 # projections
 crs-definitions = { version = "0.3.0", features = ["wkt"] }
 proj4rs = { version = "0.1.5", features = ["crs-definitions"] }
@@ -29,7 +29,7 @@ kiddo = "5.0.3"
 fastrand = "2.1.1"
 
 # delaunay and interpolation
-spade = { path = "../spade" }
+spade = "2.14.0"
 
 # geometry
 geo = "0.30.0"

@@ -1627,7 +1627,7 @@ dependencies = [
  "num-traits",
  "robust",
  "rstar",
- "spade 2.14.0",
+ "spade",
 ]
 
 [[package]]
@@ -3016,7 +3016,7 @@ dependencies = [
  "omap",
  "proj4rs",
  "rfd",
- "spade 2.13.1",
+ "spade",
  "thiserror 2.0.12",
  "walkers",
 ]
@@ -3987,16 +3987,6 @@ checksum = "f40f1aa8c0f688ae6d6ffd5e9e351d635acc176dfad05816494b321be7e01007"
 
 [[package]]
 name = "spade"
-version = "2.13.1"
-dependencies = [
- "hashbrown",
- "num-traits",
- "robust",
- "smallvec",
-]
-
-[[package]]
-name = "spade"
 version = "2.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a14e31a007e9f85c32784b04f89e6e194bb252a4d41b4a8ccd9e77245d901c8c"
@@ -4586,6 +4576,7 @@ dependencies = [
 [[package]]
 name = "walkers"
 version = "0.33.1"
+source = "git+https://github.com/yvind/walkers#3a1fc6088024b0e921047834f8b1b2f839870099"
 dependencies = [
  "egui",
  "egui_extras",
