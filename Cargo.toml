@@ -33,7 +33,7 @@ spade = { path = "../spade" }
 
 # geometry
 geo = "0.30.0"
-linestring2bezier = { path = "../linestring2bezier" }
+linestring2bezier = "0.2.1"
 
 # read/write las/laz/copc
 las = { version = "0.9.3", features = ["laz"] }
@@ -41,7 +41,7 @@ las-crs = "0.1.1"
 copc-rs = "0.5.0"
 
 # omap-writing
-omap = { path = "../omap", features = ["merge_lines"] }
+omap = { version = "0.3.0", features = ["merge_lines"] }
 
 # better error enums
 thiserror = "2.0.8"

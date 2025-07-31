@@ -164,9 +164,10 @@ pub fn make_map(
         .unwrap();
 
     // merge line symbols
-    omap.merge_lines(crate::MERGE_DELTA);
+    omap.merge_lines(5. * crate::MERGE_DELTA);
     // mark basemap depressions as such
     omap.mark_basemap_depressions();
+
     // convert the smallest knolls and depressions to point symbols
     omap.make_dotknolls_and_depressions(
         map_params.dot_knoll_area.0,

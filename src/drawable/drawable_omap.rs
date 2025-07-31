@@ -92,7 +92,7 @@ impl DrawableOmap {
 
         DrawableOmap {
             hull: global_hull,
-            map_objects: Self::into_drawable(omap.objects, ref_point, crs, bezier_error),
+            map_objects: Self::into_drawable(omap.into_objects(), ref_point, crs, bezier_error),
         }
     }
 

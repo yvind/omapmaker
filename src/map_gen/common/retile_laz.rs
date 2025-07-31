@@ -4,19 +4,19 @@ use geo::{Coord, Rect};
 
 pub fn retile_bounds(
     bounds: &Rect,
-    neighbors: &Neighborhood,
+    lidar_neighbors: &Neighborhood,
 ) -> (Vec<Rect>, Vec<Rect>, usize, usize) {
     let mut neighbor_file_margin = [(0., 0.), (0., 0.)];
-    if neighbors.has_neighbor_above() {
+    if lidar_neighbors.has_neighbor_above() {
         neighbor_file_margin[1].1 = MIN_NEIGHBOR_MARGIN;
     }
-    if neighbors.has_neighbor_below() {
+    if lidar_neighbors.has_neighbor_below() {
         neighbor_file_margin[0].1 = -MIN_NEIGHBOR_MARGIN;
     }
-    if neighbors.has_neighbor_right() {
+    if lidar_neighbors.has_neighbor_right() {
         neighbor_file_margin[1].0 = MIN_NEIGHBOR_MARGIN;
     }
-    if neighbors.has_neighbor_left() {
+    if lidar_neighbors.has_neighbor_left() {
         neighbor_file_margin[0].0 = -MIN_NEIGHBOR_MARGIN;
     }
     let neighbor_file_margin = Rect::new(neighbor_file_margin[0], neighbor_file_margin[1]);
@@ -62,7 +62,8 @@ pub fn retile_bounds(
                 inner_min.y = bounds.min().y;
                 inner_max.y = tile_max.y - neighbor_margin_y / 2.;
             } else {
-                tile_max.y = bounds.max().y - (TILE_SIZE - neighbor_margin_y) * yi as f64;
+                tile_max.y = bounds.max().y + neighbor_file_margin.max().y
+                    - (TILE_SIZE - neighbor_margin_y) * yi as f64;
                 tile_min.y = tile_max.y - TILE_SIZE;
 
                 inner_max.y = tile_max.y - neighbor_margin_y / 2.;
@@ -81,7 +82,9 @@ pub fn retile_bounds(
                 inner_max.x = bounds.max().x;
                 inner_min.x = tile_min.x + neighbor_margin_x / 2.;
             } else {
-                tile_min.x = bounds.min().x + (TILE_SIZE - neighbor_margin_x) * xi as f64;
+                tile_min.x = bounds.min().x
+                    + neighbor_file_margin.min().x
+                    + (TILE_SIZE - neighbor_margin_x) * xi as f64;
                 tile_max.x = tile_min.x + TILE_SIZE;
 
                 inner_min.x = tile_min.x + neighbor_margin_x / 2.;

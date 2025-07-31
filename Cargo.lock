@@ -2403,16 +2403,9 @@ dependencies = [
 
 [[package]]
 name = "linestring2bezier"
-version = "0.2.0"
-dependencies = [
- "geo-types",
-]
-
-[[package]]
-name = "linestring2bezier"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea29447adbc9121e646dc7cfd2280ebea15839439a384c83446bbaba8fce0559"
+checksum = "dded0070902f7364352b8ad26ea211f37fb9b9aa0fccaaa718374d813062c895"
 dependencies = [
  "geo-types",
 ]
@@ -2991,12 +2984,14 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.2.3"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5b9e513c9391e382b2336c75c19b93a02213647ea6f95d9f77f37055b02e865"
 dependencies = [
  "chrono",
  "geo-types",
  "kiddo",
- "linestring2bezier 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "linestring2bezier",
  "proj4rs",
  "thiserror 2.0.12",
  "world_magnetic_model",
@@ -3016,7 +3011,7 @@ dependencies = [
  "kiddo",
  "las",
  "las-crs",
- "linestring2bezier 0.2.0",
+ "linestring2bezier",
  "log",
  "omap",
  "proj4rs",

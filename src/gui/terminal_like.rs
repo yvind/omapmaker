@@ -48,7 +48,7 @@ impl<'a> TerminalLike {
             pb.inc(1.);
             pb.draw_to_string(&mut self.string);
             self.progress_bar = None;
-            self.string.push('\n'); // we want space after the progress bar
+            self.string.push_str("\n\n"); // we want space after the progress bar
         }
     }
 

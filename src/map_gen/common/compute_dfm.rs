@@ -16,6 +16,7 @@ pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm, (f64, f64)) {
     let mut drm = Dfm::new(tl);
     let mut dim = Dfm::new(tl);
 
+    // this should use lidar file wide statistics not only local tile
     let mut z_range = (f64::MAX, f64::MIN);
     let mut i_range = (u16::MAX, u16::MIN);
     let mut r_range = (u8::MAX, u8::MIN);
@@ -61,6 +62,11 @@ pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm, (f64, f64)) {
             }
         }
     }
+
+    // some slight smoothing to remove artifacts
+    dem = dem.smoothen(15., 7, 5);
+    dim = dim.smoothen(15., 7, 5);
+    drm = drm.smoothen(15., 7, 5);
 
     // normalize the return numbers
     let r_range = (r_range.0 as f64, r_range.1 as f64);

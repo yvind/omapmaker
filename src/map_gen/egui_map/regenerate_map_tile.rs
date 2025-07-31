@@ -200,26 +200,18 @@ pub fn regenerate_map_tile(
         // no need to do this if the tile is simply an update
         // as then the empty entries are used to mark
         // removal of objects from the map
-        let mut remove_keys = vec![];
-        for key in omap.objects.keys() {
-            if let Some(vals) = omap.objects.get(key) {
-                if vals.is_empty() {
-                    remove_keys.push(*key);
-                }
-            }
-        }
-        for key in remove_keys {
-            let _ = omap.objects.remove(&key);
-        }
+        omap.remove_empty_keys();
     }
 
     omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
 
-    if needs_update.contours {
+    if needs_update.basemap {
         omap.reserve_capacity(LineSymbol::BasemapContour, 1);
         omap.reserve_capacity(LineSymbol::NegBasemapContour, 1);
         omap.mark_basemap_depressions();
+    }
 
+    if needs_update.contours {
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
