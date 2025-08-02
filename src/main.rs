@@ -16,6 +16,7 @@ mod parameters;
 mod parse_crs;
 mod project;
 mod raster;
+mod statistics;
 
 pub use consts::*;
 pub use error::*;

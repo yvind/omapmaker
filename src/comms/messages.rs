@@ -3,6 +3,7 @@ use crate::{
     gui::modals::OmapModal,
     neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
+    statistics::LidarStats,
 };
 use std::path::PathBuf;
 
@@ -21,7 +22,7 @@ pub enum FrontendTask {
 pub enum BackendTask {
     ClearParams,
     TileSelectedFile(PathBuf, Option<u16>),
-    InitializeMapTile(PathBuf, Neighborhood),
+    InitializeMapTile(PathBuf, Neighborhood, LidarStats),
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<u16>>),
     ConvertCopc(
@@ -34,7 +35,12 @@ pub enum BackendTask {
     ),
     RegenerateMap(Box<MapParameters>), // boxed to keep the enum variant small
     Reset,
-    MakeMap(Box<MapParameters>, Box<FileParameters>, geo::LineString),
+    MakeMap(
+        Box<MapParameters>,
+        Box<FileParameters>,
+        geo::LineString,
+        LidarStats,
+    ),
 }
 
 pub enum Task {
@@ -88,4 +94,5 @@ pub enum Variable {
     CrsLessCheckBox(usize),
     ConnectedComponents(Vec<Vec<usize>>),
     ContourScore((f32, f32)),
+    Stats(LidarStats),
 }

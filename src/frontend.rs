@@ -179,6 +179,7 @@ impl OmapMaker {
             Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
             Variable::TileNeighbors(tn) => self.gui_variables.subtile_neighbors = tn,
             Variable::ContourScore(score) => self.gui_variables.contour_score = score,
+            Variable::Stats(lidar_stats) => self.gui_variables.lidar_stats = Some(lidar_stats),
         }
     }
 
@@ -280,6 +281,7 @@ impl OmapMaker {
                         self.gui_variables.subtile_neighbors
                             [self.gui_variables.selected_tile.unwrap_or(0)]
                         .clone(),
+                        self.gui_variables.lidar_stats.clone().unwrap(),
                     ))
                     .unwrap();
             }
@@ -325,6 +327,7 @@ impl OmapMaker {
                         Box::new(self.gui_variables.map_params.clone()),
                         Box::new(self.gui_variables.file_params.clone()),
                         self.gui_variables.polygon_filter.clone(),
+                        self.gui_variables.lidar_stats.clone().unwrap(),
                     ))
                     .unwrap();
             }

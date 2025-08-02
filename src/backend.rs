@@ -86,12 +86,13 @@ impl Backend {
                         );
                     }
 
-                    BackendTask::InitializeMapTile(path, tiles) => {
+                    BackendTask::InitializeMapTile(path, tiles, stats) => {
                         let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
                             map_gen::egui_map::initialize_map_tile(
                                 self.comms.clone_sender(),
                                 path,
                                 tiles,
+                                stats,
                             );
                         self.map_tile_dem = dem;
                         self.map_tile_grad_dem = gdem;
@@ -124,7 +125,7 @@ impl Backend {
                         self.ctx.request_repaint();
                     }
 
-                    BackendTask::MakeMap(map_params, file_params, polygon_filter) => {
+                    BackendTask::MakeMap(map_params, file_params, polygon_filter, stats) => {
                         // transform the linestring to output coords
                         let local_polygon_filter = project::polygon::from_walkers_map_coords(
                             map_params.output_epsg,
@@ -139,6 +140,7 @@ impl Backend {
                             *map_params,
                             *file_params,
                             local_polygon_filter,
+                            stats,
                         ) {
                             Ok(_) => self
                                 .comms

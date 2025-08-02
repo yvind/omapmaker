@@ -3,6 +3,7 @@ use crate::{
     map_gen,
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
+    statistics::LidarStats,
     Result,
 };
 use geo::{Area, BooleanOps, Intersects};
@@ -19,6 +20,7 @@ pub fn make_map(
     map_params: MapParameters,
     file_params: FileParameters,
     mut polygon_filter: Option<geo::Polygon>,
+    stats: LidarStats,
 ) -> Result<()> {
     let _ = sender.send(FrontendTask::Log("Starting map generation!".to_string()));
 
@@ -83,6 +85,7 @@ pub fn make_map(
                 let laz_paths = laz_paths.clone();
                 let map_params = map_params.clone();
                 let polygon_filter = polygon_filter.clone();
+                let stats = stats.clone();
 
                 let _ = thread::Builder::new()
                     .stack_size(crate::STACK_SIZE * 1024 * 1024)
@@ -139,6 +142,7 @@ pub fn make_map(
                                 &map,
                                 &map_params,
                                 cloud,
+                                &stats,
                                 hull,
                                 cut_bounds[thread_i],
                             );

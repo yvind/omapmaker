@@ -1,4 +1,4 @@
-use crate::comms::messages::*;
+use crate::{comms::messages::*, statistics::LidarStats};
 use std::{path::PathBuf, sync::mpsc::Sender, vec};
 
 use copc_rs::{CopcReader, CopcWriter};
@@ -22,7 +22,7 @@ pub fn convert_copc(
 
     sender
         .send(FrontendTask::Log(
-            "Converting and transforming files...".to_string(),
+            "Gathering statistics and Converting files...".to_string(),
         ))
         .unwrap();
     sender
@@ -31,6 +31,7 @@ pub fn convert_copc(
 
     let polygon = geo::Polygon::new(polygon_filter, vec![]);
 
+    let mut stats = Vec::new();
     let inc_size = 1. / paths.len() as f32;
     for (pi, path) in paths.into_iter().enumerate() {
         // first check if the file is relevant i.e overlaps with the polygon or is the selected file
@@ -46,6 +47,8 @@ pub fn convert_copc(
         }
 
         if relevant {
+            stats.push(LidarStats::calculate_statistics(&path).unwrap());
+
             let transform_needed = if let Some(o_epsg) = output_epsg {
                 input_epsg[pi] != o_epsg
             } else {
@@ -77,8 +80,14 @@ pub fn convert_copc(
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap()
     }
+    let stats = stats.into_iter().reduce(LidarStats::combine_stats).unwrap();
+
     sender
         .send(FrontendTask::ProgressBar(ProgressBar::Finish))
+        .unwrap();
+
+    sender
+        .send(FrontendTask::UpdateVariable(Variable::Stats(stats)))
         .unwrap();
 
     sender

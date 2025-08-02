@@ -1,11 +1,12 @@
 use crate::geometry::{PointCloud, PointLaz};
 use crate::raster::Dfm;
+use crate::statistics::LidarStats;
 use crate::SIDE_LENGTH;
 
 use geo::Coord;
 use spade::DelaunayTriangulation;
 
-pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm, (f64, f64)) {
+pub fn compute_dfms(ground_cloud: PointCloud, stats: &LidarStats) -> (Dfm, Dfm, Dfm, (f64, f64)) {
     let dem_bounds = ground_cloud.get_dfm_dimensions();
     let tl = Coord {
         x: dem_bounds.min.x,
@@ -16,27 +17,13 @@ pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm, (f64, f64)) {
     let mut drm = Dfm::new(tl);
     let mut dim = Dfm::new(tl);
 
-    // this should use lidar file wide statistics not only local tile
+    // Because the z_bounds in the header gets wrecked by noise points
     let mut z_range = (f64::MAX, f64::MIN);
-    let mut i_range = (u16::MAX, u16::MIN);
-    let mut r_range = (u8::MAX, u8::MIN);
     for p in ground_cloud.points.iter() {
         if p.0.z > z_range.1 {
             z_range.1 = p.0.z;
         } else if p.0.z < z_range.0 {
             z_range.0 = p.0.z;
-        }
-
-        if p.0.intensity > i_range.1 {
-            i_range.1 = p.0.intensity;
-        } else if p.0.intensity < i_range.0 {
-            i_range.0 = p.0.intensity;
-        }
-
-        if p.0.return_number > r_range.1 {
-            r_range.1 = p.0.return_number;
-        } else if p.0.return_number < r_range.0 {
-            r_range.0 = p.0.return_number;
         }
     }
 
@@ -69,15 +56,13 @@ pub fn compute_dfms(ground_cloud: PointCloud) -> (Dfm, Dfm, Dfm, (f64, f64)) {
     drm = drm.smoothen(15., 7, 5);
 
     // normalize the return numbers
-    let r_range = (r_range.0 as f64, r_range.1 as f64);
     for r in drm.field.iter_mut() {
-        *r = (*r - r_range.0) / r_range.1;
+        *r = (*r - stats.return_number.min) / stats.return_number.max;
     }
 
     // normalize the intensity
-    let i_range = (i_range.0 as f64, i_range.1 as f64);
     for i in dim.field.iter_mut() {
-        *i = (*i - i_range.0) / i_range.1;
+        *i = (*i - stats.intensity.min) / stats.intensity.max
     }
 
     (dem, drm, dim, z_range)

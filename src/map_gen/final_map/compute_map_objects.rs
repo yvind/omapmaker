@@ -1,5 +1,6 @@
 use crate::parameters::MapParameters;
 use crate::raster::Threshold;
+use crate::statistics::LidarStats;
 use crate::{geometry::PointCloud, map_gen};
 
 use geo::{Area, BooleanOps, Polygon, Rect};
@@ -11,11 +12,12 @@ pub fn compute_map_objects(
     map: &Arc<Mutex<Omap>>,
     args: &MapParameters,
     ground_cloud: PointCloud,
+    stats: &LidarStats,
     convex_hull: Polygon,
     cut_bounds: Rect,
 ) {
     // Compute the DFMs
-    let (dem, drm, dim, z_range) = map_gen::common::compute_dfms(ground_cloud);
+    let (dem, drm, dim, z_range) = map_gen::common::compute_dfms(ground_cloud, stats);
     let grad_dem = dem.slope(3);
 
     // figure out the cut-overlay (intersect of cut-bounds and convex hull)

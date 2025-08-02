@@ -14,12 +14,14 @@ use crate::{
     map_gen,
     neighbors::Neighborhood,
     raster::Dfm,
+    statistics::LidarStats,
 };
 
 pub fn initialize_map_tile(
     sender: Sender<FrontendTask>,
     path: PathBuf,
     tile_indecies: Neighborhood,
+    stats: LidarStats,
 ) -> (
     Vec<Dfm>,
     Vec<Dfm>,
@@ -143,7 +145,7 @@ pub fn initialize_map_tile(
 
         let hull = point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
 
-        let (dem, drm, dim, tile_z_range) = map_gen::common::compute_dfms(point_cloud);
+        let (dem, drm, dim, tile_z_range) = map_gen::common::compute_dfms(point_cloud, &stats);
         let grad_dem = dem.slope(3);
 
         if z_range.0 > tile_z_range.0 {

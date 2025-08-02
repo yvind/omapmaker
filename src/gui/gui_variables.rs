@@ -8,6 +8,7 @@ use crate::{
     drawable::{DrawOrder, DrawableOmap},
     neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
+    statistics::LidarStats,
 };
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -26,6 +27,9 @@ pub struct GuiVariables {
     // lidar crs's
     pub crs_less_search_strings: Vec<String>,
     pub unique_crs: Vec<u16>,
+
+    // lidar stats
+    pub lidar_stats: Option<LidarStats>,
 
     // set output crs
     pub output_crs_string: String,
@@ -89,6 +93,7 @@ impl Default for GuiVariables {
             subtile_neighbors: Default::default(),
             contour_score: Default::default(),
             tile_provider: Default::default(),
+            lidar_stats: Default::default(),
         }
     }
 }
