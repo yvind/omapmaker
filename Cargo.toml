@@ -1,7 +1,7 @@
 [package]
 name = "omap_maker"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 authors = ["Øyvind Hjermstad"]
 description = "An application for generating orienteering maps from lidar data"
 repository = "https://github.com/yvind/omapmaker"
@@ -12,39 +12,37 @@ path = "src/main.rs"
 
 [dependencies]
 # gui
-eframe = "0.32"
+eframe = "0.34"
 egui_autocomplete = { git = "https://github.com/yvind/egui_autocomplete" }
-egui_double_slider = "0.9.0"
+egui_double_slider = "2.0.0"
 # choose files
-rfd = "0.15.1"
+rfd = "0.17.2"
 # slippy map tiles
 walkers = { git = "https://github.com/yvind/walkers" }
 # projections
-crs-definitions = { version = "0.3.0", features = ["wkt"] }
-proj4rs = { version = "0.1.5", features = ["crs-definitions"] }
-
-# for kd-tree
-kiddo = "5.0.3"
-# randomness for kd-tree stability
-fastrand = "2.1.1"
+proj-wkt = "0.8.0"
+proj-core = "0.8.0"
 
 # delaunay and interpolation
-spade = "2.14.0"
+spade = "2.15.1"
+
+# easy parallelization
+rayon = "1.12.0"
 
 # geometry
-geo = { git = "https://github.com/georust/geo" } #"0.30.0"
+geo = "0.33.1"
 linestring2bezier = "0.2.1"
+rstar = "0.13.0"
 
 # read/write las/laz/copc
-las = { version = "0.9.3", features = ["laz"] }
-las-crs = "0.1.1"
-copc-rs = "0.5.0"
-
-# omap-writing
-omap = { version = "0.4.0", features = ["merge_lines"] }
+las = { version = "0.9", features = ["laz-parallel"] }
+copc_converter = "0.11.0"
+copc-rs = { git = "https://github.com/pka/copc-rs"}
+omap = { version = "0.6.1", features = ["geo_ref"] }
 
 # better error enums
-thiserror = "2.0.8"
+thiserror = "2"
+anyhow = "1.0"
 
 # logging warnings and non-panic errors
-log = "0.4.27"
+log = "0.4"

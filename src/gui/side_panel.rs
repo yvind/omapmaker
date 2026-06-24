@@ -1,7 +1,8 @@
 use crate::{
     comms::messages::*,
     drawable::DrawOrder,
-    parameters::{BufferDirection, ContourAlgo},
+    map_gen::egui_map::{AreaSymbol, Symbol},
+    parameters::{BufferDirection, ContourAlgo, Scale},
 };
 
 use super::modals::OmapModal;
@@ -199,12 +200,12 @@ impl OmapMaker {
                             self.gui_variables.file_params.selected_file = None;
                         } else {
                             self.gui_variables.file_params.selected_file = Some(index);
-                            let center = walkers::pos_from_lat_lon(
-                                (self.gui_variables.boundaries[index][0].y
-                                    + self.gui_variables.boundaries[index][1].y)
+                            let center = walkers::lat_lon(
+                                (self.gui_variables.boundaries[index][0].y()
+                                    + self.gui_variables.boundaries[index][2].y())
                                     / 2.,
-                                (self.gui_variables.boundaries[index][0].x
-                                    + self.gui_variables.boundaries[index][1].x)
+                                (self.gui_variables.boundaries[index][0].x()
+                                    + self.gui_variables.boundaries[index][2].x())
                                     / 2.,
                             );
                             self.map_memory.center_at(center);
@@ -318,22 +319,22 @@ impl OmapMaker {
                 ui.horizontal(|ui| {
                     if ui
                         .selectable_label(
-                            self.gui_variables.map_params.scale == omap::Scale::S15_000,
+                            self.gui_variables.map_params.scale == Scale::S15_000,
                             "1:15 000",
                         )
                         .clicked()
                     {
-                        self.gui_variables.map_params.scale = omap::Scale::S15_000;
+                        self.gui_variables.map_params.scale = Scale::S15_000;
                     };
                     ui.separator();
                     if ui
                         .selectable_label(
-                            self.gui_variables.map_params.scale == omap::Scale::S10_000,
+                            self.gui_variables.map_params.scale == Scale::S10_000,
                             "1:10 000",
                         )
                         .clicked()
                     {
-                        self.gui_variables.map_params.scale = omap::Scale::S10_000;
+                        self.gui_variables.map_params.scale = Scale::S10_000;
                     };
                 });
                 ui.add_space(20.);
@@ -590,7 +591,7 @@ impl OmapMaker {
                         egui::ComboBox::from_id_salt(format!("Intensity filter {}", i + 1))
                             .selected_text(format!("{:?}", intensity_filter.symbol))
                             .show_ui(ui, |ui| {
-                                for area_symbol in omap::symbols::AreaSymbol::draw_order() {
+                                for area_symbol in AreaSymbol::draw_order() {
                                     ui.selectable_value(
                                         &mut intensity_filter.symbol,
                                         area_symbol,

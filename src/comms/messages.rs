@@ -1,3 +1,5 @@
+use proj_core::CrsDef;
+
 use crate::{
     drawable::DrawableOmap,
     gui::modals::OmapModal,
@@ -21,13 +23,13 @@ pub enum FrontendTask {
 
 pub enum BackendTask {
     ClearParams,
-    TileSelectedFile(PathBuf, Option<u16>),
+    TileSelectedFile(PathBuf, Option<CrsDef>),
     InitializeMapTile(PathBuf, Neighborhood, LidarStats),
     ParseCrs(Vec<PathBuf>),
-    MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<u16>>),
+    MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<Option<CrsDef>>>),
     ConvertCopc(
         Vec<PathBuf>,
-        Vec<u16>,
+        Vec<Option<CrsDef>>,
         Option<u16>,
         usize,
         Vec<[walkers::Position; 4]>,
@@ -89,7 +91,7 @@ pub enum Variable {
     Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     Home(walkers::Position),
-    CrsEPSG(Vec<u16>),
+    CrsDefs(Vec<Option<CrsDef>>),
     CrsLessString(usize),
     CrsLessCheckBox(usize),
     ConnectedComponents(Vec<Vec<usize>>),

@@ -1,21 +1,20 @@
-use crate::{geometry::MapMultiPolygon, parameters::MapParameters, raster::Dfm};
+use std::collections::HashMap;
 
-use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
-use omap::{
-    objects::AreaObject,
-    symbols::{AreaSymbol, SymbolTrait},
-    Omap,
+use crate::{
+    geometry::MapMultiPolygon,
+    map_gen::egui_map::{AreaSymbol, MapObject},
+    parameters::MapParameters,
+    raster::Dfm,
 };
 
-use std::sync::{Arc, Mutex};
+use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
 
 pub fn compute_cliffs(
     slope: &Dfm,
     convex_hull: &Polygon,
     cut_overlay: &Polygon,
     params: &MapParameters,
-    map: &Arc<Mutex<Omap>>,
-) {
+) -> Vec<MapObject> {
     let symbol = AreaSymbol::GiganticBoulder;
     let cliff_contours = slope.marching_squares(params.cliff);
 
@@ -27,17 +26,20 @@ pub fn compute_cliffs(
         cliff_polygons = cliff_polygons.apply_buffer_rule(buffer);
     }
 
-    cliff_polygons = cliff_polygons.remove_small_polygons(symbol.min_size(params.scale));
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
     let num_polys = cliff_polygons.0.len();
-    {
-        map.lock().unwrap().reserve_capacity(symbol, num_polys);
-    }
+
+    let mut objects = Vec::with_capacity(num_polys);
 
     for polygon in cliff_polygons.into_iter() {
-        let cliff_object = AreaObject::from_polygon(polygon, symbol, 0.);
+        let cliff_object = MapObject::Area {
+            object: polygon,
+            symbol,
+            tags: HashMap::new(),
+        };
 
-        map.lock().unwrap().add_object(cliff_object);
+        objects.push(cliff_object);
     }
+    objects
 }

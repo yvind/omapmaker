@@ -1,10 +1,10 @@
 use crate::{comms::messages::*, statistics::LidarStats};
 use std::{path::PathBuf, sync::mpsc::Sender, vec};
 
-use copc_rs::{CopcReader, CopcWriter};
+use copc_converter;
+use copc_rs::CopcReader;
 use geo::Contains;
 use las::{Builder, Reader};
-//use proj4rs::{transform::transform, Proj};
 
 const LOCAL_OUT_EPSG: &str = "LOCAL_CS[\"Undefined\"]";
 

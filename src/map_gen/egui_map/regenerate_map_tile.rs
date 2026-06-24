@@ -1,19 +1,15 @@
 #![allow(clippy::too_many_arguments)]
 
-use omap::{
-    symbols::{AreaSymbol, LineSymbol, PointSymbol},
-    Omap,
-};
-
 use crate::{
     comms::messages::*,
     drawable::DrawableOmap,
     map_gen,
+    map_gen::egui_map::{AreaSymbol, LineSymbol, PointSymbol, TempMap},
     parameters::{ContourAlgo, MapParameters},
     raster::{Dfm, Threshold},
 };
 
-use std::sync::{mpsc::Sender, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc::Sender};
 use std::thread;
 
 pub fn regenerate_map_tile(
@@ -29,10 +25,11 @@ pub fn regenerate_map_tile(
     params: &MapParameters,
     old_params: &Option<MapParameters>,
 ) {
-    let omap = Arc::new(Mutex::new(
-        Omap::new(ref_point, params.scale, params.output_epsg, None)
-            .expect("Could not generate new map tile"),
-    ));
+    let omap = Arc::new(Mutex::new(TempMap::new(
+        ref_point,
+        params.scale,
+        params.output_crs,
+    )));
 
     let needs_update = needs_regeneration(params, old_params.as_ref());
 
@@ -68,21 +65,20 @@ pub fn regenerate_map_tile(
                         let (error, energy) = match &params.contour_algorithm {
                             ContourAlgo::AI => (0., 0.),
                             ContourAlgo::NaiveIterations => {
-                                map_gen::common::compute_naive_contours(
-                                    &dem[i],
-                                    z_range,
-                                    &cut_bounds[i],
-                                    (0.1, 0.0),
-                                    params,
-                                    &omap,
-                                )
+                                let (objects, error, energy) =
+                                    map_gen::common::compute_naive_contours(
+                                        &dem[i],
+                                        z_range,
+                                        &cut_bounds[i],
+                                        (0.1, 0.0),
+                                        params,
+                                    );
                             }
                             ContourAlgo::NormalFieldSmoothing => map_gen::common::extract_contours(
                                 &dem[i],
                                 z_range,
                                 &cut_bounds[i],
                                 params,
-                                &omap,
                                 true,
                             ),
                             ContourAlgo::Raw => map_gen::common::extract_contours(
@@ -90,7 +86,6 @@ pub fn regenerate_map_tile(
                                 z_range,
                                 &cut_bounds[i],
                                 params,
-                                &omap,
                                 true,
                             ),
                         };
@@ -115,7 +110,6 @@ pub fn regenerate_map_tile(
                             z_range,
                             &cut_bounds[i],
                             params.basemap_interval,
-                            &omap,
                         );
                     }
 
@@ -127,7 +121,6 @@ pub fn regenerate_map_tile(
                             &cut_bounds[i],
                             AreaSymbol::RoughOpenLand,
                             params,
-                            &omap,
                         );
                     }
 
@@ -139,7 +132,6 @@ pub fn regenerate_map_tile(
                             &cut_bounds[i],
                             AreaSymbol::LightGreen,
                             params,
-                            &omap,
                         );
                     }
 
@@ -151,7 +143,6 @@ pub fn regenerate_map_tile(
                             &cut_bounds[i],
                             AreaSymbol::MediumGreen,
                             params,
-                            &omap,
                         );
                     }
 
@@ -163,34 +154,21 @@ pub fn regenerate_map_tile(
                             &cut_bounds[i],
                             AreaSymbol::DarkGreen,
                             params,
-                            &omap,
                         );
                     }
 
                     if needs_update.cliff {
-                        map_gen::common::compute_cliffs(
-                            &g_dem[i],
-                            hull,
-                            &cut_bounds[i],
-                            params,
-                            &omap,
-                        );
+                        map_gen::common::compute_cliffs(&g_dem[i], hull, &cut_bounds[i], params);
                     }
 
                     if needs_update.intensities {
-                        map_gen::common::compute_intensity(
-                            &dim[i],
-                            hull,
-                            &cut_bounds[i],
-                            params,
-                            &omap,
-                        )
+                        map_gen::common::compute_intensity(&dim[i], hull, &cut_bounds[i], params);
                     }
                 });
         }
     });
 
-    let mut omap = Arc::<Mutex<Omap>>::into_inner(omap)
+    let mut omap = Arc::<Mutex<TempMap>>::into_inner(omap)
         .unwrap()
         .into_inner()
         .unwrap();
@@ -202,7 +180,7 @@ pub fn regenerate_map_tile(
         omap.remove_empty_keys();
     }
 
-    omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+    // omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
 
     if needs_update.basemap {
         omap.reserve_capacity(LineSymbol::BasemapContour, 1);
@@ -223,7 +201,7 @@ pub fn regenerate_map_tile(
         None
     };
 
-    let map = DrawableOmap::from_omap(omap, hull.exterior().clone(), bez_error);
+    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), bez_error);
 
     if needs_update.contours {
         let mut tot_energy = tot_energy

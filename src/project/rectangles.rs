@@ -1,56 +1,34 @@
-use geo::{Coord, Rect};
-use proj4rs::{transform::transform, Proj};
+use geo::{Coord, Point, Rect};
+use proj_core::Transform;
 
-pub fn to_walkers_map_coords(epsg: Option<u16>, rects: &Vec<Rect>) -> Vec<[Coord; 4]> {
+pub fn to_walkers_map_points(epsg: Option<u16>, rects: &Vec<Rect>) -> Vec<[Point; 4]> {
     let mut out = Vec::with_capacity(rects.len());
     if epsg.is_none() {
         for rect in rects {
             out.push([
-                Coord {
+                Point(Coord {
                     x: rect.min().x,
                     y: rect.max().y,
-                },
-                rect.min(),
-                Coord {
+                }),
+                rect.min().into(),
+                Point(Coord {
                     x: rect.max().x,
                     y: rect.min().y,
-                },
-                rect.max(),
+                }),
+                rect.max().into(),
             ]);
         }
-    } else if epsg.is_some() {
-        let epsg = epsg.unwrap();
-
-        let global_proj = Proj::from_epsg_code(4326).unwrap();
-        let local_proj = Proj::from_epsg_code(epsg).unwrap();
+    } else if let Some(epsg) = epsg {
+        let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
 
         for rect in rects {
-            let mut points = [
-                (rect.min().x, rect.max().y),
-                rect.min().x_y(),
-                (rect.max().x, rect.min().y),
-                rect.max().x_y(),
-            ];
-
-            transform(&local_proj, &global_proj, points.as_mut_slice()).unwrap();
+            let transformed_polygon = transform.convert_geometry(rect.to_polygon()).unwrap();
 
             out.push([
-                Coord {
-                    x: points[0].0.to_degrees(),
-                    y: points[0].1.to_degrees(),
-                },
-                Coord {
-                    x: points[1].0.to_degrees(),
-                    y: points[1].1.to_degrees(),
-                },
-                Coord {
-                    x: points[2].0.to_degrees(),
-                    y: points[2].1.to_degrees(),
-                },
-                Coord {
-                    x: points[3].0.to_degrees(),
-                    y: points[3].1.to_degrees(),
-                },
+                Point(transformed_polygon.exterior().0[0]),
+                Point(transformed_polygon.exterior().0[1]),
+                Point(transformed_polygon.exterior().0[2]),
+                Point(transformed_polygon.exterior().0[3]),
             ]);
         }
     }

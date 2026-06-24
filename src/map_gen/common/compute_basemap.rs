@@ -1,23 +1,22 @@
-use crate::raster::Dfm;
-use omap::{
-    objects::{LineObject, TagTrait},
-    symbols::LineSymbol,
-    Omap,
+use std::collections::HashMap;
+
+use crate::{
+    map_gen::egui_map::{LineSymbol, MapObject},
+    raster::Dfm,
 };
 
 use geo::{BooleanOps, Polygon, Simplify};
-use std::sync::{Arc, Mutex};
 
 pub fn compute_basemap(
     dem: &Dfm,
     z_range: (f64, f64),
     cut_overlay: &Polygon,
     basemap_interval: f64,
-    map: &Arc<Mutex<Omap>>,
-) {
+) -> Vec<MapObject> {
     let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / basemap_interval).floor() * basemap_interval;
 
+    let mut objects = Vec::new();
     for c_index in 0..bm_levels {
         let bm_level = c_index as f64 * basemap_interval + start_level;
 
@@ -28,17 +27,17 @@ pub fn compute_basemap(
         bm_contours = cut_overlay.clip(&bm_contours, false);
 
         let num_lines = bm_contours.0.len();
-        {
-            let mut aq_map = map.lock().unwrap();
-            aq_map.reserve_capacity(LineSymbol::BasemapContour, num_lines);
-            aq_map.reserve_capacity(LineSymbol::NegBasemapContour, num_lines);
-        }
+        objects.reserve(num_lines);
 
         for c in bm_contours {
-            let mut c_object = LineObject::from_line_string(c, LineSymbol::BasemapContour);
+            let mut c_object = MapObject::Line {
+                object: c,
+                tags: HashMap::new(),
+                symbol: LineSymbol::BasemapContour,
+            };
             c_object.add_elevation_tag(bm_level);
-
-            map.lock().unwrap().add_object(c_object);
+            objects.push(c_object);
         }
     }
+    objects
 }

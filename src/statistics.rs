@@ -1,6 +1,7 @@
 use las::Reader;
 use std::{ops::Div, path::Path};
 
+const STATS_SAMPLE_SIZE: usize = 10_000;
 const MAX_NUMBER_OF_RETURNS: u8 = 15;
 
 #[derive(Debug, Clone)]
@@ -60,7 +61,12 @@ impl LidarStats {
             ..Default::default()
         };
 
-        for point in reader.points().filter_map(Result::ok) {
+        let mut num_taken_points = 0;
+        for point in reader
+            .points()
+            .filter_map(Result::ok)
+            .take(STATS_SAMPLE_SIZE)
+        {
             let i = point.intensity as f64;
             intensities.push(i);
             if i < intensity_stat.min {
@@ -69,13 +75,14 @@ impl LidarStats {
                 intensity_stat.max = i;
             }
             intensity_stat.mean += i;
+            num_taken_points += 1;
         }
-        intensity_stat.mean /= intensity_stat.num_points;
+        intensity_stat.mean /= num_taken_points as f64;
 
         intensity_stat.std_dev = intensities
             .into_iter()
             .fold(0., |acc, i| acc + (i - intensity_stat.mean).powi(2))
-            .div(intensity_stat.num_points)
+            .div(num_taken_points as f64)
             .sqrt();
 
         Ok(LidarStats {

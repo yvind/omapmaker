@@ -3,7 +3,7 @@
 
 use geo::Rect;
 use las::Reader;
-use proj4rs::{transform::transform, Proj};
+use proj_core::Transform;
 
 use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
 
@@ -67,24 +67,21 @@ fn read_boundaries(
             (bound.max().x, bound.max().y),
         ];
 
-        if crs_epsg.is_some() {
+        if let Some(epsg) = &crs_epsg {
             // transform bounds to lat lon
-            let to = Proj::from_user_string("WGS84").unwrap();
-            let from = Proj::from_epsg_code(crs_epsg.as_ref().unwrap()[i])?;
+            let transform = Transform::from_epsg(epsg[i] as u32, 4326).unwrap();
 
-            transform(&from, &to, points.as_mut_slice())?;
-
-            for (x, y) in points.iter_mut() {
-                *x = x.to_degrees();
-                *y = y.to_degrees();
-            }
+            points[0] = transform.convert(points[0]).unwrap();
+            points[1] = transform.convert(points[1]).unwrap();
+            points[2] = transform.convert(points[2]).unwrap();
+            points[3] = transform.convert(points[3]).unwrap();
         }
 
         walkers_boundaries.push([
-            walkers::pos_from_lon_lat(points[0].0, points[0].1),
-            walkers::pos_from_lon_lat(points[1].0, points[1].1),
-            walkers::pos_from_lon_lat(points[2].0, points[2].1),
-            walkers::pos_from_lon_lat(points[3].0, points[3].1),
+            walkers::lon_lat(points[0].0, points[0].1),
+            walkers::lon_lat(points[1].0, points[1].1),
+            walkers::lon_lat(points[2].0, points[2].1),
+            walkers::lon_lat(points[3].0, points[3].1),
         ]);
 
         if all_lidar_bounds[0].0 > points[0].0 {
@@ -100,7 +97,7 @@ fn read_boundaries(
             all_lidar_bounds[1].1 = points[2].1;
         }
     }
-    let mid_point = walkers::pos_from_lon_lat(
+    let mid_point = walkers::lon_lat(
         (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
         (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
     );

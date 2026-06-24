@@ -1,17 +1,12 @@
 use crate::geometry::{ContourLevel, ContourSet};
+use crate::map_gen::egui_map::{LineSymbol, MapObject};
 use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
 use crate::SIDE_LENGTH;
 
-use omap::{
-    objects::{LineObject, TagTrait},
-    symbols::LineSymbol,
-    Omap,
-};
-
 use geo::{BooleanOps, LineString, Polygon, Simplify};
 
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 // used for the naive iterative interpolation error correction contour algorithm
 pub fn compute_naive_contours(
@@ -20,8 +15,7 @@ pub fn compute_naive_contours(
     cut_overlay: &Polygon,
     thresholds: (f64, f64),
     params: &MapParameters,
-    map: &Arc<Mutex<Omap>>,
-) -> (f64, f64) {
+) -> (Vec<MapObject>, f64, f64) {
     let (min_threshold, conv_threshold) = thresholds;
 
     let effective_interval = if params.form_lines {
@@ -55,7 +49,7 @@ pub fn compute_naive_contours(
     let mut score;
     let mut prev_score = f64::MAX;
     let mut iterations = 0;
-    let mut num_contours = 0;
+
     loop {
         // extract contour set from adjusted_dem
         for c_index in 0..c_levels {
@@ -67,8 +61,6 @@ pub fn compute_naive_contours(
 
             // should clip the contours
             c_contours = clip_poly.clip(&c_contours, false);
-
-            num_contours += c_contours.0.len();
 
             contours.0.push(ContourLevel::new(c_contours, c_level));
         }
@@ -112,26 +104,10 @@ pub fn compute_naive_contours(
         prev_score = score;
         iterations += 1;
 
-        num_contours = 0;
         contours.0.clear();
     }
 
-    {
-        let (est_c, est_f, est_i) = if params.form_lines {
-            (
-                (num_contours / 2).max(1),
-                (num_contours / 2).max(1),
-                (num_contours / 5).max(1),
-            )
-        } else {
-            (num_contours.max(1), 1, (num_contours / 5).max(1))
-        };
-
-        let mut map = map.lock().unwrap();
-        map.reserve_capacity(LineSymbol::Contour, est_c);
-        map.reserve_capacity(LineSymbol::FormLine, est_f);
-        map.reserve_capacity(LineSymbol::IndexContour, est_i);
-    }
+    let mut objects = Vec::with_capacity(contours.0.len());
 
     for c_level in contours.0 {
         let z = c_level.z;
@@ -146,14 +122,18 @@ pub fn compute_naive_contours(
             LineSymbol::FormLine
         };
         for c in c_contours {
-            let mut c_object = LineObject::from_line_string(c, symbol);
+            let mut c_object = MapObject::Line {
+                object: c,
+                symbol,
+                tags: HashMap::new(),
+            };
             c_object.add_elevation_tag(z);
 
-            map.lock().unwrap().add_object(c_object);
+            objects.push(c_object);
         }
     }
 
-    (error, energy)
+    (objects, error, energy)
 }
 
 // used for raw and smoothed contour extraction, with scoring which complicates it a bit
@@ -163,9 +143,8 @@ pub fn extract_contours(
     z_range: (f64, f64),
     cut_overlay: &Polygon,
     params: &MapParameters,
-    map: &Arc<Mutex<Omap>>,
     compute_energy: bool,
-) -> (f64, f64) {
+) -> (Vec<MapObject>, f64, f64) {
     let effective_interval = if params.form_lines {
         params.contour_interval / 2.
     } else {
@@ -194,15 +173,12 @@ pub fn extract_contours(
 
     let mut contour_set = ContourSet::with_capacity(c_levels);
 
-    let mut num_contours = 0;
     for c_index in 0..c_levels {
         let c_level = c_index as f64 * effective_interval + start_level;
 
         let mut contours = dem.marching_squares(c_level);
 
         contours = contours.simplify(crate::SIMPLIFICATION_DIST);
-
-        num_contours += contours.0.len();
 
         // should clip the contours
         contours = clip_poly.clip(&contours, false);
@@ -219,23 +195,7 @@ pub fn extract_contours(
         (0., 0.)
     };
 
-    {
-        let (est_c, est_f, est_i) = if params.form_lines {
-            (
-                (num_contours / 2).max(1),
-                (num_contours / 2).max(1),
-                (num_contours / 5).max(1),
-            )
-        } else {
-            (num_contours.max(1), 1, (num_contours / 5).max(1))
-        };
-
-        let mut map = map.lock().unwrap();
-        map.reserve_capacity(LineSymbol::Contour, est_c);
-        map.reserve_capacity(LineSymbol::FormLine, est_f);
-        map.reserve_capacity(LineSymbol::IndexContour, est_i);
-    }
-
+    let mut objects = Vec::with_capacity(contour_set.0.len());
     for c_level in contour_set.0 {
         let contours = cut_overlay.clip(&c_level.lines, false);
 
@@ -247,11 +207,15 @@ pub fn extract_contours(
             LineSymbol::FormLine
         };
         for c in contours {
-            let mut c_object = LineObject::from_line_string(c, symbol);
+            let mut c_object = MapObject::Line {
+                object: c,
+                symbol,
+                tags: HashMap::new(),
+            };
             c_object.add_elevation_tag(c_level.z);
 
-            map.lock().unwrap().add_object(c_object);
+            objects.push(c_object);
         }
     }
-    (error, energy)
+    (objects, error, energy)
 }

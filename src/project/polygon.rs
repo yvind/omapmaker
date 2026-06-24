@@ -1,5 +1,5 @@
-use geo::{Coord, LineString, Polygon};
-use proj4rs::{transform::transform, Proj};
+use geo::{LineString, Polygon};
+use proj_core::Transform;
 
 pub fn from_walkers_map_coords(epsg: Option<u16>, line: LineString) -> Option<Polygon> {
     if line.0.is_empty() {
@@ -10,24 +10,9 @@ pub fn from_walkers_map_coords(epsg: Option<u16>, line: LineString) -> Option<Po
     }
     let epsg = epsg.unwrap();
 
-    let global_proj = Proj::from_epsg_code(4326).unwrap();
-    let local_proj = Proj::from_epsg_code(epsg).unwrap();
+    let transform = Transform::from_epsg(4326, epsg as u32).unwrap();
 
-    // proj4rs uses radians, but walkers uses degrees. Conversion needed
-    let mut points: Vec<(f64, f64)> = line
-        .0
-        .into_iter()
-        .map(|c| (c.x.to_radians(), c.y.to_radians()))
-        .collect();
+    let transformed_line = transform.convert_geometry(line).unwrap();
 
-    transform(&global_proj, &local_proj, points.as_mut_slice()).unwrap();
-
-    let line = LineString::new(
-        points
-            .into_iter()
-            .map(|t| Coord { x: t.0, y: t.1 })
-            .collect(),
-    );
-
-    Some(Polygon::new(line, vec![]))
+    Some(Polygon::new(transformed_line, vec![]))
 }

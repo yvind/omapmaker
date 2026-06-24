@@ -1,17 +1,16 @@
 use crate::Result;
-use std::collections::{hash_map::Keys, HashMap};
+use std::collections::{HashMap, hash_map::Keys};
 
 use eframe::{
     egui::{self, Color32, Stroke},
     emath,
 };
 use geo::Coord;
-use log::{log, Level};
-use proj4rs::{transform::transform, Proj};
-
-use omap::{objects::MapObject, symbols::*, Omap};
+use log::{Level, log};
+use proj_core::{CrsDef, Transform};
 
 use super::*;
+use crate::map_gen::egui_map::{LineSymbol, MapObject, Symbol, TempMap};
 
 trait Drawable {
     /// converting a symbol to something drawable to screen
@@ -19,7 +18,7 @@ trait Drawable {
     fn into_drawable_geometry(
         self,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry>;
 }
@@ -28,27 +27,41 @@ impl Drawable for MapObject {
     fn into_drawable_geometry(
         self,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry> {
         let dg = match self {
-            MapObject::AreaObject(area_object) => DrawableGeometry::Polygon(
-                DrawablePolygonObject::from_geo(area_object.polygon, ref_point, crs, bezier_error)?,
-            ),
-            MapObject::LineObject(line_object) => DrawableGeometry::Line(
-                DrawableLineObject::from_geo(line_object.line, ref_point, crs, bezier_error)?,
-            ),
-            MapObject::PointObject(point_object) => {
-                DrawableGeometry::Point(DrawablePointObject::from_geo(
-                    point_object.point,
-                    point_object.rotation,
-                    ref_point,
-                    crs,
-                )?)
-            }
-            MapObject::TextObject(text_object) => DrawableGeometry::Text(
-                DrawableTextObject::from_geo(text_object.point, text_object.text, ref_point, crs)?,
-            ),
+            MapObject::Area {
+                object,
+                symbol: _,
+                tags: _,
+            } => DrawableGeometry::Polygon(DrawablePolygonObject::from_geo(
+                object,
+                ref_point,
+                crs,
+                bezier_error,
+            )?),
+            MapObject::Line {
+                object,
+                symbol: _,
+                tags: _,
+            } => DrawableGeometry::Line(DrawableLineObject::from_geo(
+                object,
+                ref_point,
+                crs,
+                bezier_error,
+            )?),
+            MapObject::Point {
+                object: point_object,
+                rotation,
+                symbol: _,
+                tags: _,
+            } => DrawableGeometry::Point(DrawablePointObject::from_geo(
+                point_object,
+                rotation,
+                ref_point,
+                crs,
+            )?),
         };
         Ok(dg)
     }
@@ -63,43 +76,41 @@ impl DrawableOmap {
         self.map_objects.keys()
     }
 
-    pub fn from_omap(omap: Omap, hull: geo::LineString, bezier_error: Option<f64>) -> Self {
-        let ref_point = omap.get_ref_point();
-        let crs = omap.get_crs();
+    pub fn from_temp_map(tmap: TempMap, hull: geo::LineString, bezier_error: Option<f64>) -> Self {
+        let ref_point = tmap.ref_point;
 
-        let global_hull = if let Some(epsg) = crs {
-            let wgs = Proj::from_epsg_code(4326).unwrap();
-            let local = Proj::from_epsg_code(epsg).unwrap();
+        let global_hull = if let Some(epsg) = &tmap.crs {
+            let transform = Transform::from_epsg(epsg.epsg(), 4326).unwrap();
 
-            let mut points: Vec<(f64, f64)> = hull
+            let points: Vec<(f64, f64)> = hull
                 .0
                 .into_iter()
                 .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
                 .collect();
 
-            transform(&local, &wgs, points.as_mut_slice()).unwrap();
+            let transformed_points = transform.convert_batch(&points).unwrap();
 
-            points
+            transformed_points
                 .into_iter()
-                .map(|t| walkers::pos_from_lon_lat(t.0.to_degrees(), t.1.to_degrees()))
+                .map(|t| walkers::lon_lat(t.0, t.1))
                 .collect()
         } else {
             hull.0
                 .into_iter()
-                .map(|c| walkers::pos_from_lon_lat(c.x + ref_point.x, c.y + ref_point.y))
+                .map(|c| walkers::lon_lat(c.x + ref_point.x, c.y + ref_point.y))
                 .collect()
         };
 
         DrawableOmap {
             hull: global_hull,
-            map_objects: Self::into_drawable(omap.into_objects(), ref_point, crs, bezier_error),
+            map_objects: Self::into_drawable(tmap.objects, ref_point, tmap.crs, bezier_error),
         }
     }
 
     fn into_drawable(
         mut omap_objs: HashMap<Symbol, Vec<MapObject>>,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {
         let mut drawable_objs = HashMap::with_capacity(omap_objs.len());
@@ -114,7 +125,7 @@ impl DrawableOmap {
             drawable_objs.insert(
                 symbol,
                 objs.into_iter()
-                    .filter_map(|o| match o.into_drawable_geometry(ref_point, crs, bezier) {
+                    .filter_map(|o| match o.into_drawable_geometry(ref_point, crs.clone(), bezier) {
                         Ok(o) => Some(o),
                         Err(e) => {
                             log!(
@@ -145,7 +156,7 @@ impl DrawableOmap {
     pub fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         visibilities: &HashMap<Symbol, bool>,
         opacity: f32,
     ) {

@@ -2,10 +2,10 @@ use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, Response, Ui};
 use geo::{LineString, Polygon, TriangulateEarcut, Validation};
-use walkers::{Plugin, Position, Projector};
+use walkers::{Plugin, Position, ScreenProjector};
 
 use super::ProcessStage;
-use crate::{drawable::DrawableOmap, neighbors::Neighborhood};
+use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol, neighbors::Neighborhood};
 
 const COLOR_LIST: [egui::Color32; 9] = [
     egui::Color32::ORANGE,
@@ -34,7 +34,7 @@ impl<'a> LasComponentPainter<'a> {
 }
 
 impl Plugin for LasComponentPainter<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &Projector) {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
         for (ci, component) in self.components.iter().enumerate() {
             let component_color = COLOR_LIST[ci];
             for boundary_index in component {
@@ -82,7 +82,7 @@ impl<'a> LasBoundaryPainter<'a> {
 }
 
 impl Plugin for LasBoundaryPainter<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &Projector) {
+    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
         let hover = if self.hover {
             response.hover_pos()
         } else {
@@ -153,7 +153,7 @@ impl<'a> PolygonDrawer<'a> {
 }
 
 impl Plugin for PolygonDrawer<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &Projector) {
+    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
         // register clicks
         if *self.state == ProcessStage::DrawPolygon && !response.changed() {
             if response.double_clicked() {
@@ -175,7 +175,7 @@ impl Plugin for PolygonDrawer<'_> {
                     .map(|p| projector.unproject(p));
 
                 if let Some(cp) = clicked_pos {
-                    self.area_of_interest.0.push(cp);
+                    self.area_of_interest.0.push(cp.0);
                 }
             }
         }
@@ -185,7 +185,7 @@ impl Plugin for PolygonDrawer<'_> {
             let mut line = self.area_of_interest.clone();
             if *self.state == ProcessStage::DrawPolygon && response.hovered() {
                 if let Some(pos) = response.hover_pos() {
-                    line.0.push(projector.unproject(pos));
+                    line.0.push(projector.unproject(pos).0);
                 }
             }
             line.close();
@@ -198,9 +198,9 @@ impl Plugin for PolygonDrawer<'_> {
 
                 let points: Vec<egui::epaint::Vertex> = tri
                     .vertices
-                    .chunks(2)
+                    .into_iter()
                     .map(|c| egui::epaint::Vertex {
-                        pos: projector.project(geo::Coord { x: c[0], y: c[1] }),
+                        pos: projector.project(geo::Point(geo::Coord { x: c[0], y: c[1] })),
                         uv: egui::epaint::WHITE_UV,
                         color: egui::Color32::ORANGE.gamma_multiply(0.5),
                     })
@@ -218,7 +218,7 @@ impl Plugin for PolygonDrawer<'_> {
             let mut outline: Vec<egui::Pos2> = self
                 .area_of_interest
                 .coords()
-                .map(|p| projector.project(*p))
+                .map(|p| projector.project(geo::Point(*p)))
                 .collect();
             if *self.state == ProcessStage::DrawPolygon && response.hovered() {
                 if let Some(pos) = response.hover_pos() {
@@ -247,7 +247,7 @@ impl<'a> ClickListener<'a> {
 }
 
 impl Plugin for ClickListener<'_> {
-    fn run(self: Box<Self>, _ui: &mut Ui, response: &Response, projector: &Projector) {
+    fn run(self: Box<Self>, _ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
         if !response.changed() && response.clicked_by(egui::PointerButton::Primary) {
             let clicked_pos = response
                 .interact_pointer_pos()
@@ -270,7 +270,7 @@ impl Plugin for ClickListener<'_> {
 }
 
 fn rectangle_contains(b: &[Position; 4], p: &Position) -> bool {
-    b[0].y >= p.y && b[0].x <= p.x && b[2].y <= p.y && b[2].x >= p.x
+    b[0].y() >= p.y() && b[0].x() <= p.x() && b[2].y() <= p.y() && b[2].x() >= p.x()
 }
 
 fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
@@ -279,14 +279,14 @@ fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
 
 pub struct OmapDrawer<'a> {
     map: &'a Option<DrawableOmap>,
-    visibilities: &'a HashMap<omap::symbols::Symbol, bool>,
+    visibilities: &'a HashMap<Symbol, bool>,
     opacity: f32,
 }
 
 impl<'a> OmapDrawer<'a> {
     pub fn new(
         map: &'a Option<DrawableOmap>,
-        visibilities: &'a HashMap<omap::symbols::Symbol, bool>,
+        visibilities: &'a HashMap<Symbol, bool>,
         opacity: f32,
     ) -> Self {
         Self {
@@ -298,7 +298,7 @@ impl<'a> OmapDrawer<'a> {
 }
 
 impl Plugin for OmapDrawer<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &Projector) {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
         if let Some(map) = self.map.as_ref() {
             map.draw(ui, projector, self.visibilities, self.opacity);
         }

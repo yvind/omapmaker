@@ -1,17 +1,13 @@
 #![allow(clippy::too_many_arguments)]
 
+use std::collections::HashMap;
+
 use crate::geometry::MapMultiPolygon;
+use crate::map_gen::egui_map::{AreaSymbol, MapObject};
 use crate::parameters::MapParameters;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
-use omap::{
-    objects::AreaObject,
-    symbols::{AreaSymbol, SymbolTrait},
-    Omap,
-};
-
-use std::sync::{Arc, Mutex};
 
 pub fn compute_vegetation(
     dfm: &Dfm,
@@ -20,8 +16,7 @@ pub fn compute_vegetation(
     cut_overlay: &Polygon,
     symbol: AreaSymbol,
     params: &MapParameters,
-    map: &Arc<Mutex<Omap>>,
-) {
+) -> Vec<MapObject> {
     let contours = dfm.marching_squares(threshold.inner());
 
     let mut veg_polygons = MultiPolygon::from_contours(contours, convex_hull, threshold.is_upper());
@@ -32,17 +27,19 @@ pub fn compute_vegetation(
         veg_polygons = veg_polygons.apply_buffer_rule(buffer);
     }
 
-    veg_polygons = veg_polygons.remove_small_polygons(symbol.min_size(params.scale));
     veg_polygons = cut_overlay.intersection(&veg_polygons);
 
     let num_polys = veg_polygons.0.len();
-    {
-        map.lock().unwrap().reserve_capacity(symbol, num_polys);
-    }
+    let mut objects = Vec::with_capacity(num_polys);
 
     for polygon in veg_polygons {
-        let veg_object = AreaObject::from_polygon(polygon, symbol, 0.);
+        let veg_object = MapObject::Area {
+            object: polygon,
+            symbol,
+            tags: HashMap::new(),
+        };
 
-        map.lock().unwrap().add_object(veg_object);
+        objects.push(veg_object);
     }
+    objects
 }

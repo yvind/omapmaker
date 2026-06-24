@@ -3,6 +3,7 @@ use crate::comms::messages::*;
 use crate::OmapMaker;
 use eframe::egui;
 use egui::Modal;
+use proj_core::CrsDef;
 
 #[derive(Debug, Clone)]
 pub enum OmapModal {
@@ -68,18 +69,14 @@ impl OmapMaker {
                     .set_text_edit_properties(|t| t.char_limit(5)),
                 );
             });
-            if let Ok(code) = self.gui_variables.crs_less_search_strings[0].parse::<u16>() {
-                if let Some(proj) = crs_definitions::from_code(code) {
-                    ui.label(proj.wkt);
-                    crs_set = true;
-                } else {
-                    ui.label("Input CRS not recognized");
-                    ui.add_space(40.);
-                }
+            if let Ok(proj) = proj_wkt::parse_crs(&self.gui_variables.crs_less_search_strings[0]) {
+                ui.label(format!("{:?}", proj));
+                crs_set = true;
             } else {
-                ui.label("Could not parse input CRS code");
+                ui.label("Input CRS not recognized");
                 ui.add_space(40.);
             }
+
             ui.separator();
             egui::Sides::new().show(
                 ui,
@@ -105,7 +102,7 @@ impl OmapMaker {
     pub fn set_one_crs_for_each_modal(&mut self, ctx: &egui::Context) {
         let mut crs_less_files = vec![];
         for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
-            if *crs == u16::MAX {
+            if crs.is_none() {
                 crs_less_files.push(i);
             }
         }
@@ -147,14 +144,9 @@ impl OmapMaker {
                             });
                             if !disabled {
                                 let crs_str = &self.gui_variables.crs_less_search_strings[i];
-                                if let Ok(code) = crs_str.parse::<u16>() {
-                                    if crs_definitions::from_code(code).is_none() {
-                                        crs_set = false;
-                                        ui.label("Invalid EPSG code");
-                                    }
-                                } else {
+                                if proj_wkt::parse_crs(crs_str).is_err() {
                                     crs_set = false;
-                                    ui.label("Unable to parse EPSG code");
+                                    ui.label("Invalid CRS code");
                                 }
                             }
                         });
@@ -238,7 +230,7 @@ impl OmapMaker {
         });
     }
 
-    pub fn output_crs_modal(&mut self, ctx: &egui::Context, majority_epsg: u16) {
+    pub fn output_crs_modal(&mut self, ctx: &egui::Context, majority_crs: CrsDef) {
         let mut transform_crs = None;
         let transform_modal = Modal::new(egui::Id::new("output CRS modal"));
         transform_modal.show(ctx, |ui| {
@@ -262,28 +254,24 @@ impl OmapMaker {
                     }));
             });
 
-            if let Ok(code) = self.gui_variables.output_crs_string.parse::<u16>() {
-                if let Some(def) = crs_definitions::from_code(code) {
-                    transform_crs = Some(code);
-                    ui.label(def.wkt);
-                } else {
-                    ui.label("Invalid EPSG code");
-                }
+            if let Ok(def) = proj_wkt::parse_crs(&self.gui_variables.output_crs_string) {
+                ui.label(format!("{:?}", def));
+                transform_crs = Some(def);
             } else {
-                ui.label("Could not parse EPSG code");
+                ui.label("Invalid EPSG code");
             }
             ui.separator();
             egui::Sides::new().show(
                 ui,
                 |_ui| {},
                 |ui| {
-                if ui.button(format!("Majority Vote (EPSG: {majority_epsg})")).clicked() {
-                    self.gui_variables.map_params.output_epsg = Some(majority_epsg);
+                if ui.button(format!("Majority Vote (EPSG: {})", majority_crs.epsg())).clicked() {
+                    self.gui_variables.map_params.output_crs = Some(majority_crs);
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }
                 if ui.add_enabled(transform_crs.is_some(), egui::Button::new("Select the given CRS")).clicked() {
-                    self.gui_variables.map_params.output_epsg = transform_crs;
+                    self.gui_variables.map_params.output_crs = transform_crs;
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }

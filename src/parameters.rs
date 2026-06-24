@@ -1,11 +1,14 @@
-use omap::symbols::AreaSymbol;
 use std::{fmt::Display, path::PathBuf};
+
+use proj_core::CrsDef;
+
+use crate::map_gen::egui_map::AreaSymbol;
 
 #[derive(Clone, Debug)]
 pub struct MapParameters {
-    pub output_epsg: Option<u16>,
+    pub output_crs: Option<CrsDef>,
 
-    pub scale: omap::Scale,
+    pub scale: Scale,
 
     pub contour_algorithm: ContourAlgo,
 
@@ -33,8 +36,8 @@ pub struct MapParameters {
 impl Default for MapParameters {
     fn default() -> Self {
         Self {
-            scale: omap::Scale::S15_000,
-            output_epsg: None,
+            scale: Scale::S15_000,
+            output_crs: None,
             bezier_error: 0.5,
             basemap_interval: 0.5,
             contour_interval: 5.,
@@ -64,7 +67,7 @@ pub struct FileParameters {
     pub selected_file: Option<usize>,
 
     // lidar crs's
-    pub crs_epsg: Vec<u16>,
+    pub crs_epsg: Vec<Option<CrsDef>>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -87,7 +90,7 @@ impl Display for ContourAlgo {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct IntensityFilter {
     pub low: f64,
     pub high: f64,
@@ -97,8 +100,8 @@ pub struct IntensityFilter {
 impl Default for IntensityFilter {
     fn default() -> Self {
         Self {
-            low: 0.4,
-            high: 0.6,
+            low: 0.2,
+            high: 0.4,
             symbol: AreaSymbol::BareRock,
         }
     }
@@ -114,7 +117,7 @@ impl Default for BufferRule {
     fn default() -> Self {
         Self {
             direction: BufferDirection::Grow,
-            amount: 5.,
+            amount: 2.,
         }
     }
 }
@@ -123,4 +126,10 @@ impl Default for BufferRule {
 pub enum BufferDirection {
     Grow,
     Shrink,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Scale {
+    S10_000,
+    S15_000,
 }

@@ -6,6 +6,7 @@ use walkers::Position;
 use super::terminal_like::TerminalLike;
 use crate::{
     drawable::{DrawOrder, DrawableOmap},
+    map_gen::egui_map::Symbol,
     neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
@@ -39,7 +40,7 @@ pub struct GuiVariables {
 
     // checkboxes
     pub drop_checkboxes: Vec<bool>,
-    pub visibility_checkboxes: HashMap<omap::symbols::Symbol, bool>,
+    pub visibility_checkboxes: HashMap<Symbol, bool>,
     // true when the backend is busy generating a map tile
     pub generating_map_tile: bool,
 
@@ -68,7 +69,7 @@ pub struct GuiVariables {
 impl Default for GuiVariables {
     fn default() -> Self {
         let mut visibility_checkboxes = HashMap::new();
-        for symbol in omap::symbols::Symbol::draw_order() {
+        for symbol in Symbol::draw_order() {
             visibility_checkboxes.insert(symbol, true);
         }
 
@@ -155,13 +156,13 @@ impl GuiVariables {
 
         let mut new_home = (0., 0.);
         for bound in self.boundaries.iter() {
-            new_home.0 += (bound[0].x + bound[2].x) / 2.;
-            new_home.1 += (bound[0].y + bound[2].y) / 2.;
+            new_home.0 += (bound[0].x() + bound[2].x()) / 2.;
+            new_home.1 += (bound[0].y() + bound[2].y()) / 2.;
         }
         new_home.0 /= self.boundaries.len() as f64;
         new_home.1 /= self.boundaries.len() as f64;
 
-        walkers::pos_from_lon_lat(new_home.0, new_home.1)
+        walkers::lon_lat(new_home.0, new_home.1)
     }
 
     pub fn update_map(&mut self, other: DrawableOmap) {

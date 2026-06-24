@@ -14,7 +14,7 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
         .send(FrontendTask::ProgressBar(ProgressBar::Start))
         .unwrap();
 
-    let mut crs_epsg = vec![];
+    let mut crs_defs = vec![];
 
     let mut num_crs_less = 0;
 
@@ -35,14 +35,28 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
                 continue;
             }
         };
-        let crs_res = las_crs::parse_las_crs(reader.header());
 
-        if let Ok(epsg) = crs_res {
-            crs_epsg.push(epsg.horizontal);
-        } else {
-            crs_epsg.push(u16::MAX);
+        let mut crs_def = None;
+        if let Some(wkt) = reader.header().get_wkt_crs_bytes() {
+            let wkt_string = str::from_utf8(wkt).unwrap();
+
+            crs_def = proj_wkt::parse_crs(wkt_string).ok();
+        }
+        if crs_def.is_none()
+            && let Some(geotiff) = reader.header().get_geotiff_crs().ok().flatten()
+        {
+            let horizontal = geotiff.get_projected_crs_geo_key_value();
+
+            if let Some(epsg) = horizontal {
+                crs_def = proj_wkt::parse_crs(&epsg.to_string()).ok();
+            }
+        }
+
+        if crs_def.is_none() {
             num_crs_less += 1;
         }
+        crs_defs.push(crs_def);
+
         sender
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap();
@@ -83,7 +97,7 @@ pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
         .unwrap();
 
     sender
-        .send(FrontendTask::UpdateVariable(Variable::CrsEPSG(crs_epsg)))
+        .send(FrontendTask::UpdateVariable(Variable::CrsDefs(crs_defs)))
         .unwrap();
     sender
         .send(FrontendTask::UpdateVariable(Variable::CrsLessString(

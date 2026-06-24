@@ -1,25 +1,24 @@
 use crate::Result;
 use eframe::{
-    egui::{self, Align2, Color32, Stroke},
+    egui::{self, Color32, Stroke},
     epaint::CubicBezierShape,
 };
 use geo::{Coord, LineString, TriangulateEarcut};
 use linestring2bezier::BezierString;
-use proj4rs::{transform::transform, Proj};
+use proj_core::{CrsDef, Transform};
 
 #[derive(Clone)]
 pub enum DrawableGeometry {
     Polygon(DrawablePolygonObject),
     Line(DrawableLineObject),
     Point(DrawablePointObject),
-    Text(DrawableTextObject),
 }
 
 impl DrawableGeometry {
     pub(crate) fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         stroke: Stroke,
         special: bool,
     ) {
@@ -33,9 +32,6 @@ impl DrawableGeometry {
             DrawableGeometry::Point(point) => {
                 point.draw(ui, projector, &stroke, special);
             }
-            DrawableGeometry::Text(text) => {
-                text.draw(ui, projector, &stroke);
-            }
         }
     }
 }
@@ -47,7 +43,7 @@ impl DrawablePolygonObject {
     pub(crate) fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -57,29 +53,28 @@ impl DrawablePolygonObject {
     pub(crate) fn from_geo(
         poly: geo::Polygon,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
         _bezier_error: Option<f64>,
     ) -> Result<Self> {
         let tri = poly.earcut_triangles_raw();
 
-        let mut vertices: Vec<(f64, f64)> = tri
+        let vertices: Vec<(f64, f64)> = tri
             .vertices
-            .chunks(2)
+            .into_iter()
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
         let obj = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326)?;
-            let local_proj = Proj::from_epsg_code(epsg)?;
+            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
 
-            transform(&local_proj, &geo_proj, vertices.as_mut_slice())?;
-            vertices
+            let transformed_points = transform.convert_batch(&vertices).unwrap();
+            transformed_points
                 .iter()
-                .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
+                .map(|c| walkers::lon_lat(c.0, c.1))
                 .collect()
         } else {
             vertices
                 .iter()
-                .map(|c| walkers::pos_from_lon_lat(c.0, c.1))
+                .map(|c| walkers::lon_lat(c.0, c.1))
                 .collect()
         };
 
@@ -102,7 +97,7 @@ impl Triangulation {
     pub(crate) fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -146,7 +141,7 @@ impl DrawableLineObject {
     pub(crate) fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         stroke: &Stroke,
         dashed: bool,
     ) {
@@ -184,7 +179,7 @@ impl DrawableLineObject {
     pub(crate) fn from_geo(
         line: geo::LineString,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> Result<Self> {
         let line = if let Some(bezier_error) = bezier_error {
@@ -208,23 +203,23 @@ impl DrawableLineObject {
         };
 
         let obj = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326)?;
-            let local_proj = Proj::from_epsg_code(epsg)?;
+            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
 
-            let mut line: Vec<(f64, f64)> = line
+            let line: Vec<(f64, f64)> = line
                 .0
                 .iter()
                 .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
                 .collect();
 
-            transform(&local_proj, &geo_proj, line.as_mut_slice())?;
+            let transformed_line = transform.convert_batch(&line).unwrap();
 
-            line.iter()
-                .map(|c| walkers::pos_from_lon_lat(c.0.to_degrees(), c.1.to_degrees()))
+            transformed_line
+                .iter()
+                .map(|c| walkers::lon_lat(c.0, c.1))
                 .collect()
         } else {
             line.coords()
-                .map(|c| walkers::pos_from_lon_lat(c.x + ref_point.x, c.y + ref_point.y))
+                .map(|c| walkers::lon_lat(c.x + ref_point.x, c.y + ref_point.y))
                 .collect()
         };
 
@@ -239,7 +234,7 @@ impl DrawablePointObject {
     pub(crate) fn draw(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::Projector,
+        projector: &walkers::ScreenProjector,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -267,58 +262,19 @@ impl DrawablePointObject {
         point: geo::Point,
         rot: f64,
         ref_point: Coord,
-        crs: Option<u16>,
+        crs: Option<CrsDef>,
     ) -> Result<Self> {
         let pos = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326)?;
-            let local_proj = Proj::from_epsg_code(epsg)?;
+            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
 
-            let mut p = (point.x() + ref_point.x, point.y() + ref_point.y);
-            transform(&local_proj, &geo_proj, &mut p)?;
+            let p = (point.x() + ref_point.x, point.y() + ref_point.y);
+            let transformed_p = transform.convert(p).unwrap();
 
-            walkers::pos_from_lon_lat(p.0.to_degrees(), p.1.to_degrees())
+            walkers::lon_lat(transformed_p.0, transformed_p.1)
         } else {
-            walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
+            walkers::lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
         };
 
         Ok(DrawablePointObject(pos, rot as f32))
-    }
-}
-
-#[derive(Clone)]
-pub struct DrawableTextObject(walkers::Position, String);
-
-impl DrawableTextObject {
-    pub(crate) fn draw(&self, ui: &mut egui::Ui, projector: &walkers::Projector, stroke: &Stroke) {
-        let screen_point = projector.project(self.0);
-
-        ui.painter().text(
-            screen_point,
-            Align2::CENTER_CENTER,
-            &self.1,
-            egui::FontId::new(stroke.width, egui::FontFamily::Proportional),
-            stroke.color,
-        );
-    }
-
-    pub(crate) fn from_geo(
-        point: geo::Point,
-        text: String,
-        ref_point: Coord,
-        crs: Option<u16>,
-    ) -> Result<Self> {
-        let pos = if let Some(epsg) = crs {
-            let geo_proj = Proj::from_epsg_code(4326)?;
-            let local_proj = Proj::from_epsg_code(epsg)?;
-
-            let mut p = (point.x() + ref_point.x, point.y() + ref_point.y);
-            let _ = transform(&local_proj, &geo_proj, &mut p);
-
-            walkers::pos_from_lon_lat(p.0.to_degrees(), p.1.to_degrees())
-        } else {
-            walkers::pos_from_lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
-        };
-
-        Ok(DrawableTextObject(pos, text))
     }
 }

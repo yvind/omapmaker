@@ -128,7 +128,7 @@ impl Backend {
                     BackendTask::MakeMap(map_params, file_params, polygon_filter, stats) => {
                         // transform the linestring to output coords
                         let local_polygon_filter = project::polygon::from_walkers_map_coords(
-                            map_params.output_epsg,
+                            map_params.output_crs,
                             polygon_filter,
                         );
 
@@ -166,7 +166,7 @@ impl Backend {
                             map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
                         let neighbors = neighbors::neighbors_on_grid(n_x, n_y);
 
-                        let cb = project::rectangles::to_walkers_map_coords(epsg, &cb);
+                        let cb = project::rectangles::to_walkers_map_points(epsg, &cb);
 
                         self.comms
                             .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)))

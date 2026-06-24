@@ -1,9 +1,7 @@
 #![allow(clippy::type_complexity)]
 
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
-use fastrand::f64 as random;
 use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
-use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::point::Classification;
 
 use std::{num::NonZero, path::PathBuf, sync::mpsc::Sender};
@@ -100,11 +98,7 @@ pub fn initialize_map_tile(
                     (!p.is_withheld
                         && (p.classification == Classification::Ground
                             || p.classification == Classification::Water))
-                        .then(|| {
-                            p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                            p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
-                            PointLaz(p)
-                        })
+                        .then(|| PointLaz(p))
                 })
                 .collect(),
             shifted_bounds,

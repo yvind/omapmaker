@@ -1,17 +1,17 @@
 use crate::{
+    Result,
     comms::messages::*,
     map_gen,
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
-    Result,
 };
 use geo::{Area, BooleanOps, Intersects};
 use omap::Omap;
 
 use std::{
     num::NonZero,
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc::Sender},
     thread,
 };
 
@@ -37,12 +37,12 @@ pub fn make_map(
     let (laz_paths, laz_neighbor_map, bounds, ref_point, masl) =
         super::map_laz(&file_params.paths, &polygon_filter)?;
 
-    let map = Arc::new(Mutex::new(Omap::new(
-        ref_point,
-        map_params.scale,
-        map_params.output_epsg,
-        Some(masl),
-    )?));
+    let crs = if let Some(crs) = map_params.output_crs {
+        omap::geo_referencing::CrsType::Epsg(crs.epsg() as u16)
+    } else {
+        omap::geo_referencing::CrsType::Local
+    };
+    let map = Arc::new(Mutex::new(Omap::default_15_000(ref_point, crs, masl)?));
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {

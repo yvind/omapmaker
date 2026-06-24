@@ -1,14 +1,35 @@
 use eframe::egui;
-use walkers::{LocalMap, Map, MapMemory, Maps, Tiles};
+use walkers::{Map, MapMemory, MercatorProjection, Plugin, ProjectedProjection, Tiles};
 
 use super::{map_controls, map_plugins, ProcessStage};
 use crate::OmapMaker;
 
 const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
 
+enum MapType<'a, 'b, 'c> {
+    Global(Map<'a, 'b, 'c, MercatorProjection>),
+    Local(Map<'a, 'b, 'c, ProjectedProjection>),
+}
+
+impl<'c> MapType<'_, '_, 'c> {
+    fn with_plugin(self, plugin: impl Plugin + 'c) -> Self {
+        match self {
+            MapType::Global(map) => MapType::Global(map.with_plugin(plugin)),
+            MapType::Local(map) => MapType::Local(map.with_plugin(plugin)),
+        }
+    }
+
+    fn draw_map(self, ui: &mut egui::Ui, rect: egui::Rect) {
+        match self {
+            MapType::Global(map) => ui.put(rect, map),
+            MapType::Local(map) => ui.put(rect, map),
+        };
+    }
+}
+
 impl OmapMaker {
     pub fn render_map(&mut self, ui: &mut egui::Ui) {
-        let rect = ui.ctx().available_rect();
+        let rect = ui.clip_rect();
 
         ui.painter().rect(
             rect,
@@ -19,12 +40,34 @@ impl OmapMaker {
         );
 
         let map = if self.state != ProcessStage::Welcome
-            && self.gui_variables.map_params.output_epsg.is_none()
+            && self.gui_variables.map_params.output_crs.is_none()
         {
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            let mut min_y = f64::MAX;
+            let mut max_y = f64::MIN;
+            for boundary in self.gui_variables.boundaries.iter() {
+                for p in boundary {
+                    if p.x() > max_x {
+                        max_x = p.x();
+                    } else if p.x() < min_x {
+                        min_x = p.x();
+                    }
+                    if p.y() > max_y {
+                        max_y = p.y();
+                    } else if p.y() < min_y {
+                        min_y = p.y();
+                    }
+                }
+            }
+            let scale = (max_x - min_x).max(max_y - min_y);
+            let projproj = ProjectedProjection::new(self.home, 1. / scale);
+            Self::clamp_projected_zoom_pos(&mut self.map_memory, &projproj);
+
             // Local coordinates
-            Maps::LocalMap(LocalMap::new(&mut self.map_memory, self.home))
+            MapType::Local(Map::new(projproj.clone(), &mut self.map_memory, self.home))
         } else {
-            Self::clamp_zoom_pos(&mut self.map_memory);
+            Self::clamp_mercator_zoom_pos(&mut self.map_memory, &MercatorProjection);
 
             let http_tiles = match self.gui_variables.tile_provider {
                 super::gui_variables::TileProvider::OpenStreetMap => &mut self.http_tiles.0,
@@ -46,7 +89,10 @@ impl OmapMaker {
             ui.vertical_centered(|ui| ui.colored_label(egui::Color32::RED, error_text));
 
             // OSM map
-            Maps::Map(Map::new(Some(http_tiles), &mut self.map_memory, self.home))
+            MapType::Global(
+                Map::new(MercatorProjection, &mut self.map_memory, self.home)
+                    .with_layer(http_tiles, 1.),
+            )
         };
 
         // add plugins
@@ -116,7 +162,13 @@ impl OmapMaker {
             _ => unreachable!("The render_map fn should not be called for this state"),
         };
 
-        ui.put(rect, map);
+        // ugly hack
+        let projection = if let MapType::Local(m) = &map {
+            Some(m.projection().clone())
+        } else {
+            None
+        };
+        map.draw_map(ui, rect);
 
         // Draw utility windows.
         match self.state {
@@ -157,10 +209,19 @@ impl OmapMaker {
 
         map_controls::render_zoom(ui, &mut self.map_memory);
         map_controls::render_home(ui, &mut self.map_memory, self.home_zoom);
-        map_controls::render_scale_pos_label(ui, &self.map_memory, self.home);
+        if let Some(proj) = projection {
+            map_controls::render_scale_pos_label(ui, &self.map_memory, self.home, &proj);
+        } else {
+            map_controls::render_scale_pos_label(
+                ui,
+                &self.map_memory,
+                self.home,
+                &MercatorProjection,
+            );
+        }
     }
 
-    fn clamp_zoom_pos(map_memory: &mut MapMemory) {
+    fn clamp_mercator_zoom_pos(map_memory: &mut MapMemory, projection: &MercatorProjection) {
         // clamp zoom
         if map_memory.zoom() > 21. {
             map_memory.set_zoom(21.).unwrap();
@@ -169,27 +230,61 @@ impl OmapMaker {
         }
 
         // clamp position
-        if let Some(pos) = map_memory.detached() {
-            let mut new_pos = (pos.x, pos.y);
+        if let Some(pos) = map_memory.detached(projection) {
+            let mut new_pos = (pos.x(), pos.y());
             let mut oob = false;
-            if pos.x > 180. {
+            if pos.x() > 180. {
                 oob = true;
                 new_pos.0 = 180.;
-            } else if pos.x < -180. {
+            } else if pos.x() < -180. {
                 oob = true;
                 new_pos.0 = -180.;
             }
 
-            if pos.y > 85. {
+            if pos.y() > 85. {
                 oob = true;
                 new_pos.1 = 85.;
-            } else if pos.y < -85. {
+            } else if pos.y() < -85. {
                 oob = true;
                 new_pos.1 = -85.;
             }
 
             if oob {
-                map_memory.center_at(walkers::pos_from_lon_lat(new_pos.0, new_pos.1));
+                map_memory.center_at(walkers::lon_lat(new_pos.0, new_pos.1));
+            }
+        }
+    }
+
+    fn clamp_projected_zoom_pos(map_memory: &mut MapMemory, projection: &ProjectedProjection) {
+        // clamp zoom
+        if map_memory.zoom() > 16. {
+            map_memory.set_zoom(16.).unwrap();
+        } else if map_memory.zoom() < 8. {
+            map_memory.set_zoom(8.).unwrap();
+        }
+
+        // clamp position
+        if let Some(pos) = map_memory.detached(projection) {
+            let mut new_pos = (pos.x(), pos.y());
+            let mut oob = false;
+            if pos.x() > projection.center.x() + 1. / projection.scale {
+                oob = true;
+                new_pos.0 = projection.center.x() + 1. / projection.scale;
+            } else if pos.x() < projection.center.x() - 1. / projection.scale {
+                oob = true;
+                new_pos.0 = projection.center.x() - 1. / projection.scale;
+            }
+
+            if pos.y() > projection.center.y() + 1. / projection.scale {
+                oob = true;
+                new_pos.1 = projection.center.y() + 1. / projection.scale;
+            } else if pos.y() < projection.center.y() - 1. / projection.scale {
+                oob = true;
+                new_pos.1 = projection.center.y() - 1. / projection.scale;
+            }
+
+            if oob {
+                map_memory.center_at(walkers::lon_lat(new_pos.0, new_pos.1));
             }
         }
     }
@@ -197,15 +292,15 @@ impl OmapMaker {
     pub fn render_console(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::both()
             .stick_to_bottom(true)
+            .auto_shrink(false)
+            .max_height(f32::INFINITY)
             .show(ui, |ui| {
                 egui::TextEdit::multiline(&mut self.gui_variables.log_terminal)
                     .font(egui::FontSelection::Style(egui::TextStyle::Monospace))
-                    .min_size(ui.available_size())
                     .desired_width(f32::INFINITY)
                     .interactive(false)
                     .show(ui);
             });
-        ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(100));
+        ui.request_repaint_after(std::time::Duration::from_millis(100));
     }
 }

@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
 use eframe::egui;
-use walkers::{sources::Attribution, MapMemory, Position};
+use walkers::{MapMemory, Position, Projection, sources::Attribution};
 
-use super::{gui_variables::TileProvider, ProcessStage};
-use crate::drawable::DrawableOmap;
+use super::{ProcessStage, gui_variables::TileProvider};
+use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol};
 
 pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
     egui::Window::new("Zoom")
@@ -83,9 +83,14 @@ pub fn render_draw_button(
         });
 }
 
-pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos: Position) {
+pub fn render_scale_pos_label(
+    ui: &mut egui::Ui,
+    map_memory: &MapMemory,
+    my_pos: Position,
+    projection: &dyn Projection,
+) {
     // Pos and zoom labels
-    let position = match map_memory.detached() {
+    let position = match map_memory.detached(projection) {
         None => my_pos,
         Some(p) => p,
     };
@@ -99,8 +104,8 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
             const POINT_SIZE: f64 = 0.0001622; // for my monitor
 
             // how many meters a single point covers on the map
-            let m_per_point = ui.ctx().pixels_per_point()
-                / map_memory.scale_pixel_per_meter(position);
+            let m_per_point = ui.pixels_per_point()
+                / projection.scale_pixel_per_meter(position, map_memory.zoom());
 
             let scale = m_per_point as f64 / POINT_SIZE;
 
@@ -108,20 +113,20 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
                     ui.label(format!("Scale*: 1:{:.0}", scale))
                     .on_hover_text("*The scale is an approximation based on the UI's scale factor.\nMight be inaccurate for some devices")
                     .on_hover_cursor(egui::CursorIcon::Alias);
-                    if map_memory.is_global() {
+                    if projection.is_mercator() {
                         ui.label(format!(
                             "Map position: {}{:.4}, {}{:.4}",
-                            if position.y >= 0. { 'N' } else { 'S' },
-                            position.y.abs(),
-                            if position.x >= 0. { 'E' } else { 'W' },
-                            position.x.abs()
+                            if position.y() >= 0. { 'N' } else { 'S' },
+                            position.y().abs(),
+                            if position.x() >= 0. { 'E' } else { 'W' },
+                            position.x().abs()
                         ))
                         .on_hover_cursor(egui::CursorIcon::Alias);
                     } else {
                         ui.label(format!(
                             "Map position: {:.4}, {:.4}",
-                            position.x,
-                            position.y
+                            position.x(),
+                            position.y()
                         ))
                         .on_hover_cursor(egui::CursorIcon::Alias);
                     }
@@ -132,7 +137,7 @@ pub fn render_scale_pos_label(ui: &mut egui::Ui, map_memory: &MapMemory, my_pos:
 pub fn render_symbol_toggles(
     ui: &mut egui::Ui,
     map_tile: &Option<DrawableOmap>,
-    checkboxes: &mut HashMap<omap::symbols::Symbol, bool>,
+    checkboxes: &mut HashMap<Symbol, bool>,
 ) {
     if let Some(map) = map_tile {
         // add a window for toggling visibilities
@@ -143,7 +148,7 @@ pub fn render_symbol_toggles(
                 let mut keys = map.keys().collect::<Vec<_>>();
                 keys.sort();
                 for symbol in keys {
-                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{symbol}"));
+                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{:?}", symbol));
                 }
             });
     }

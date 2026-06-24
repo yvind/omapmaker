@@ -1,5 +1,5 @@
+use crate::map_gen::egui_map::{AreaSymbol, LineSymbol, PointSymbol, Symbol};
 use eframe::egui::{Color32, Stroke};
-use omap::symbols::{AreaSymbol, LineSymbol, PointSymbol, Symbol, TextSymbol};
 
 const PURPLE: Color32 = Color32::from_rgba_premultiplied(190, 60, 255, 255);
 const ROUGH_YELLOW: Color32 = Color32::from_rgba_premultiplied(255, 220, 155, 255);
@@ -17,13 +17,13 @@ pub(crate) trait DrawableSymbol {
 }
 
 pub trait DrawOrder {
-    fn draw_order() -> std::vec::IntoIter<Self>
+    fn draw_order() -> impl Iterator<Item = Self>
     where
         Self: std::marker::Sized;
 }
 
 impl DrawOrder for Symbol {
-    fn draw_order() -> std::vec::IntoIter<Self> {
+    fn draw_order() -> impl Iterator<Item = Self> {
         vec![
             Symbol::Area(AreaSymbol::RoughOpenLand),
             Symbol::Area(AreaSymbol::OpenLand),
@@ -53,9 +53,6 @@ impl DrawOrder for Symbol {
             Symbol::Point(PointSymbol::SmallBoulder),
             Symbol::Point(PointSymbol::LargeBoulder),
             Symbol::Area(AreaSymbol::OutOfBounds),
-            Symbol::Text(TextSymbol::ContourValue),
-            Symbol::Text(TextSymbol::SpotHeight),
-            Symbol::Text(TextSymbol::ControlNumber),
         ]
         .into_iter()
     }
@@ -67,34 +64,22 @@ impl DrawableSymbol for Symbol {
             Symbol::Area(a) => a.stroke(pixels_per_meter),
             Symbol::Line(l) => l.stroke(pixels_per_meter),
             Symbol::Point(p) => p.stroke(pixels_per_meter),
-            Symbol::Text(t) => t.stroke(pixels_per_meter),
         }
     }
 }
 
 impl DrawOrder for AreaSymbol {
-    fn draw_order() -> std::vec::IntoIter<Self>
+    fn draw_order() -> impl Iterator<Item = AreaSymbol>
     where
         Self: std::marker::Sized,
     {
-        vec![
-            AreaSymbol::RoughOpenLand,
-            AreaSymbol::OpenLand,
-            AreaSymbol::SandyGround,
-            AreaSymbol::BareRock,
-            AreaSymbol::LightGreen,
-            AreaSymbol::MediumGreen,
-            AreaSymbol::DarkGreen,
-            AreaSymbol::Marsh,
-            AreaSymbol::PrivateArea,
-            AreaSymbol::PavedAreaWithBoundary,
-            AreaSymbol::ShallowWaterWithSolidBankLine,
-            AreaSymbol::UncrossableWaterWithBankLine,
-            AreaSymbol::GiganticBoulder,
-            AreaSymbol::Building,
-            AreaSymbol::OutOfBounds,
-        ]
-        .into_iter()
+        Symbol::draw_order().filter_map(|f| {
+            if let Symbol::Area(af) = f {
+                Some(af)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -128,25 +113,19 @@ impl DrawableSymbol for AreaSymbol {
             AreaSymbol::OutOfBounds => {
                 Some((false, Stroke::new(0., Color32::PURPLE.gamma_multiply(0.5))))
             }
-            _ => None,
         }
     }
 }
 
 impl DrawOrder for LineSymbol {
-    fn draw_order() -> std::vec::IntoIter<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        vec![
-            LineSymbol::BasemapContour,
-            LineSymbol::FormLine,
-            LineSymbol::Contour,
-            LineSymbol::IndexContour,
-            LineSymbol::NegBasemapContour,
-            LineSymbol::SmallCrossableWatercourse,
-        ]
-        .into_iter()
+    fn draw_order() -> impl Iterator<Item = Self> {
+        Symbol::draw_order().filter_map(|f| {
+            if let Symbol::Line(lf) = f {
+                Some(lf)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -165,26 +144,19 @@ impl DrawableSymbol for LineSymbol {
             LineSymbol::SmallCrossableWatercourse => {
                 Some((false, Stroke::new(4. * scale_factor, Color32::BLUE)))
             }
-            _ => None,
         }
     }
 }
 
 impl DrawOrder for PointSymbol {
-    fn draw_order() -> std::vec::IntoIter<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        vec![
-            PointSymbol::SlopeLineFormLine,
-            PointSymbol::SlopeLineContour,
-            PointSymbol::DotKnoll,
-            PointSymbol::ElongatedDotKnoll,
-            PointSymbol::UDepression,
-            PointSymbol::SmallBoulder,
-            PointSymbol::LargeBoulder,
-        ]
-        .into_iter()
+    fn draw_order() -> impl Iterator<Item = Self> {
+        Symbol::draw_order().filter_map(|f| {
+            if let Symbol::Point(pf) = f {
+                Some(pf)
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -203,35 +175,6 @@ impl DrawableSymbol for PointSymbol {
             }
             PointSymbol::LargeBoulder => {
                 Some((false, Stroke::new(12. * scale_factor, Color32::BLACK)))
-            }
-            _ => None,
-        }
-    }
-}
-
-impl DrawOrder for TextSymbol {
-    fn draw_order() -> std::vec::IntoIter<Self>
-    where
-        Self: std::marker::Sized,
-    {
-        vec![
-            TextSymbol::ContourValue,
-            TextSymbol::SpotHeight,
-            TextSymbol::ControlNumber,
-        ]
-        .into_iter()
-    }
-}
-
-impl DrawableSymbol for TextSymbol {
-    fn stroke(&self, pixels_per_meter: f32) -> Option<(bool, Stroke)> {
-        let scale_factor = SCALE_FACTOR * pixels_per_meter;
-
-        match self {
-            TextSymbol::ContourValue => Some((false, Stroke::new(2. * scale_factor, BROWN))),
-            TextSymbol::SpotHeight => Some((false, Stroke::new(2. * scale_factor, Color32::BLACK))),
-            TextSymbol::ControlNumber => {
-                Some((false, Stroke::new(3. * scale_factor, Color32::PURPLE)))
             }
         }
     }

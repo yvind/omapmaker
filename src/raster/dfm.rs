@@ -360,7 +360,7 @@ impl Dfm {
         mut filter_size: usize,
         mut num_iter: usize,
     ) -> Dfm {
-        if filter_size % 2 == 0 {
+        if filter_size.is_multiple_of(2) {
             filter_size += 1;
         }
         filter_size = filter_size.max(3);

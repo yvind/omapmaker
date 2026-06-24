@@ -1,14 +1,14 @@
 use crate::backend::Backend;
-use crate::comms::{messages::*, OmapComms};
-use crate::gui::{modals::OmapModal, GuiVariables, ProcessStage};
+use crate::comms::{OmapComms, messages::*};
+use crate::gui::{GuiVariables, ProcessStage, modals::OmapModal};
 use eframe::egui;
-use walkers::{sources, HttpTiles, MapMemory, Position};
+use walkers::{HttpTiles, MapMemory, MercatorProjection, Position, sources};
 
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
     // background osm and otm tiles
-    pub http_tiles: (HttpTiles, HttpTiles),
+    pub http_tiles: (HttpTiles<MercatorProjection>, HttpTiles<MercatorProjection>),
     pub map_memory: MapMemory,
     pub home: Position,
     pub home_zoom: f64,
@@ -30,7 +30,7 @@ pub struct OmapMaker {
 }
 
 impl eframe::App for OmapMaker {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // register all events that has occurred and monitor for backend panic
         loop {
             match self.comms.try_recv() {
@@ -50,9 +50,9 @@ impl eframe::App for OmapMaker {
         }
 
         // render correct side panel
-        egui::SidePanel::left("Guide Panel")
-            .exact_width(400.)
-            .show(ctx, |ui| {
+        egui::Panel::left("Guide Panel")
+            .exact_size(400.)
+            .show_inside(ui, |ui| {
                 ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
                 match self.state {
                     ProcessStage::Welcome => self.render_welcome_panel(ui),
@@ -70,8 +70,8 @@ impl eframe::App for OmapMaker {
 
         // render correct main panel
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().fill(ctx.style().visuals.panel_fill))
-            .show(ctx, |ui| match self.state {
+            .frame(egui::Frame::default().fill(ui.style().visuals.panel_fill))
+            .show_inside(ui, |ui| match self.state {
                 ProcessStage::Welcome
                 | ProcessStage::AdjustSliders
                 | ProcessStage::ChooseSquare
@@ -87,6 +87,7 @@ impl eframe::App for OmapMaker {
             });
 
         // render the open modal
+        let ctx = ui.ctx();
         match &self.open_modal {
             OmapModal::None => (),
             OmapModal::OutputCRS(epsg) => self.output_crs_modal(ctx, *epsg),
@@ -111,15 +112,12 @@ impl OmapMaker {
         // starts the computation thread
         Backend::boot(backend_comms, ctx.clone());
 
-        let rand_server = fastrand::choice([
-            sources::OpenTopoServer::A,
-            sources::OpenTopoServer::B,
-            sources::OpenTopoServer::C,
-        ])
-        .unwrap();
         let http_tiles = (
             HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
-            HttpTiles::new(sources::OpenTopoMap(rand_server), ctx.clone()),
+            HttpTiles::new(
+                sources::OpenTopoMap(sources::OpenTopoServer::C),
+                ctx.clone(),
+            ),
         );
 
         Self {
@@ -129,7 +127,7 @@ impl OmapMaker {
             ctx,
             comms: frontend_comms,
             open_modal: OmapModal::None,
-            home: walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
+            home: walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
             home_zoom: 16.,
             gui_variables: Default::default(),
         }
@@ -166,7 +164,7 @@ impl OmapMaker {
             Variable::Paths(p) => self.gui_variables.file_params.paths = p,
             Variable::Boundaries(vec) => self.gui_variables.boundaries = vec,
             Variable::Home(position) => self.home = position,
-            Variable::CrsEPSG(vec) => {
+            Variable::CrsDefs(vec) => {
                 self.gui_variables.file_params.crs_epsg = vec;
                 self.gui_variables.update_unique_crs();
             }
@@ -217,7 +215,7 @@ impl OmapMaker {
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
             Task::DoConnectedComponentAnalysis => {
-                if self.gui_variables.map_params.output_epsg.is_some() {
+                if self.gui_variables.map_params.output_crs.is_some() {
                     self.comms
                         .send(BackendTask::MapSpatialLidarRelations(
                             self.gui_variables.file_params.paths.clone(),
@@ -314,7 +312,7 @@ impl OmapMaker {
                     .send(BackendTask::ConvertCopc(
                         self.gui_variables.file_params.paths.clone(),
                         self.gui_variables.file_params.crs_epsg.clone(),
-                        self.gui_variables.map_params.output_epsg,
+                        self.gui_variables.map_params.output_crs,
                         self.gui_variables.file_params.selected_file.unwrap_or(0),
                         self.gui_variables.boundaries.clone(),
                         self.gui_variables.polygon_filter.clone(),
@@ -342,12 +340,16 @@ impl OmapMaker {
                     .unwrap();
             }
             ProcessStage::ChooseSubTile => {
+                let crs = self.gui_variables.file_params.crs_epsg
+                    [self.gui_variables.file_params.selected_file.unwrap()]
+                .clone();
+
                 self.comms
                     .send(BackendTask::TileSelectedFile(
                         self.gui_variables.file_params.paths
                             [self.gui_variables.file_params.selected_file.unwrap()]
                         .clone(),
-                        self.gui_variables.map_params.output_epsg,
+                        crs,
                     ))
                     .unwrap();
             }
@@ -391,8 +393,11 @@ impl OmapMaker {
                     .unwrap();
 
                 for crs in self.gui_variables.file_params.crs_epsg.iter_mut() {
-                    if *crs == u16::MAX {
-                        *crs = a;
+                    if crs.is_none() {
+                        *crs = Some(
+                            proj_wkt::parse_crs(&a.to_string())
+                                .expect("Cannot create a crs from the given code"),
+                        );
                     }
                 }
             }
@@ -400,7 +405,7 @@ impl OmapMaker {
                 let mut drop_list = vec![];
                 let mut crs_less_indecies = vec![];
                 for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
-                    if crs == &u16::MAX {
+                    if crs.is_none() {
                         crs_less_indecies.push(i);
                     }
                 }
@@ -413,7 +418,8 @@ impl OmapMaker {
                     if self.gui_variables.drop_checkboxes[i] {
                         drop_list.push(crs_less_indecies[i]);
                     } else {
-                        let crs = s.parse::<u16>().unwrap();
+                        let crs =
+                            Some(proj_wkt::parse_crs(s).expect("Could not create crs from code"));
                         self.gui_variables.file_params.crs_epsg[crs_less_indecies[i]] = crs;
                     }
                 }
@@ -424,15 +430,15 @@ impl OmapMaker {
                 }
             }
             SetCrs::Default => {
-                let mut default_crs = u16::MAX;
+                let mut default_crs = None;
                 for a in self.gui_variables.file_params.crs_epsg.iter() {
-                    if a != &u16::MAX {
-                        default_crs = *a;
+                    if a.is_some() {
+                        default_crs = a.clone();
                         break;
                     }
                 }
                 assert!(
-                    default_crs != u16::MAX,
+                    default_crs.is_some(),
                     "Default crs button available but should not have been"
                 );
 
@@ -442,7 +448,7 @@ impl OmapMaker {
             SetCrs::DropAll => {
                 let mut drop_list = vec![];
                 for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
-                    if crs == &u16::MAX {
+                    if crs.is_none() {
                         drop_list.push(i);
                     }
                 }
@@ -473,7 +479,7 @@ impl OmapMaker {
     }
 
     fn reset(&mut self) {
-        self.home = walkers::pos_from_lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
+        self.home = walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
         self.open_modal = OmapModal::None;
         self.home_zoom = 16.;
