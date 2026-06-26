@@ -113,6 +113,7 @@ impl DrawableSymbol for AreaSymbol {
             AreaSymbol::OutOfBounds => {
                 Some((false, Stroke::new(0., Color32::PURPLE.gamma_multiply(0.5))))
             }
+            AreaSymbol::WhiteForest => None,
         }
     }
 }

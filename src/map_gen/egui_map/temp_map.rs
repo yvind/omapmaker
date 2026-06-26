@@ -17,6 +17,16 @@ pub enum Symbol {
     Point(PointSymbol),
 }
 
+impl std::fmt::Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Symbol::Area(area_symbol) => write!(f, "{:?}", area_symbol),
+            Symbol::Line(line_symbol) => write!(f, "{:?}", line_symbol),
+            Symbol::Point(point_symbol) => write!(f, "{:?}", point_symbol),
+        }
+    }
+}
+
 impl Symbol {
     pub fn get_omap_symbol<'a>(
         &self,
@@ -52,6 +62,7 @@ impl From<PointSymbol> for Symbol {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum AreaSymbol {
+    WhiteForest,
     RoughOpenLand,
     OpenLand,
     SandyGround,
@@ -87,6 +98,7 @@ impl AreaSymbol {
             AreaSymbol::GiganticBoulder => omap::Code::new(206, 0, 0),
             AreaSymbol::Building => omap::Code::new(521, 0, 0),
             AreaSymbol::OutOfBounds => omap::Code::new(709, 0, 0),
+            AreaSymbol::WhiteForest => omap::Code::new(405, 0, 0),
         }
     }
 }

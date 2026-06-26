@@ -7,7 +7,7 @@ use walkers::Position;
 use super::terminal_like::TerminalLike;
 use crate::{
     drawable::{DrawOrder, DrawableOmap},
-    map_gen::egui_map::Symbol,
+    map_gen::egui_map::{AreaSymbol, Symbol},
     neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
@@ -160,6 +160,7 @@ impl Default for MapPreviewState {
         for symbol in Symbol::draw_order() {
             visibility_checkboxes.insert(symbol, true);
         }
+        visibility_checkboxes.insert(Symbol::Area(AreaSymbol::WhiteForest), true);
 
         Self {
             visibility_checkboxes,

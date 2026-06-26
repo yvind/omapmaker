@@ -4,7 +4,10 @@ use eframe::egui;
 use walkers::{MapMemory, Position, Projection, sources::Attribution};
 
 use super::{ProcessStage, gui_variables::TileProvider};
-use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol};
+use crate::{
+    drawable::DrawableOmap,
+    map_gen::egui_map::{AreaSymbol, Symbol},
+};
 
 pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
     egui::Window::new("Zoom")
@@ -139,19 +142,26 @@ pub fn render_symbol_toggles(
     map_tile: &Option<DrawableOmap>,
     checkboxes: &mut HashMap<Symbol, bool>,
 ) {
-    if let Some(map) = map_tile {
-        // add a window for toggling visibilities
-        egui::Window::new("Symbol Visibility Toggles")
-            .default_open(false)
-            .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
-            .show(ui.ctx(), |ui| {
-                let mut keys = map.keys().collect::<Vec<_>>();
-                keys.sort();
-                for symbol in keys {
-                    ui.checkbox(checkboxes.get_mut(symbol).unwrap(), format!("{:?}", symbol));
-                }
-            });
-    }
+    // add a window for toggling visibilities
+    egui::Window::new("Symbol Visibility Toggles")
+        .default_open(false)
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
+        .show(ui.ctx(), |ui| {
+            let white_forest = Symbol::Area(AreaSymbol::WhiteForest);
+            let mut keys = map_tile
+                .as_ref()
+                .map(|map| map.keys().copied().collect::<Vec<_>>())
+                .unwrap_or_default();
+
+            keys.push(white_forest);
+            keys.sort();
+            keys.dedup();
+
+            for symbol in keys {
+                let visible = checkboxes.entry(symbol).or_insert(true);
+                ui.checkbox(visible, format!("{symbol}"));
+            }
+        });
 }
 
 pub fn render_map_opacity_slider(ui: &mut egui::Ui, slider_val: &mut f32, rect: egui::Rect) {

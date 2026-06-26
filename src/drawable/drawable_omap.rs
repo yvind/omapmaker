@@ -11,7 +11,7 @@ use proj_core::{CrsDef, Transform};
 
 use super::*;
 use crate::{
-    map_gen::egui_map::{LineSymbol, MapObject, Symbol, TempMap},
+    map_gen::egui_map::{AreaSymbol, LineSymbol, MapObject, Symbol, TempMap},
     parameters::GeometryParameters,
 };
 
@@ -175,10 +175,20 @@ impl DrawableOmap {
             .map(|p| projector.project(p))
             .collect();
 
+        let show_white_forest = visibilities
+            .get(&Symbol::Area(AreaSymbol::WhiteForest))
+            .copied()
+            .unwrap_or(true);
+        let fill = if show_white_forest {
+            Color32::WHITE.gamma_multiply(opacity)
+        } else {
+            Color32::TRANSPARENT
+        };
+
         // not necessarily a convex polygon, but close
         ui.painter().add(egui::Shape::convex_polygon(
             points,
-            Color32::WHITE.gamma_multiply(opacity), //.gamma_multiply(0.8),
+            fill,
             Stroke::new(2., Color32::RED),
         ));
 

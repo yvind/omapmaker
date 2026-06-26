@@ -361,6 +361,9 @@ impl OmapMaker {
             ProcessStage::CheckLidar => {
                 self.state.next();
                 self.map_memory.follow_my_position();
+                if self.gui_variables.project.paths.len() == 1 {
+                    self.gui_variables.project.selected_file = Some(0);
+                }
             }
             ProcessStage::ChooseSquare => {
                 let ready = match self.gui_variables.project.validate_selected_file() {
