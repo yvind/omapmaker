@@ -1,7 +1,7 @@
 use eframe::egui;
 use walkers::{Map, MapMemory, MercatorProjection, Plugin, ProjectedProjection, Tiles};
 
-use super::{map_controls, map_plugins, ProcessStage};
+use super::{ProcessStage, map_controls, map_plugins};
 use crate::OmapMaker;
 
 const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
@@ -40,13 +40,13 @@ impl OmapMaker {
         );
 
         let map = if self.state != ProcessStage::Welcome
-            && self.gui_variables.map_params.output_crs.is_none()
+            && self.gui_variables.generation.params.output.crs.is_none()
         {
             let mut min_x = f64::MAX;
             let mut max_x = f64::MIN;
             let mut min_y = f64::MAX;
             let mut max_y = f64::MIN;
-            for boundary in self.gui_variables.boundaries.iter() {
+            for boundary in self.gui_variables.lidar.boundaries.iter() {
                 for p in boundary {
                     if p.x() > max_x {
                         max_x = p.x();
@@ -69,20 +69,27 @@ impl OmapMaker {
         } else {
             Self::clamp_mercator_zoom_pos(&mut self.map_memory, &MercatorProjection);
 
-            let http_tiles = match self.gui_variables.tile_provider {
+            let http_tiles = match self.gui_variables.map_view.tile_provider {
                 super::gui_variables::TileProvider::OpenStreetMap => &mut self.http_tiles.0,
                 super::gui_variables::TileProvider::OpenTopoMap => &mut self.http_tiles.1,
+                super::gui_variables::TileProvider::ArcGis => &mut self.http_tiles.2,
             };
 
             map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
-            map_controls::render_background_map_choice(ui, &mut self.gui_variables.tile_provider);
+            map_controls::render_background_map_choice(
+                ui,
+                &mut self.gui_variables.map_view.tile_provider,
+            );
 
-            let error_text = match self.gui_variables.tile_provider {
+            let error_text = match self.gui_variables.map_view.tile_provider {
                 super::gui_variables::TileProvider::OpenStreetMap => {
                     "If you see this the OSM background-map did not load."
                 }
                 super::gui_variables::TileProvider::OpenTopoMap => {
                     "If you see this the OTM background-map did not load."
+                }
+                super::gui_variables::TileProvider::ArcGis => {
+                    "If you see this the ArcGIS background-map did not load."
                 }
             };
 
@@ -99,65 +106,65 @@ impl OmapMaker {
         let map = match &self.state {
             ProcessStage::ChooseSquare => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
+                    &self.gui_variables.lidar.boundaries,
+                    self.gui_variables.project.selected_file,
                     true,
                     None,
                 ));
                 let map = map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.boundaries,
-                    &mut self.gui_variables.file_params.selected_file,
+                    &self.gui_variables.lidar.boundaries,
+                    &mut self.gui_variables.project.selected_file,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
+                    &mut self.gui_variables.area.polygon_filter,
                     &mut self.state,
                 ))
             }
             ProcessStage::ChooseSubTile => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.subtile_boundaries,
-                    self.gui_variables.selected_tile,
+                    &self.gui_variables.tile.subtile_boundaries,
+                    self.gui_variables.tile.selected_tile,
                     true,
-                    Some(&self.gui_variables.subtile_neighbors),
+                    Some(&self.gui_variables.tile.subtile_neighbors),
                 ));
                 map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.subtile_boundaries,
-                    &mut self.gui_variables.selected_tile,
+                    &self.gui_variables.tile.subtile_boundaries,
+                    &mut self.gui_variables.tile.selected_tile,
                 ))
             }
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
-                    self.gui_variables.file_params.selected_file,
+                    &self.gui_variables.lidar.boundaries,
+                    self.gui_variables.project.selected_file,
                     false,
                     None,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
+                    &mut self.gui_variables.area.polygon_filter,
                     &mut self.state,
                 ))
             }
-            ProcessStage::AdjustSliders => map.with_plugin(map_plugins::OmapDrawer::new(
-                &self.gui_variables.map_tile,
-                &self.gui_variables.visibility_checkboxes,
-                self.gui_variables.map_opacity,
+            state if state.is_adjustment() => map.with_plugin(map_plugins::OmapDrawer::new(
+                &self.gui_variables.preview.map_tile,
+                &self.gui_variables.preview.visibility_checkboxes,
+                self.gui_variables.preview.map_opacity,
             )),
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.boundaries,
+                    &self.gui_variables.lidar.boundaries,
                     None,
                     false,
                     None,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.polygon_filter,
+                    &mut self.gui_variables.area.polygon_filter,
                     &mut self.state,
                 ))
             }
             ProcessStage::Welcome => map,
             ProcessStage::ShowComponents => map.with_plugin(map_plugins::LasComponentPainter::new(
-                &self.gui_variables.boundaries,
-                &self.gui_variables.connected_components,
+                &self.gui_variables.lidar.boundaries,
+                &self.gui_variables.lidar.connected_components,
             )),
             _ => unreachable!("The render_map fn should not be called for this state"),
         };
@@ -176,32 +183,32 @@ impl OmapMaker {
                 ui,
                 true,
                 rect,
-                &mut self.gui_variables.polygon_filter,
+                &mut self.gui_variables.area.polygon_filter,
                 &mut self.state,
             ),
             ProcessStage::DrawPolygon => map_controls::render_draw_button(
                 ui,
                 false,
                 rect,
-                &mut self.gui_variables.polygon_filter,
+                &mut self.gui_variables.area.polygon_filter,
                 &mut self.state,
             ),
-            ProcessStage::AdjustSliders => {
+            state if state.is_adjustment() => {
                 map_controls::render_contour_scores(
                     ui,
-                    self.gui_variables.contour_score,
-                    self.gui_variables.map_params.contour_algo_lambda as f32,
+                    self.gui_variables.preview.contour_score,
+                    self.gui_variables.generation.params.contour.algo_lambda as f32,
                     rect,
                 );
                 map_controls::render_map_opacity_slider(
                     ui,
-                    &mut self.gui_variables.map_opacity,
+                    &mut self.gui_variables.preview.map_opacity,
                     rect,
                 );
                 map_controls::render_symbol_toggles(
                     ui,
-                    &self.gui_variables.map_tile,
-                    &mut self.gui_variables.visibility_checkboxes,
+                    &self.gui_variables.preview.map_tile,
+                    &mut self.gui_variables.preview.visibility_checkboxes,
                 );
             }
             _ => (),

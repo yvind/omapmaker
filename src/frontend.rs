@@ -8,7 +8,11 @@ pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
     // background osm and otm tiles
-    pub http_tiles: (HttpTiles<MercatorProjection>, HttpTiles<MercatorProjection>),
+    pub http_tiles: (
+        HttpTiles<MercatorProjection>,
+        HttpTiles<MercatorProjection>,
+        HttpTiles<MercatorProjection>,
+    ),
     pub map_memory: MapMemory,
     pub home: Position,
     pub home_zoom: f64,
@@ -62,7 +66,11 @@ impl eframe::App for OmapMaker {
                     ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
                     ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
                     ProcessStage::DrawPolygon => self.render_choose_lidar_panel(ui, false),
-                    ProcessStage::AdjustSliders => self.render_adjust_slider_panel(ui),
+                    ProcessStage::AdjustContours
+                    | ProcessStage::AdjustOpenness
+                    | ProcessStage::AdjustVegetation
+                    | ProcessStage::AdjustCliffs
+                    | ProcessStage::AdjustIntensity => self.render_adjust_slider_panel(ui),
                     ProcessStage::MakeMap => self.render_generating_map_panel(ui),
                     ProcessStage::ExportDone => self.render_done_panel(ui),
                 }
@@ -72,8 +80,14 @@ impl eframe::App for OmapMaker {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(ui.style().visuals.panel_fill))
             .show_inside(ui, |ui| match self.state {
+                ProcessStage::AdjustContours
+                | ProcessStage::AdjustOpenness
+                | ProcessStage::AdjustVegetation
+                | ProcessStage::AdjustCliffs
+                | ProcessStage::AdjustIntensity => {
+                    self.render_map(ui);
+                }
                 ProcessStage::Welcome
-                | ProcessStage::AdjustSliders
                 | ProcessStage::ChooseSquare
                 | ProcessStage::ChooseSubTile
                 | ProcessStage::ExportDone
@@ -90,7 +104,7 @@ impl eframe::App for OmapMaker {
         let ctx = ui.ctx();
         match &self.open_modal {
             OmapModal::None => (),
-            OmapModal::OutputCRS(epsg) => self.output_crs_modal(ctx, *epsg),
+            OmapModal::OutputCRS(crs) => self.output_crs_modal(ctx, crs.clone()),
             OmapModal::ManualSetCRS => self.manual_set_crs_modal(ctx),
             OmapModal::SetOneCrsForAll => self.set_one_crs_for_all_modal(ctx),
             OmapModal::SetOneCrsForEach => self.set_one_crs_for_each_modal(ctx),
@@ -101,6 +115,32 @@ impl eframe::App for OmapMaker {
             OmapModal::ErrorModal(s) => self.error_modal(ctx, s.clone()),
             OmapModal::WaiverModal => self.waiver_modal(ctx),
         }
+    }
+}
+
+pub struct ArcGisSource;
+
+impl walkers::sources::TileSource for ArcGisSource {
+    type Projection = walkers::MercatorProjection;
+
+    fn tile_url(&self, tile_id: walkers::TileId) -> String {
+        format!(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{}/{}/{}",
+            tile_id.zoom, tile_id.y, tile_id.x
+        )
+    }
+
+    fn attribution(&self) -> sources::Attribution {
+        sources::Attribution {
+            text: "nope",
+            url: "lol",
+            logo_light: None,
+            logo_dark: None,
+        }
+    }
+
+    fn projection(&self) -> Self::Projection {
+        MercatorProjection
     }
 }
 
@@ -118,6 +158,7 @@ impl OmapMaker {
                 sources::OpenTopoMap(sources::OpenTopoServer::C),
                 ctx.clone(),
             ),
+            HttpTiles::new(ArcGisSource, ctx.clone()),
         );
 
         Self {
@@ -161,35 +202,37 @@ impl OmapMaker {
 impl OmapMaker {
     fn on_update_variable(&mut self, variable: Variable) {
         match variable {
-            Variable::Paths(p) => self.gui_variables.file_params.paths = p,
-            Variable::Boundaries(vec) => self.gui_variables.boundaries = vec,
+            Variable::Paths(p) => self.gui_variables.project.paths = p,
+            Variable::Boundaries(vec) => self.gui_variables.lidar.boundaries = vec,
             Variable::Home(position) => self.home = position,
             Variable::CrsDefs(vec) => {
-                self.gui_variables.file_params.crs_epsg = vec;
+                self.gui_variables.project.crs_epsg = vec;
                 self.gui_variables.update_unique_crs();
             }
             Variable::CrsLessString(num) => {
-                self.gui_variables.crs_less_search_strings = vec!["".to_string(); num]
+                self.gui_variables.lidar.crs_less_search_strings = vec!["".to_string(); num]
             }
-            Variable::CrsLessCheckBox(num) => self.gui_variables.drop_checkboxes = vec![false; num],
-            Variable::ConnectedComponents(vec) => self.gui_variables.connected_components = vec,
+            Variable::CrsLessCheckBox(num) => {
+                self.gui_variables.lidar.drop_checkboxes = vec![false; num]
+            }
+            Variable::ConnectedComponents(vec) => {
+                self.gui_variables.lidar.connected_components = vec
+            }
             Variable::MapTile(drawable_omap) => self.gui_variables.update_map(*drawable_omap),
-            Variable::TileBounds(tb) => self.gui_variables.subtile_boundaries = tb,
-            Variable::TileNeighbors(tn) => self.gui_variables.subtile_neighbors = tn,
-            Variable::ContourScore(score) => self.gui_variables.contour_score = score,
-            Variable::Stats(lidar_stats) => self.gui_variables.lidar_stats = Some(lidar_stats),
+            Variable::TileBounds(tb) => self.gui_variables.tile.subtile_boundaries = tb,
+            Variable::TileNeighbors(tn) => self.gui_variables.tile.subtile_neighbors = tn,
+            Variable::ContourScore(score) => self.gui_variables.preview.contour_score = score,
+            Variable::Stats(lidar_stats) => self.gui_variables.lidar.stats = Some(lidar_stats),
+            Variable::SingleCopcPath(path) => {
+                self.gui_variables.project.single_copc_path = Some(path)
+            }
         }
     }
 
     fn start_task(&mut self, task: Task) {
         match task {
             Task::RegenerateMap => {
-                self.gui_variables.generating_map_tile = true;
-                self.comms
-                    .send(BackendTask::RegenerateMap(Box::new(
-                        self.gui_variables.map_params.clone(),
-                    )))
-                    .unwrap();
+                self.regenerate_map(RegenerationScope::Changed);
             }
             Task::Reset => self.reset(),
             Task::SetCrs(s) => self.update_crs(s),
@@ -201,31 +244,34 @@ impl OmapMaker {
                 self.on_task_complete(TaskDone::DropComponents);
             }
             Task::GetOutputCRS => {
-                let majority = self.gui_variables.get_most_popular_crs().unwrap();
-                self.open_modal = OmapModal::OutputCRS(majority);
+                if let Some(majority) = self.gui_variables.get_most_popular_crs() {
+                    self.open_modal = OmapModal::OutputCRS(majority);
+                } else {
+                    self.open_modal = OmapModal::ManualSetCRS;
+                }
             }
             Task::QueryDropComponents => {
                 self.gui_variables.log_terminal.println(
                     format!(
                         "The lidar files are not all connected and form {} parts",
-                        self.gui_variables.connected_components.len()
+                        self.gui_variables.lidar.connected_components.len()
                     )
                     .as_str(),
                 );
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
             Task::DoConnectedComponentAnalysis => {
-                if self.gui_variables.map_params.output_crs.is_some() {
+                if self.gui_variables.generation.params.output.crs.is_some() {
                     self.comms
                         .send(BackendTask::MapSpatialLidarRelations(
-                            self.gui_variables.file_params.paths.clone(),
-                            Some(self.gui_variables.file_params.crs_epsg.clone()),
+                            self.gui_variables.project.paths.clone(),
+                            Some(self.gui_variables.project.crs_epsg.clone()),
                         ))
                         .unwrap();
                 } else {
                     self.comms
                         .send(BackendTask::MapSpatialLidarRelations(
-                            self.gui_variables.file_params.paths.clone(),
+                            self.gui_variables.project.paths.clone(),
                             None,
                         ))
                         .unwrap();
@@ -237,9 +283,9 @@ impl OmapMaker {
     fn on_task_complete(&mut self, task: TaskDone) {
         match task {
             TaskDone::TileSelectedFile => {
-                if self.gui_variables.subtile_boundaries.len() <= 9 {
-                    self.gui_variables.selected_tile =
-                        Some(self.gui_variables.subtile_boundaries.len() / 2);
+                if self.gui_variables.tile.subtile_boundaries.len() <= 9 {
+                    self.gui_variables.tile.selected_tile =
+                        Some(self.gui_variables.tile.subtile_boundaries.len() / 2);
                     self.next_state();
                 }
             }
@@ -251,7 +297,7 @@ impl OmapMaker {
                 }
             }
             TaskDone::MapSpatialLidarRelations => {
-                if self.gui_variables.connected_components.len() == 1 {
+                if self.gui_variables.lidar.connected_components.len() == 1 {
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::DropComponents));
                     self.gui_variables
                         .log_terminal
@@ -270,106 +316,143 @@ impl OmapMaker {
                 ));
             }
             TaskDone::ConvertCopc => {
-                self.gui_variables.generating_map_tile = true;
+                let ready = match self.gui_variables.validate_map_preview() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.gui_variables.preview.generating_map_tile = true;
                 self.comms
                     .send(BackendTask::InitializeMapTile(
-                        self.gui_variables.file_params.paths
-                            [self.gui_variables.file_params.selected_file.unwrap_or(0)]
-                        .clone(),
-                        self.gui_variables.subtile_neighbors
-                            [self.gui_variables.selected_tile.unwrap_or(0)]
-                        .clone(),
-                        self.gui_variables.lidar_stats.clone().unwrap(),
+                        ready.path,
+                        ready.tile,
+                        ready.stats,
                     ))
                     .unwrap();
             }
             TaskDone::RegenerateMap => {
-                self.gui_variables.generating_map_tile = false;
+                self.gui_variables.preview.generating_map_tile = false;
             }
             TaskDone::MakeMap => self.next_state(),
             TaskDone::Reset => (),
             TaskDone::InitializeMapTile => {
-                self.gui_variables.generating_map_tile = false;
+                self.gui_variables.preview.generating_map_tile = false;
                 self.next_state();
             }
         }
     }
 
     fn next_state(&mut self) {
-        self.state.next();
-
         match self.state {
+            ProcessStage::Welcome => {
+                let ready = match self.gui_variables.project.validate_welcome() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.state.next();
+                self.gui_variables.project.selected_file = None;
+                self.comms.send(BackendTask::ParseCrs(ready.paths)).unwrap();
+            }
             ProcessStage::CheckLidar => {
-                self.gui_variables.file_params.selected_file = None;
+                self.state.next();
+                self.map_memory.follow_my_position();
+            }
+            ProcessStage::ChooseSquare => {
+                let ready = match self.gui_variables.project.validate_selected_file() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.state.next();
                 self.comms
-                    .send(BackendTask::ParseCrs(
-                        self.gui_variables.file_params.paths.clone(),
+                    .send(BackendTask::TileSelectedFile(ready.path, ready.crs))
+                    .unwrap();
+            }
+            ProcessStage::ChooseSubTile => {
+                if let Err(error) = self.gui_variables.tile.validate_selected_tile() {
+                    self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                    return;
+                }
+                let ready = match self.gui_variables.validate_copc_conversion() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.state.next();
+                self.gui_variables.project.single_copc_path = None;
+                self.comms
+                    .send(BackendTask::ConvertCopc(
+                        ready.file_params.paths,
+                        ready.file_params.crs_epsg,
+                        ready.output_crs,
+                        ready.save_location,
+                        ready.selected_file,
+                        ready.boundaries,
+                        ready.polygon_filter,
+                        ready.write_single_copc,
                     ))
                     .unwrap();
             }
             ProcessStage::ConvertingCOPC => {
+                self.state.next();
+                self.regenerate_map(RegenerationScope::Changed);
+            }
+            state if state.is_adjustment() && state != ProcessStage::AdjustIntensity => {
+                self.state.next();
+                self.regenerate_current_adjustment_section();
+            }
+            ProcessStage::AdjustIntensity => {
+                let ready = match self.gui_variables.validate_final_map() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.state.next();
                 self.comms
-                    .send(BackendTask::ConvertCopc(
-                        self.gui_variables.file_params.paths.clone(),
-                        self.gui_variables.file_params.crs_epsg.clone(),
-                        self.gui_variables.map_params.output_crs,
-                        self.gui_variables.file_params.selected_file.unwrap_or(0),
-                        self.gui_variables.boundaries.clone(),
-                        self.gui_variables.polygon_filter.clone(),
+                    .send(BackendTask::MakeMap(
+                        Box::new(ready.map_params),
+                        Box::new(ready.file_params),
+                        ready.polygon_filter,
+                        ready.stats,
                     ))
                     .unwrap();
             }
             ProcessStage::MakeMap => {
-                self.comms
-                    .send(BackendTask::MakeMap(
-                        Box::new(self.gui_variables.map_params.clone()),
-                        Box::new(self.gui_variables.file_params.clone()),
-                        self.gui_variables.polygon_filter.clone(),
-                        self.gui_variables.lidar_stats.clone().unwrap(),
-                    ))
-                    .unwrap();
+                self.state.next();
+                self.open_modal = OmapModal::WaiverModal;
             }
-            ProcessStage::ExportDone => self.open_modal = OmapModal::WaiverModal,
-            ProcessStage::ChooseSquare => self.map_memory.follow_my_position(),
-            ProcessStage::AdjustSliders => {
-                self.gui_variables.generating_map_tile = true;
-                self.comms
-                    .send(BackendTask::RegenerateMap(Box::new(
-                        self.gui_variables.map_params.clone(),
-                    )))
-                    .unwrap();
-            }
-            ProcessStage::ChooseSubTile => {
-                let crs = self.gui_variables.file_params.crs_epsg
-                    [self.gui_variables.file_params.selected_file.unwrap()]
-                .clone();
-
-                self.comms
-                    .send(BackendTask::TileSelectedFile(
-                        self.gui_variables.file_params.paths
-                            [self.gui_variables.file_params.selected_file.unwrap()]
-                        .clone(),
-                        crs,
-                    ))
-                    .unwrap();
-            }
-            _ => (),
+            _ => unreachable!(
+                "Should not call next on state for {:?} variant.",
+                self.state
+            ),
         }
     }
 
     fn prev_state(&mut self) {
         match self.state {
-            ProcessStage::AdjustSliders => {
-                self.gui_variables.map_tile = None;
-                self.gui_variables.selected_tile = None;
+            ProcessStage::AdjustContours => {
+                self.gui_variables.preview.map_tile = None;
+                self.gui_variables.tile.selected_tile = None;
                 self.comms.send(BackendTask::ClearParams).unwrap()
             }
+            state if state.is_adjustment() => (),
             ProcessStage::ShowComponents => {
-                self.gui_variables.file_params.selected_file = None;
+                self.gui_variables.project.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
             }
             ProcessStage::ChooseSubTile => {
-                self.gui_variables.selected_tile = None;
+                self.gui_variables.tile.selected_tile = None;
             }
             _ => unimplemented!("Should not have been called on this state"),
         }
@@ -388,11 +471,11 @@ impl OmapMaker {
     fn update_crs(&mut self, message: SetCrs) {
         match message {
             SetCrs::SetAllEpsg => {
-                let a = self.gui_variables.crs_less_search_strings[0]
+                let a = self.gui_variables.lidar.crs_less_search_strings[0]
                     .parse::<u16>()
                     .unwrap();
 
-                for crs in self.gui_variables.file_params.crs_epsg.iter_mut() {
+                for crs in self.gui_variables.project.crs_epsg.iter_mut() {
                     if crs.is_none() {
                         *crs = Some(
                             proj_wkt::parse_crs(&a.to_string())
@@ -404,34 +487,35 @@ impl OmapMaker {
             SetCrs::SetEachCrs => {
                 let mut drop_list = vec![];
                 let mut crs_less_indecies = vec![];
-                for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
                     if crs.is_none() {
                         crs_less_indecies.push(i);
                     }
                 }
                 for (i, s) in self
                     .gui_variables
+                    .lidar
                     .crs_less_search_strings
                     .iter()
                     .enumerate()
                 {
-                    if self.gui_variables.drop_checkboxes[i] {
+                    if self.gui_variables.lidar.drop_checkboxes[i] {
                         drop_list.push(crs_less_indecies[i]);
                     } else {
                         let crs =
                             Some(proj_wkt::parse_crs(s).expect("Could not create crs from code"));
-                        self.gui_variables.file_params.crs_epsg[crs_less_indecies[i]] = crs;
+                        self.gui_variables.project.crs_epsg[crs_less_indecies[i]] = crs;
                     }
                 }
                 drop_list.sort_by(|a: &usize, b: &usize| b.cmp(a));
                 for i in drop_list {
-                    self.gui_variables.file_params.paths.remove(i);
-                    self.gui_variables.file_params.crs_epsg.remove(i);
+                    self.gui_variables.project.paths.remove(i);
+                    self.gui_variables.project.crs_epsg.remove(i);
                 }
             }
             SetCrs::Default => {
                 let mut default_crs = None;
-                for a in self.gui_variables.file_params.crs_epsg.iter() {
+                for a in self.gui_variables.project.crs_epsg.iter() {
                     if a.is_some() {
                         default_crs = a.clone();
                         break;
@@ -442,40 +526,61 @@ impl OmapMaker {
                     "Default crs button available but should not have been"
                 );
 
-                self.gui_variables.file_params.crs_epsg =
-                    vec![default_crs; self.gui_variables.file_params.paths.len()];
+                self.gui_variables.project.crs_epsg =
+                    vec![default_crs; self.gui_variables.project.paths.len()];
             }
             SetCrs::DropAll => {
                 let mut drop_list = vec![];
-                for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
                     if crs.is_none() {
                         drop_list.push(i);
                     }
                 }
                 drop_list.sort_by(|a: &usize, b: &usize| b.cmp(a));
                 for i in drop_list {
-                    self.gui_variables.file_params.paths.remove(i);
-                    self.gui_variables.file_params.crs_epsg.remove(i);
+                    self.gui_variables.project.paths.remove(i);
+                    self.gui_variables.project.crs_epsg.remove(i);
                 }
             }
             _ => (),
         }
 
         assert!(
-            self.gui_variables.file_params.paths.len()
-                == self.gui_variables.file_params.crs_epsg.len()
+            self.gui_variables.project.paths.len() == self.gui_variables.project.crs_epsg.len()
         );
 
-        if self.gui_variables.file_params.paths.is_empty() {
+        if self.gui_variables.project.paths.is_empty() {
             self.on_frontend_task(FrontendTask::Error(
                 "All Lidar files were dropped.".to_string(),
                 true,
             ));
         } else {
-            self.gui_variables.crs_less_search_strings.clear();
-            self.gui_variables.drop_checkboxes.clear();
+            self.gui_variables.lidar.crs_less_search_strings.clear();
+            self.gui_variables.lidar.drop_checkboxes.clear();
             self.on_task_complete(TaskDone::ParseCrs(message));
         }
+    }
+
+    fn regenerate_map(&mut self, scope: RegenerationScope) {
+        self.gui_variables.preview.generating_map_tile = true;
+        self.comms
+            .send(BackendTask::RegenerateMap(
+                Box::new(self.gui_variables.generation.params.clone()),
+                scope,
+            ))
+            .unwrap();
+    }
+
+    fn regenerate_current_adjustment_section(&mut self) {
+        let section = match self.state {
+            ProcessStage::AdjustOpenness => MapPreviewSection::Openness,
+            ProcessStage::AdjustVegetation => MapPreviewSection::Vegetation,
+            ProcessStage::AdjustCliffs => MapPreviewSection::Cliffs,
+            ProcessStage::AdjustIntensity => MapPreviewSection::Intensity,
+            _ => return,
+        };
+
+        self.regenerate_map(RegenerationScope::Section(section));
     }
 
     fn reset(&mut self) {

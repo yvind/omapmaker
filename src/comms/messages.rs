@@ -30,12 +30,14 @@ pub enum BackendTask {
     ConvertCopc(
         Vec<PathBuf>,
         Vec<Option<CrsDef>>,
-        Option<u16>,
+        Option<CrsDef>,
+        PathBuf,
         usize,
         Vec<[walkers::Position; 4]>,
         geo::LineString,
+        bool,
     ),
-    RegenerateMap(Box<MapParameters>), // boxed to keep the enum variant small
+    RegenerateMap(Box<MapParameters>, RegenerationScope), // boxed to keep the enum variant small
     Reset,
     MakeMap(
         Box<MapParameters>,
@@ -60,6 +62,18 @@ pub enum ProgressBar {
     Start,
     Finish,
     Inc(f32),
+}
+
+pub enum RegenerationScope {
+    Changed,
+    Section(MapPreviewSection),
+}
+
+pub enum MapPreviewSection {
+    Openness,
+    Vegetation,
+    Cliffs,
+    Intensity,
 }
 
 pub enum TaskDone {
@@ -97,4 +111,5 @@ pub enum Variable {
     ConnectedComponents(Vec<Vec<usize>>),
     ContourScore((f32, f32)),
     Stats(LidarStats),
+    SingleCopcPath(PathBuf),
 }

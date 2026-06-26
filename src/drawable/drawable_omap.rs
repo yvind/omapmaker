@@ -10,7 +10,10 @@ use log::{Level, log};
 use proj_core::{CrsDef, Transform};
 
 use super::*;
-use crate::map_gen::egui_map::{LineSymbol, MapObject, Symbol, TempMap};
+use crate::{
+    map_gen::egui_map::{LineSymbol, MapObject, Symbol, TempMap},
+    parameters::GeometryParameters,
+};
 
 trait Drawable {
     /// converting a symbol to something drawable to screen
@@ -76,7 +79,11 @@ impl DrawableOmap {
         self.map_objects.keys()
     }
 
-    pub fn from_temp_map(tmap: TempMap, hull: geo::LineString, bezier_error: Option<f64>) -> Self {
+    pub fn from_temp_map(
+        tmap: TempMap,
+        hull: geo::LineString,
+        geometry: &GeometryParameters,
+    ) -> Self {
         let ref_point = tmap.ref_point;
 
         let global_hull = if let Some(epsg) = &tmap.crs {
@@ -103,7 +110,7 @@ impl DrawableOmap {
 
         DrawableOmap {
             hull: global_hull,
-            map_objects: Self::into_drawable(tmap.objects, ref_point, tmap.crs, bezier_error),
+            map_objects: Self::into_drawable(tmap.objects, ref_point, tmap.crs, geometry),
         }
     }
 
@@ -111,7 +118,7 @@ impl DrawableOmap {
         mut omap_objs: HashMap<Symbol, Vec<MapObject>>,
         ref_point: Coord,
         crs: Option<CrsDef>,
-        bezier_error: Option<f64>,
+        geometry: &GeometryParameters,
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {
         let mut drawable_objs = HashMap::with_capacity(omap_objs.len());
         for (symbol, objs) in omap_objs.drain() {
@@ -119,7 +126,7 @@ impl DrawableOmap {
                 // basemap should never be converted to beziers
                 Symbol::Line(LineSymbol::BasemapContour)
                 | Symbol::Line(LineSymbol::NegBasemapContour) => None,
-                _ => bezier_error,
+                _ => geometry.bezier_error_for_symbol(symbol),
             };
 
             drawable_objs.insert(

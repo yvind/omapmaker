@@ -3,17 +3,21 @@
 
 use geo::Rect;
 use las::Reader;
-use proj_core::Transform;
+use proj_core::{CrsDef, Transform};
 
 use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
 
+use crate::Result;
 use crate::comms::messages::*;
 use crate::geometry::MapRect;
 use crate::neighbors::Neighborhood;
-use crate::Result;
 
-pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Option<Vec<u16>>) {
-    let (boundaries, mid_point, components) = match read_boundaries(paths, crs_epsg) {
+pub fn map_laz(
+    sender: Sender<FrontendTask>,
+    paths: Vec<PathBuf>,
+    crs_defs: Option<Vec<Option<CrsDef>>>,
+) {
+    let (boundaries, mid_point, components) = match read_boundaries(paths, crs_defs) {
         Ok(bm) => bm,
         Err(e) => {
             sender
@@ -47,7 +51,7 @@ pub fn map_laz(sender: Sender<FrontendTask>, paths: Vec<PathBuf>, crs_epsg: Opti
 
 fn read_boundaries(
     paths: Vec<PathBuf>,
-    crs_epsg: Option<Vec<u16>>,
+    crs_defs: Option<Vec<Option<CrsDef>>>,
 ) -> Result<(
     Vec<[walkers::Position; 4]>,
     walkers::Position,
@@ -67,9 +71,11 @@ fn read_boundaries(
             (bound.max().x, bound.max().y),
         ];
 
-        if let Some(epsg) = &crs_epsg {
+        if let Some(crs_defs) = &crs_defs
+            && let Some(crs) = &crs_defs[i]
+        {
             // transform bounds to lat lon
-            let transform = Transform::from_epsg(epsg[i] as u32, 4326).unwrap();
+            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
             points[0] = transform.convert(points[0]).unwrap();
             points[1] = transform.convert(points[1]).unwrap();

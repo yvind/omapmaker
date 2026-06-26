@@ -16,15 +16,11 @@ pub fn compute_cliffs(
     params: &MapParameters,
 ) -> Vec<MapObject> {
     let symbol = AreaSymbol::GiganticBoulder;
-    let cliff_contours = slope.marching_squares(params.cliff);
+    let cliff_contours = slope.marching_squares(params.vegetation.cliff);
 
     let mut cliff_polygons = MultiPolygon::from_contours(cliff_contours, convex_hull, false);
 
     cliff_polygons = cliff_polygons.simplify(crate::SIMPLIFICATION_DIST);
-
-    for buffer in params.buffer_rules.iter() {
-        cliff_polygons = cliff_polygons.apply_buffer_rule(buffer);
-    }
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 

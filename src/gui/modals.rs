@@ -8,7 +8,7 @@ use proj_core::CrsDef;
 #[derive(Debug, Clone)]
 pub enum OmapModal {
     None,
-    OutputCRS(u16),
+    OutputCRS(CrsDef),
     ManualSetCRS,
     SetOneCrsForAll,
     SetOneCrsForEach,
@@ -62,14 +62,16 @@ impl OmapMaker {
                 ui.label("Choose CRS by EPSG code (4 or 5 digits)");
                 ui.add(
                     egui_autocomplete::AutoCompleteTextEdit::new(
-                        &mut self.gui_variables.crs_less_search_strings[0],
+                        &mut self.gui_variables.lidar.crs_less_search_strings[0],
                         crate::assets::EPSG_LIST,
                     )
                     .highlight_matches(true)
                     .set_text_edit_properties(|t| t.char_limit(5)),
                 );
             });
-            if let Ok(proj) = proj_wkt::parse_crs(&self.gui_variables.crs_less_search_strings[0]) {
+            if let Ok(proj) =
+                proj_wkt::parse_crs(&self.gui_variables.lidar.crs_less_search_strings[0])
+            {
                 ui.label(format!("{:?}", proj));
                 crs_set = true;
             } else {
@@ -101,12 +103,12 @@ impl OmapMaker {
 
     pub fn set_one_crs_for_each_modal(&mut self, ctx: &egui::Context) {
         let mut crs_less_files = vec![];
-        for (i, crs) in self.gui_variables.file_params.crs_epsg.iter().enumerate() {
+        for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
             if crs.is_none() {
                 crs_less_files.push(i);
             }
         }
-        assert!(crs_less_files.len() == self.gui_variables.drop_checkboxes.len());
+        assert!(crs_less_files.len() == self.gui_variables.lidar.drop_checkboxes.len());
 
         let mut crs_set = true;
         let all_epsg_modal = Modal::new(egui::Id::new("set all epsg"));
@@ -116,17 +118,17 @@ impl OmapMaker {
             ui.label("Filename");
             egui::ScrollArea::both().show(ui, |ui| {
                 for (i, crs_less) in crs_less_files.iter().enumerate() {
-                    let disabled = self.gui_variables.drop_checkboxes[i];
+                    let disabled = self.gui_variables.lidar.drop_checkboxes[i];
                     ui.horizontal(|ui| {
                         ui.label(format!(
                             "{:?}",
-                            self.gui_variables.file_params.paths[*crs_less]
+                            self.gui_variables.project.paths[*crs_less]
                                 .file_name()
                                 .unwrap()
                         ));
                         ui.vertical(|ui| {
                             ui.checkbox(
-                                &mut self.gui_variables.drop_checkboxes[i],
+                                &mut self.gui_variables.lidar.drop_checkboxes[i],
                                 "Drop this file",
                             );
                             ui.horizontal(|ui| {
@@ -134,7 +136,7 @@ impl OmapMaker {
                                 ui.add_enabled(
                                     !disabled,
                                     egui_autocomplete::AutoCompleteTextEdit::new(
-                                        &mut self.gui_variables.crs_less_search_strings[i],
+                                        &mut self.gui_variables.lidar.crs_less_search_strings[i],
                                         crate::assets::EPSG_LIST,
                                     )
                                     .highlight_matches(true)
@@ -143,7 +145,7 @@ impl OmapMaker {
                                 );
                             });
                             if !disabled {
-                                let crs_str = &self.gui_variables.crs_less_search_strings[i];
+                                let crs_str = &self.gui_variables.lidar.crs_less_search_strings[i];
                                 if proj_wkt::parse_crs(crs_str).is_err() {
                                     crs_set = false;
                                     ui.label("Invalid CRS code");
@@ -188,7 +190,7 @@ impl OmapMaker {
             ui.separator();
 
             ui.horizontal(|ui|{
-                if self.gui_variables.unique_crs.is_empty() {
+                if self.gui_variables.lidar.unique_crs.is_empty() {
                     if ui.button("Use \"Local Coordinates\"")
                         .on_hover_text("This option is only available if no CRS has been detected among the lidar files. \
                         This button assumes they all are in same CRS without caring about which. \
@@ -198,7 +200,7 @@ impl OmapMaker {
                             self.open_modal = OmapModal::None;
                             self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(SetCrs::Local)));
                         }
-                } else if self.gui_variables.unique_crs.len() == 1 {
+                } else if self.gui_variables.lidar.unique_crs.len() == 1 {
                     #[allow(clippy::collapsible_if)]
                     if ui.button("Use default CRS")
                         .on_hover_text("This option is only available if only one unique CRS has been detected among the lidar files. \
@@ -247,14 +249,14 @@ impl OmapMaker {
             ui.horizontal(|ui| {
                 ui.label("EPSG: ");
                 ui.add(egui_autocomplete::AutoCompleteTextEdit::new(
-                    &mut self.gui_variables.output_crs_string,
+                    &mut self.gui_variables.lidar.output_crs_string,
                     crate::assets::EPSG_LIST).highlight_matches(true).max_suggestions(10)
                     .set_text_edit_properties(|t| {
                         t.char_limit(5)
                     }));
             });
 
-            if let Ok(def) = proj_wkt::parse_crs(&self.gui_variables.output_crs_string) {
+            if let Ok(def) = proj_wkt::parse_crs(&self.gui_variables.lidar.output_crs_string) {
                 ui.label(format!("{:?}", def));
                 transform_crs = Some(def);
             } else {
@@ -266,12 +268,12 @@ impl OmapMaker {
                 |_ui| {},
                 |ui| {
                 if ui.button(format!("Majority Vote (EPSG: {})", majority_crs.epsg())).clicked() {
-                    self.gui_variables.map_params.output_crs = Some(majority_crs);
+                    self.gui_variables.generation.params.output.crs = Some(majority_crs);
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }
                 if ui.add_enabled(transform_crs.is_some(), egui::Button::new("Select the given CRS")).clicked() {
-                    self.gui_variables.map_params.output_crs = transform_crs;
+                    self.gui_variables.generation.params.output.crs = transform_crs;
                     self.open_modal = OmapModal::None;
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
                 }
@@ -284,7 +286,7 @@ impl OmapMaker {
         mgc_modal.show(ctx, |ui| {
             ui.heading("Multiple Graph Components Detected");
             ui.separator();
-            if self.gui_variables.connected_components.len() > 9 {
+            if self.gui_variables.lidar.connected_components.len() > 9 {
                 ui.label(
                     "The Lidar neighbor graph forms too many components (more than 9).\
                 \nPlease start over.",
@@ -312,7 +314,7 @@ impl OmapMaker {
                     };
                     if ui
                         .add_enabled(
-                            self.gui_variables.connected_components.len() <= 9,
+                            self.gui_variables.lidar.connected_components.len() <= 9,
                             egui::Button::new("Drop all files not in the largest component"),
                         )
                         .clicked()

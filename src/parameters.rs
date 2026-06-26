@@ -2,69 +2,140 @@ use std::{fmt::Display, path::PathBuf};
 
 use proj_core::CrsDef;
 
-use crate::map_gen::egui_map::AreaSymbol;
+use crate::map_gen::egui_map::{AreaSymbol, LineSymbol, Symbol};
 
 #[derive(Clone, Debug)]
 pub struct MapParameters {
-    pub output_crs: Option<CrsDef>,
-
+    pub output: OutputParameters,
     pub scale: Scale,
+    pub contour: ContourParameters,
+    pub vegetation: VegetationParameters,
+    pub geometry: GeometryParameters,
+    pub intensity: IntensityParameters,
+}
 
-    pub contour_algorithm: ContourAlgo,
+#[derive(Clone, Debug, Default)]
+pub struct OutputParameters {
+    pub crs: Option<CrsDef>,
+}
 
-    // map parameters
-    pub bezier_error: f64,
+#[derive(Clone, Debug)]
+pub struct ContourParameters {
+    pub algorithm: ContourAlgo,
     pub basemap_interval: f64,
-    pub contour_interval: f64,
+    pub interval: f64,
     pub dot_knoll_area: (f64, f64),
+    pub algo_steps: u8,
+    pub algo_lambda: f64,
+    pub form_line_prune: f64,
+    pub basemap_contour: bool,
+    pub form_lines: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct VegetationParameters {
     pub green: (f64, f64, f64),
     pub yellow: f64,
     pub cliff: f64,
-    pub intensity_filters: Vec<IntensityFilter>,
-    pub buffer_rules: Vec<BufferRule>,
+}
 
-    // debug params
-    pub contour_algo_steps: u8,
-    pub contour_algo_lambda: f64,
-    pub form_line_prune: f64,
+#[derive(Clone, Debug, Default)]
+pub struct GeometryParameters {
+    pub contours: BezierParameters,
+    pub openness: BufferedGeometryParameters,
+    pub vegetation: BufferedGeometryParameters,
+    pub cliffs: BezierParameters,
+    pub intensity: BufferedGeometryParameters,
+}
 
-    pub basemap_contour: bool,
-    pub form_lines: bool,
-    pub bezier_bool: bool,
+#[derive(Clone, Debug, Default)]
+pub struct IntensityParameters {
+    pub filters: Vec<IntensityFilter>,
 }
 
 impl Default for MapParameters {
     fn default() -> Self {
         Self {
             scale: Scale::S15_000,
-            output_crs: None,
-            bezier_error: 0.5,
+            output: Default::default(),
+            contour: Default::default(),
+            vegetation: Default::default(),
+            geometry: Default::default(),
+            intensity: Default::default(),
+        }
+    }
+}
+
+impl Default for ContourParameters {
+    fn default() -> Self {
+        Self {
+            algorithm: Default::default(),
             basemap_interval: 0.5,
-            contour_interval: 5.,
+            interval: 5.,
             dot_knoll_area: (10., 160.),
-            green: (0.4, 0.6, 0.8),
-            yellow: 0.01,
-            contour_algo_steps: 0,
-            contour_algo_lambda: 0.01,
+            algo_steps: 0,
+            algo_lambda: 0.01,
             basemap_contour: false,
             form_lines: false,
             form_line_prune: 0.5,
-            bezier_bool: true,
-            cliff: 0.75,
-            contour_algorithm: Default::default(),
-            intensity_filters: Default::default(),
-            buffer_rules: Default::default(),
         }
     }
+}
+
+impl Default for VegetationParameters {
+    fn default() -> Self {
+        Self {
+            green: (0.4, 0.6, 0.8),
+            yellow: 0.01,
+            cliff: 0.75,
+        }
+    }
+}
+
+impl GeometryParameters {
+    pub fn bezier_error_for_symbol(&self, symbol: Symbol) -> Option<f64> {
+        let bezier = match symbol {
+            Symbol::Line(LineSymbol::Contour)
+            | Symbol::Line(LineSymbol::FormLine)
+            | Symbol::Line(LineSymbol::IndexContour) => &self.contours,
+            Symbol::Area(AreaSymbol::RoughOpenLand) => &self.openness.bezier,
+            Symbol::Area(AreaSymbol::LightGreen)
+            | Symbol::Area(AreaSymbol::MediumGreen)
+            | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
+            Symbol::Area(AreaSymbol::GiganticBoulder) => &self.cliffs,
+            Symbol::Area(_) => &self.intensity.bezier,
+            Symbol::Line(_) | Symbol::Point(_) => return None,
+        };
+
+        bezier.enabled.then_some(bezier.error)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BezierParameters {
+    pub error: f64,
+    pub enabled: bool,
+}
+
+impl Default for BezierParameters {
+    fn default() -> Self {
+        Self {
+            error: 0.5,
+            enabled: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BufferedGeometryParameters {
+    pub bezier: BezierParameters,
+    pub buffer_rules: Vec<BufferRule>,
 }
 
 #[derive(Default, Clone)]
 pub struct FileParameters {
     pub paths: Vec<PathBuf>,
     pub save_location: PathBuf,
-
-    // lidar file overlay
-    pub selected_file: Option<usize>,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

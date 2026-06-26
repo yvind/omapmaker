@@ -1,11 +1,11 @@
 use crate::{
     comms::messages::*,
     drawable::DrawOrder,
-    map_gen::egui_map::{AreaSymbol, Symbol},
-    parameters::{BufferDirection, ContourAlgo, Scale},
+    map_gen::egui_map::AreaSymbol,
+    parameters::{BezierParameters, BufferDirection, BufferRule, ContourAlgo, Scale},
 };
 
-use super::modals::OmapModal;
+use super::{ProcessStage, modals::OmapModal};
 use crate::OmapMaker;
 use eframe::egui;
 use egui_double_slider::DoubleSlider;
@@ -32,29 +32,28 @@ impl OmapMaker {
                     .pick_files();
                 if let Some(f) = files {
                     for file in f {
-                        if let Some(ext) = file.extension() {
-                            if (ext.to_ascii_lowercase().to_string_lossy() == "laz"
+                        if let Some(ext) = file.extension()
+                            && (ext.to_ascii_lowercase().to_string_lossy() == "laz"
                                 || ext.to_ascii_lowercase().to_string_lossy() == "las")
-                                && !self.gui_variables.file_params.paths.contains(&file)
-                            {
-                                self.gui_variables.file_params.paths.push(file);
-                            }
+                            && !self.gui_variables.project.paths.contains(&file)
+                        {
+                            self.gui_variables.project.paths.push(file);
                         }
                     }
                 }
             }
             if ui.button("Clear Lidar").clicked() {
-                self.gui_variables.file_params.paths.clear();
-                self.gui_variables.file_params.selected_file = None;
+                self.gui_variables.project.paths.clear();
+                self.gui_variables.project.selected_file = None;
             }
-            if ui.button("Remove selected").clicked() {
-                if let Some(i) = self.gui_variables.file_params.selected_file {
-                    self.gui_variables.file_params.paths.remove(i);
-                    if self.gui_variables.file_params.paths.is_empty() {
-                        self.gui_variables.file_params.selected_file = None;
-                    } else if self.gui_variables.file_params.paths.len() <= i {
-                        self.gui_variables.file_params.selected_file = Some(i - 1);
-                    }
+            if ui.button("Remove selected").clicked()
+                && let Some(i) = self.gui_variables.project.selected_file
+            {
+                self.gui_variables.project.paths.remove(i);
+                if self.gui_variables.project.paths.is_empty() {
+                    self.gui_variables.project.selected_file = None;
+                } else if self.gui_variables.project.paths.len() <= i {
+                    self.gui_variables.project.selected_file = Some(i - 1);
                 }
             }
         });
@@ -66,41 +65,54 @@ impl OmapMaker {
             .auto_shrink(false)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.project.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.file_params.selected_file == Some(index),
+                            self.gui_variables.project.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.file_params.selected_file {
-                            self.gui_variables.file_params.selected_file = None;
+                        if Some(index) == self.gui_variables.project.selected_file {
+                            self.gui_variables.project.selected_file = None;
                         } else {
-                            self.gui_variables.file_params.selected_file = Some(index);
+                            self.gui_variables.project.selected_file = Some(index);
                         }
                     }
                 }
             });
         ui.label(format!(
             "Number of files: {}",
-            self.gui_variables.file_params.paths.len()
+            self.gui_variables.project.paths.len()
         ));
+
+        ui.add_space(10.);
+        egui::CollapsingHeader::new("Advanced options")
+            .id_salt("welcome_advanced_options")
+            .show(ui, |ui| {
+                ui.checkbox(
+                    &mut self.gui_variables.project.write_single_copc,
+                    "Write all relevant lidar files to one COPC file",
+                )
+                .on_hover_text(
+                    "The final map generation will read one merged .copc.laz file instead of one COPC file per relevant input tile.",
+                );
+            });
 
         ui.add_space(20.);
 
-        if ui.button("Choose save location and name").clicked() {
-            if let Some(path) = rfd::FileDialog::new()
+        if ui.button("Choose save location and name").clicked()
+            && let Some(mut path) = rfd::FileDialog::new()
                 .add_filter("OpenOrienteering Mapper (*.omap)", &["omap"])
                 .save_file()
-            {
-                self.gui_variables.file_params.save_location = path;
-            };
-        }
+        {
+            path.set_extension("omap");
+            self.gui_variables.project.save_location = path;
+        };
 
         if self
             .gui_variables
-            .file_params
+            .project
             .save_location
             .as_os_str()
             .is_empty()
@@ -109,16 +121,16 @@ impl OmapMaker {
         } else {
             ui.label(format!(
                 "{}",
-                self.gui_variables.file_params.save_location.display()
+                self.gui_variables.project.save_location.display()
             ));
         }
 
         if ui
             .add_enabled(
-                !(self.gui_variables.file_params.paths.is_empty()
+                !(self.gui_variables.project.paths.is_empty()
                     || self
                         .gui_variables
-                        .file_params
+                        .project
                         .save_location
                         .as_os_str()
                         .is_empty()),
@@ -188,24 +200,24 @@ impl OmapMaker {
             .max_width(f32::INFINITY)
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.project.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.file_params.selected_file == Some(index),
+                            self.gui_variables.project.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.file_params.selected_file {
-                            self.gui_variables.file_params.selected_file = None;
+                        if Some(index) == self.gui_variables.project.selected_file {
+                            self.gui_variables.project.selected_file = None;
                         } else {
-                            self.gui_variables.file_params.selected_file = Some(index);
+                            self.gui_variables.project.selected_file = Some(index);
                             let center = walkers::lat_lon(
-                                (self.gui_variables.boundaries[index][0].y()
-                                    + self.gui_variables.boundaries[index][2].y())
+                                (self.gui_variables.lidar.boundaries[index][0].y()
+                                    + self.gui_variables.lidar.boundaries[index][2].y())
                                     / 2.,
-                                (self.gui_variables.boundaries[index][0].x()
-                                    + self.gui_variables.boundaries[index][2].x())
+                                (self.gui_variables.lidar.boundaries[index][0].x()
+                                    + self.gui_variables.lidar.boundaries[index][2].x())
                                     / 2.,
                             );
                             self.map_memory.center_at(center);
@@ -263,18 +275,18 @@ impl OmapMaker {
             .max_width(f32::INFINITY)
             .max_height(ui.available_height() / 2.)
             .show(ui, |ui| {
-                for (index, p) in self.gui_variables.file_params.paths.iter().enumerate() {
+                for (index, p) in self.gui_variables.project.paths.iter().enumerate() {
                     if ui
                         .selectable_label(
-                            self.gui_variables.file_params.selected_file == Some(index),
+                            self.gui_variables.project.selected_file == Some(index),
                             p.file_name().unwrap().to_str().unwrap(),
                         )
                         .clicked()
                     {
-                        if Some(index) == self.gui_variables.file_params.selected_file {
-                            self.gui_variables.file_params.selected_file = None;
+                        if Some(index) == self.gui_variables.project.selected_file {
+                            self.gui_variables.project.selected_file = None;
                         } else {
-                            self.gui_variables.file_params.selected_file = Some(index);
+                            self.gui_variables.project.selected_file = Some(index);
                         }
                     }
                 }
@@ -295,7 +307,7 @@ impl OmapMaker {
             }
             if ui
                 .add_enabled(
-                    self.gui_variables.file_params.selected_file.is_some() && enabled,
+                    self.gui_variables.project.selected_file.is_some() && enabled,
                     egui::Button::new("Next step"),
                 )
                 .clicked()
@@ -306,330 +318,167 @@ impl OmapMaker {
     }
 
     pub fn render_adjust_slider_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Adjust the parameters for the map");
+        let (heading, help_text) = match self.state {
+            ProcessStage::AdjustContours => (
+                "Adjust contour settings",
+                "Tune contour generation and contour geometry.",
+            ),
+            ProcessStage::AdjustOpenness => (
+                "Adjust openness settings",
+                "Tune the yellow/open-land layer and its polygon geometry.",
+            ),
+            ProcessStage::AdjustVegetation => (
+                "Adjust vegetation settings",
+                "Tune the green vegetation layers and their polygon geometry.",
+            ),
+            ProcessStage::AdjustCliffs => (
+                "Adjust cliff settings",
+                "Tune cliff detection and cliff geometry.",
+            ),
+            ProcessStage::AdjustIntensity => (
+                "Adjust lidar intensity settings",
+                "Tune lidar intensity filters and their polygon geometry.",
+            ),
+            _ => unreachable!("Should not render adjustment panel for {:?}", self.state),
+        };
+
+        ui.heading(heading);
         ui.add_space(20.);
-        ui.label("Adjust each value untill you're happy and press the \"next step\" button below.");
+        ui.label(help_text);
 
         egui::ScrollArea::both()
             .auto_shrink(false)
             .max_height(ui.available_height() / 1.2)
             .max_width(f32::INFINITY)
-            .show(ui, |ui| {
-                ui.label(egui::RichText::new("Map Scale").strong());
-                ui.horizontal(|ui| {
-                    if ui
-                        .selectable_label(
-                            self.gui_variables.map_params.scale == Scale::S15_000,
-                            "1:15 000",
-                        )
-                        .clicked()
-                    {
-                        self.gui_variables.map_params.scale = Scale::S15_000;
-                    };
-                    ui.separator();
-                    if ui
-                        .selectable_label(
-                            self.gui_variables.map_params.scale == Scale::S10_000,
-                            "1:10 000",
-                        )
-                        .clicked()
-                    {
-                        self.gui_variables.map_params.scale = Scale::S10_000;
-                    };
-                });
-                ui.add_space(20.);
-                ui.label(egui::RichText::new("Contour algorithm parameters:").strong());
-                ui.horizontal(|ui| {
-                    ui.label("Contour algorithm:");
-                    egui::ComboBox::from_id_salt("Contour algo")
-                        .selected_text(format!(
-                            "{}",
-                            self.gui_variables.map_params.contour_algorithm
-                        ))
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.gui_variables.map_params.contour_algorithm,
-                                ContourAlgo::AI,
-                                "AI contours (slowest)",
-                            );
-                            ui.selectable_value(
-                                &mut self.gui_variables.map_params.contour_algorithm,
-                                ContourAlgo::NaiveIterations,
-                                "Naive interpolation error correction (slow)",
-                            );
-                            ui.selectable_value(
-                                &mut self.gui_variables.map_params.contour_algorithm,
-                                ContourAlgo::NormalFieldSmoothing,
-                                "Normal field smoothing (fast)",
-                            );
-                            ui.selectable_value(
-                                &mut self.gui_variables.map_params.contour_algorithm,
-                                ContourAlgo::Raw,
-                                "Raw contours (fastest)",
-                            );
-                        });
-                });
-
-                if self.gui_variables.map_params.contour_algorithm != ContourAlgo::Raw {
-                    if self.gui_variables.map_params.contour_algorithm
-                        == ContourAlgo::NormalFieldSmoothing
-                    {
-                        ui.label("Number of smoothing iterations (usual range 5-15)");
-                    } else {
-                        ui.label("Number of error correction iterations (usual range 1-3)");
-                    }
-                    ui.add(
-                        egui::Slider::new(
-                            &mut self.gui_variables.map_params.contour_algo_steps,
-                            1..=20,
-                        )
-                        .show_value(true),
+            .show(ui, |ui| match self.state {
+                ProcessStage::AdjustContours => {
+                    self.render_contour_adjustments(ui);
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Contour Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self.gui_variables.generation.params.geometry.contours,
                     );
                 }
-                if self.gui_variables.map_params.contour_algorithm == ContourAlgo::AI {
-                    ui.label(
-                        "Contour Algo Regularization.\nBigger number punishes squiggly lines more.",
-                    );
+                ProcessStage::AdjustOpenness => {
+                    ui.label(egui::RichText::new("Openness threshold").strong());
                     ui.add(
                         egui::Slider::new(
-                            &mut self.gui_variables.map_params.contour_algo_lambda,
-                            0.0..=1.,
+                            &mut self.gui_variables.generation.params.vegetation.yellow,
+                            0.0..=1.0,
                         )
-                        .show_value(true),
-                    );
-                }
-                ui.add_space(10.);
-
-                ui.label(egui::RichText::new("Contour parameters:").strong());
-                ui.horizontal(|ui| {
-                    ui.label("Contour interval: ");
-                    ui.add(
-                        egui::widgets::DragValue::new(
-                            &mut self.gui_variables.map_params.contour_interval,
-                        )
-                        .fixed_decimals(1)
-                        .range(1.0..=20.),
-                    );
-                });
-                ui.checkbox(
-                    &mut self.gui_variables.map_params.form_lines,
-                    "Add form lines to the map.",
-                );
-                ui.add_enabled_ui(self.gui_variables.map_params.form_lines, |ui| {
-                    ui.label("Form line pruning parameter. \nBigger number gives more form lines.");
-                    ui.add(
-                        egui::Slider::new(
-                            &mut self.gui_variables.map_params.form_line_prune,
-                            0.0..=1.,
-                        )
-                        .show_value(true),
-                    );
-                });
-                ui.label("Area filter for marking small knolls as dotknolls:");
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::DragValue::new(&mut self.gui_variables.map_params.dot_knoll_area.0)
-                            .range(0.0..=225.0),
-                    );
-                    ui.add(
-                        DoubleSlider::new(
-                            &mut self.gui_variables.map_params.dot_knoll_area.0,
-                            &mut self.gui_variables.map_params.dot_knoll_area.1,
-                            0.0..=225.0,
-                        )
-                        .separation_distance(0.),
-                    );
-                    ui.add(
-                        egui::DragValue::new(&mut self.gui_variables.map_params.dot_knoll_area.1)
-                            .range(0.0..=225.0),
-                    );
-                });
-
-                ui.checkbox(
-                    &mut self.gui_variables.map_params.basemap_contour,
-                    "Add basemap contours to the map.",
-                );
-                ui.add_enabled_ui(self.gui_variables.map_params.basemap_contour, |ui| {
-                    ui.label("Basemap interval: ");
-                    ui.add(
-                        egui::widgets::DragValue::new(
-                            &mut self.gui_variables.map_params.basemap_interval,
-                        )
-                        .fixed_decimals(2)
-                        .range(0.1..=self.gui_variables.map_params.contour_interval),
-                    );
-                });
-
-                ui.add_space(20.);
-
-                ui.label(egui::RichText::new("Vegetation parameters").strong());
-                ui.label("Yellow threshold");
-                ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.yellow, 0.0..=1.0)
                         .text("Yellow 403")
                         .show_value(true),
-                );
-                ui.add_space(20.);
-                ui.label("Green thresholds");
-                ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.green.0, 0.0..=1.0)
-                        .text("Green 406")
-                        .show_value(true),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.green.1, 0.0..=1.0)
-                        .text("Green 408")
-                        .show_value(true),
-                );
-                ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.green.2, 0.0..=1.0)
-                        .text("Green 410")
-                        .show_value(true),
-                );
-
-                // clamp the greens to the correct order
-                {
-                    let greens = &mut self.gui_variables.map_params.green;
-                    greens.0 = greens.0.clamp(0., greens.1);
-                    greens.2 = greens.2.clamp(greens.1, 1.);
-                    greens.1 = greens.1.clamp(greens.0, greens.2);
+                    );
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Openness Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .openness
+                            .bezier,
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "openness_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .openness
+                            .buffer_rules,
+                    );
                 }
-
-                ui.add_space(20.);
-                ui.label(egui::RichText::new("Cliff parameters").strong());
-                ui.add(
-                    egui::Slider::new(&mut self.gui_variables.map_params.cliff, 0.2..=2.0)
-                        .text("Cliff")
-                        .show_value(true),
-                );
-
-                ui.add_space(20.);
-                ui.label(egui::RichText::new("Geometry simplification parameters").strong());
-                ui.checkbox(
-                    &mut self.gui_variables.map_params.bezier_bool,
-                    "Output map geometries in bezier curves.",
-                );
-
-                ui.add_enabled_ui(self.gui_variables.map_params.bezier_bool, |ui| {
-                    ui.label("Permitted error in Bezier simplification:");
+                ProcessStage::AdjustVegetation => {
+                    self.render_vegetation_adjustments(ui);
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Vegetation Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .vegetation
+                            .bezier,
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "vegetation_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .vegetation
+                            .buffer_rules,
+                    );
+                }
+                ProcessStage::AdjustCliffs => {
+                    ui.label(egui::RichText::new("Cliff threshold").strong());
                     ui.add(
                         egui::Slider::new(
-                            &mut self.gui_variables.map_params.bezier_error,
-                            0.01..=2.0,
+                            &mut self.gui_variables.generation.params.vegetation.cliff,
+                            0.2..=2.0,
                         )
-                        .fixed_decimals(2)
+                        .text("Cliff")
                         .show_value(true),
                     );
-                });
-
-                ui.label("Add buffer rules for polygons. Rules are applied in order");
-                for (i, buffer_rule) in self
-                    .gui_variables
-                    .map_params
-                    .buffer_rules
-                    .iter_mut()
-                    .enumerate()
-                {
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt(format!("buffer_rule {i}"))
-                            .selected_text(format!("{:?}", buffer_rule.direction))
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut buffer_rule.direction,
-                                    BufferDirection::Grow,
-                                    format!("{:?}", BufferDirection::Grow),
-                                );
-                                ui.selectable_value(
-                                    &mut buffer_rule.direction,
-                                    BufferDirection::Shrink,
-                                    format!("{:?}", BufferDirection::Shrink),
-                                );
-                            });
-                        ui.label("Distance: ");
-                        ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(1.0..=50.0));
-                    });
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Cliff Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self.gui_variables.generation.params.geometry.cliffs,
+                    );
                 }
-                ui.horizontal(|ui| {
-                    if ui.button("Add rule").clicked() {
-                        self.gui_variables
-                            .map_params
-                            .buffer_rules
-                            .push(Default::default());
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.gui_variables.map_params.buffer_rules.is_empty(),
-                            egui::Button::new("Remove rule"),
-                        )
-                        .clicked()
-                    {
-                        self.gui_variables.map_params.buffer_rules.pop();
-                    }
-                });
-
-                ui.add_space(20.);
-
-                ui.label(egui::RichText::new("Lidar Intensity filters").strong());
-                for (i, intensity_filter) in self
-                    .gui_variables
-                    .map_params
-                    .intensity_filters
-                    .iter_mut()
-                    .enumerate()
-                {
-                    ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut intensity_filter.low).range(0.0..=1.0));
-                        ui.add(
-                            DoubleSlider::new(
-                                &mut intensity_filter.low,
-                                &mut intensity_filter.high,
-                                0.0..=1.0,
-                            )
-                            .separation_distance(0.01),
-                        );
-                        ui.add(egui::DragValue::new(&mut intensity_filter.high).range(0.0..=1.0));
-                        egui::ComboBox::from_id_salt(format!("Intensity filter {}", i + 1))
-                            .selected_text(format!("{:?}", intensity_filter.symbol))
-                            .show_ui(ui, |ui| {
-                                for area_symbol in AreaSymbol::draw_order() {
-                                    ui.selectable_value(
-                                        &mut intensity_filter.symbol,
-                                        area_symbol,
-                                        format!("{:?}", area_symbol),
-                                    );
-                                }
-                            });
-                    });
+                ProcessStage::AdjustIntensity => {
+                    self.render_intensity_adjustments(ui);
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Lidar intensity Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .intensity
+                            .bezier,
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "intensity_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .intensity
+                            .buffer_rules,
+                    );
                 }
-                ui.horizontal(|ui| {
-                    if ui.button("Add filter").clicked() {
-                        self.gui_variables
-                            .map_params
-                            .intensity_filters
-                            .push(Default::default());
-                    }
-                    if ui
-                        .add_enabled(
-                            !self.gui_variables.map_params.intensity_filters.is_empty(),
-                            egui::Button::new("Remove filter"),
-                        )
-                        .clicked()
-                    {
-                        self.gui_variables.map_params.intensity_filters.pop();
-                    }
-                });
+                _ => unreachable!("Should not render adjustment panel for {:?}", self.state),
             });
 
         ui.add_space(20.);
 
-        let button_txt = if self.gui_variables.generating_map_tile {
+        let button_txt = if self.gui_variables.preview.generating_map_tile {
             "Generating map..."
         } else {
             "Re-generate map"
         };
         if ui
             .add_enabled(
-                !self.gui_variables.generating_map_tile,
+                !self.gui_variables.preview.generating_map_tile,
                 egui::Button::new(button_txt),
             )
             .clicked()
@@ -639,15 +488,346 @@ impl OmapMaker {
 
         ui.add_space(20.);
 
-        ui.add_enabled_ui(!self.gui_variables.generating_map_tile, |ui| {
+        ui.add_enabled_ui(!self.gui_variables.preview.generating_map_tile, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Prev step").clicked() {
                     self.on_frontend_task(FrontendTask::PrevState);
                 }
                 if ui.button("Next step").clicked() {
-                    self.open_modal = OmapModal::ConfirmMakeMap;
+                    if self.state == ProcessStage::AdjustIntensity {
+                        self.open_modal = OmapModal::ConfirmMakeMap;
+                    } else {
+                        self.on_frontend_task(FrontendTask::NextState);
+                    }
                 }
             });
+        });
+    }
+
+    fn render_contour_adjustments(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Map Scale").strong());
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_label(
+                    self.gui_variables.generation.params.scale == Scale::S15_000,
+                    "1:15 000",
+                )
+                .clicked()
+            {
+                self.gui_variables.generation.params.scale = Scale::S15_000;
+            };
+            ui.separator();
+            if ui
+                .selectable_label(
+                    self.gui_variables.generation.params.scale == Scale::S10_000,
+                    "1:10 000",
+                )
+                .clicked()
+            {
+                self.gui_variables.generation.params.scale = Scale::S10_000;
+            };
+        });
+        ui.add_space(20.);
+
+        ui.label(egui::RichText::new("Contour algorithm parameters").strong());
+        ui.horizontal(|ui| {
+            ui.label("Contour algorithm:");
+            egui::ComboBox::from_id_salt("Contour algo")
+                .selected_text(format!(
+                    "{}",
+                    self.gui_variables.generation.params.contour.algorithm
+                ))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut self.gui_variables.generation.params.contour.algorithm,
+                        ContourAlgo::AI,
+                        "AI contours (slowest)",
+                    );
+                    ui.selectable_value(
+                        &mut self.gui_variables.generation.params.contour.algorithm,
+                        ContourAlgo::NaiveIterations,
+                        "Naive interpolation error correction (slow)",
+                    );
+                    ui.selectable_value(
+                        &mut self.gui_variables.generation.params.contour.algorithm,
+                        ContourAlgo::NormalFieldSmoothing,
+                        "Normal field smoothing (fast)",
+                    );
+                    ui.selectable_value(
+                        &mut self.gui_variables.generation.params.contour.algorithm,
+                        ContourAlgo::Raw,
+                        "Raw contours (fastest)",
+                    );
+                });
+        });
+
+        if self.gui_variables.generation.params.contour.algorithm != ContourAlgo::Raw {
+            if self.gui_variables.generation.params.contour.algorithm
+                == ContourAlgo::NormalFieldSmoothing
+            {
+                ui.label("Number of smoothing iterations (usual range 5-15)");
+            } else {
+                ui.label("Number of error correction iterations (usual range 1-3)");
+            }
+            ui.add(
+                egui::Slider::new(
+                    &mut self.gui_variables.generation.params.contour.algo_steps,
+                    1..=20,
+                )
+                .show_value(true),
+            );
+        }
+        if self.gui_variables.generation.params.contour.algorithm == ContourAlgo::AI {
+            ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
+            ui.add(
+                egui::Slider::new(
+                    &mut self.gui_variables.generation.params.contour.algo_lambda,
+                    0.0..=1.,
+                )
+                .show_value(true),
+            );
+        }
+        ui.add_space(10.);
+
+        ui.label(egui::RichText::new("Contour parameters").strong());
+        ui.horizontal(|ui| {
+            ui.label("Contour interval: ");
+            ui.add(
+                egui::widgets::DragValue::new(
+                    &mut self.gui_variables.generation.params.contour.interval,
+                )
+                .fixed_decimals(1)
+                .range(1.0..=20.),
+            );
+        });
+        ui.checkbox(
+            &mut self.gui_variables.generation.params.contour.form_lines,
+            "Add form lines to the map.",
+        );
+        ui.add_enabled_ui(
+            self.gui_variables.generation.params.contour.form_lines,
+            |ui| {
+                ui.label("Form line pruning parameter. \nBigger number gives more form lines.");
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.generation.params.contour.form_line_prune,
+                        0.0..=1.,
+                    )
+                    .show_value(true),
+                );
+            },
+        );
+        ui.label("Area filter for marking small knolls as dotknolls:");
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(
+                    &mut self
+                        .gui_variables
+                        .generation
+                        .params
+                        .contour
+                        .dot_knoll_area
+                        .0,
+                )
+                .range(0.0..=225.0),
+            );
+            ui.add(
+                DoubleSlider::new(
+                    &mut self
+                        .gui_variables
+                        .generation
+                        .params
+                        .contour
+                        .dot_knoll_area
+                        .0,
+                    &mut self
+                        .gui_variables
+                        .generation
+                        .params
+                        .contour
+                        .dot_knoll_area
+                        .1,
+                    0.0..=225.0,
+                )
+                .separation_distance(0.),
+            );
+            ui.add(
+                egui::DragValue::new(
+                    &mut self
+                        .gui_variables
+                        .generation
+                        .params
+                        .contour
+                        .dot_knoll_area
+                        .1,
+                )
+                .range(0.0..=225.0),
+            );
+        });
+
+        ui.checkbox(
+            &mut self.gui_variables.generation.params.contour.basemap_contour,
+            "Add basemap contours to the map.",
+        );
+        ui.add_enabled_ui(
+            self.gui_variables.generation.params.contour.basemap_contour,
+            |ui| {
+                ui.label("Basemap interval: ");
+                ui.add(
+                    egui::widgets::DragValue::new(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .contour
+                            .basemap_interval,
+                    )
+                    .fixed_decimals(2)
+                    .range(0.1..=self.gui_variables.generation.params.contour.interval),
+                );
+            },
+        );
+    }
+
+    fn render_vegetation_adjustments(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Green thresholds").strong());
+        ui.add(
+            egui::Slider::new(
+                &mut self.gui_variables.generation.params.vegetation.green.0,
+                0.0..=1.0,
+            )
+            .text("Green 406")
+            .show_value(true),
+        );
+        ui.add(
+            egui::Slider::new(
+                &mut self.gui_variables.generation.params.vegetation.green.1,
+                0.0..=1.0,
+            )
+            .text("Green 408")
+            .show_value(true),
+        );
+        ui.add(
+            egui::Slider::new(
+                &mut self.gui_variables.generation.params.vegetation.green.2,
+                0.0..=1.0,
+            )
+            .text("Green 410")
+            .show_value(true),
+        );
+
+        let greens = &mut self.gui_variables.generation.params.vegetation.green;
+        greens.0 = greens.0.clamp(0., greens.1);
+        greens.2 = greens.2.clamp(greens.1, 1.);
+        greens.1 = greens.1.clamp(greens.0, greens.2);
+    }
+
+    fn render_intensity_adjustments(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Lidar Intensity filters").strong());
+        for (i, intensity_filter) in self
+            .gui_variables
+            .generation
+            .params
+            .intensity
+            .filters
+            .iter_mut()
+            .enumerate()
+        {
+            ui.horizontal(|ui| {
+                ui.add(egui::DragValue::new(&mut intensity_filter.low).range(0.0..=1.0));
+                ui.add(
+                    DoubleSlider::new(
+                        &mut intensity_filter.low,
+                        &mut intensity_filter.high,
+                        0.0..=1.0,
+                    )
+                    .separation_distance(0.01),
+                );
+                ui.add(egui::DragValue::new(&mut intensity_filter.high).range(0.0..=1.0));
+                egui::ComboBox::from_id_salt(format!("Intensity filter {}", i + 1))
+                    .selected_text(format!("{:?}", intensity_filter.symbol))
+                    .show_ui(ui, |ui| {
+                        for area_symbol in AreaSymbol::draw_order() {
+                            ui.selectable_value(
+                                &mut intensity_filter.symbol,
+                                area_symbol,
+                                format!("{:?}", area_symbol),
+                            );
+                        }
+                    });
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Add filter").clicked() {
+                self.gui_variables
+                    .generation
+                    .params
+                    .intensity
+                    .filters
+                    .push(Default::default());
+            }
+            if ui
+                .add_enabled(
+                    !self
+                        .gui_variables
+                        .generation
+                        .params
+                        .intensity
+                        .filters
+                        .is_empty(),
+                    egui::Button::new("Remove filter"),
+                )
+                .clicked()
+            {
+                self.gui_variables.generation.params.intensity.filters.pop();
+            }
+        });
+    }
+
+    fn render_bezier_parameters(ui: &mut egui::Ui, bezier: &mut BezierParameters) {
+        ui.checkbox(&mut bezier.enabled, "Output this process in Bezier curves.");
+        ui.add_enabled_ui(bezier.enabled, |ui| {
+            ui.label("Permitted error in Bezier simplification:");
+            ui.add(
+                egui::Slider::new(&mut bezier.error, 0.01..=2.0)
+                    .fixed_decimals(2)
+                    .show_value(true),
+            );
+        });
+    }
+
+    fn render_buffer_rules(ui: &mut egui::Ui, id_prefix: &str, buffer_rules: &mut Vec<BufferRule>) {
+        ui.label("Add buffer rules for polygons. Rules are applied in order");
+        for (i, buffer_rule) in buffer_rules.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt(format!("{id_prefix}_{i}"))
+                    .selected_text(format!("{:?}", buffer_rule.direction))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut buffer_rule.direction,
+                            BufferDirection::Grow,
+                            format!("{:?}", BufferDirection::Grow),
+                        );
+                        ui.selectable_value(
+                            &mut buffer_rule.direction,
+                            BufferDirection::Shrink,
+                            format!("{:?}", BufferDirection::Shrink),
+                        );
+                    });
+                ui.label("Distance: ");
+                ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(1.0..=50.0));
+            });
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Add rule").clicked() {
+                buffer_rules.push(Default::default());
+            }
+            if ui
+                .add_enabled(!buffer_rules.is_empty(), egui::Button::new("Remove rule"))
+                .clicked()
+            {
+                buffer_rules.pop();
+            }
         });
     }
 
@@ -662,7 +842,7 @@ impl OmapMaker {
         ui.label("The map is saved at: ");
         ui.label(format!(
             "{}.",
-            self.gui_variables.file_params.save_location.display()
+            self.gui_variables.project.save_location.display()
         ));
         ui.label("The map can be opened in OpenOrienteering Mapper for editing.");
 
@@ -692,7 +872,7 @@ impl OmapMaker {
             }
             if ui
                 .add_enabled(
-                    self.gui_variables.selected_tile.is_some(),
+                    self.gui_variables.tile.selected_tile.is_some(),
                     egui::Button::new("Next step"),
                 )
                 .clicked()

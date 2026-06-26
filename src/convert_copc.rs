@@ -1,24 +1,31 @@
 use crate::{comms::messages::*, statistics::LidarStats};
-use std::{path::PathBuf, sync::mpsc::Sender, vec};
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc::Sender,
+    vec,
+};
 
-use copc_converter;
+use copc_converter::{NodeStorage, Pipeline, PipelineConfig, TempCompression};
 use copc_rs::CopcReader;
 use geo::Contains;
-use las::{Builder, Reader};
+use proj_core::CrsDef;
 
-const LOCAL_OUT_EPSG: &str = "LOCAL_CS[\"Undefined\"]";
+const DEFAULT_COPC_MEMORY_BUDGET: u64 = 8_u64 * 1024 * 1024 * 1024;
 
 // should be multithreaded
 pub fn convert_copc(
     sender: Sender<FrontendTask>,
     paths: Vec<PathBuf>,
-    input_epsg: Vec<u16>,
-    output_epsg: Option<u16>,
+    input_crs: Vec<Option<CrsDef>>,
+    output_crs: Option<CrsDef>,
+    save_location: PathBuf,
     selected_file: usize,
     boundaries: Vec<[walkers::Position; 4]>,
     polygon_filter: geo::LineString,
+    write_single_copc: bool,
 ) {
-    let mut new_paths = Vec::with_capacity(paths.len());
+    let mut new_paths = paths.clone();
+    let mut relevant_paths = Vec::new();
 
     sender
         .send(FrontendTask::Log(
@@ -33,7 +40,7 @@ pub fn convert_copc(
 
     let mut stats = Vec::new();
     let inc_size = 1. / paths.len() as f32;
-    for (pi, path) in paths.into_iter().enumerate() {
+    for (pi, path) in paths.iter().cloned().enumerate() {
         // first check if the file is relevant i.e overlaps with the polygon or is the selected file
         let bounds = boundaries[pi];
 
@@ -48,38 +55,79 @@ pub fn convert_copc(
 
         if relevant {
             stats.push(LidarStats::calculate_statistics(&path).unwrap());
+            relevant_paths.push(path.clone());
 
-            let transform_needed = if let Some(o_epsg) = output_epsg {
-                input_epsg[pi] != o_epsg
-            } else {
-                false
-            };
+            let transform_needed =
+                if let (Some(input), Some(output)) = (&input_crs[pi], &output_crs) {
+                    input.epsg() != output.epsg()
+                } else {
+                    false
+                };
 
             let conversion_needed = CopcReader::from_path(&path).is_err();
 
-            let new_path = if !conversion_needed && !transform_needed {
-                // the lidar file is both a COPC and in the correct CRS
-                path
-            } else if transform_needed && !conversion_needed {
-                // the lidar file needs to be transformed into another CRS but is already a copc
-                transform_file(path, input_epsg[pi], output_epsg.unwrap())
-            } else if conversion_needed && !transform_needed {
-                // the lidar file needs to be converted to copc
-                convert_file(path, input_epsg[pi], sender.clone())
+            if write_single_copc {
+                if transform_needed && !conversion_needed {
+                    // the lidar file needs to be transformed into another CRS but is already a copc
+                    transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap());
+                } else if transform_needed {
+                    // the lidar file needs both to be transformed into another CRS and written to COPC
+                    convert_and_transform_file(
+                        path,
+                        input_crs[pi].clone(),
+                        output_crs.clone().unwrap(),
+                    );
+                } else if pi == selected_file && conversion_needed {
+                    // Keep the selected file readable for the map preview stage.
+                    new_paths[pi] = convert_file(path, input_crs[pi].clone(), sender.clone());
+                }
             } else {
-                // the lidar file needs both to be transformed into another CRS and written to COPC
-                convert_and_transform_file(path, input_epsg[pi], output_epsg.unwrap())
-            };
-
-            new_paths.push(new_path);
-        } else {
-            new_paths.push(path);
+                new_paths[pi] = if !conversion_needed && !transform_needed {
+                    // the lidar file is both a COPC and in the correct CRS
+                    path
+                } else if transform_needed && !conversion_needed {
+                    // the lidar file needs to be transformed into another CRS but is already a copc
+                    transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
+                } else if conversion_needed && !transform_needed {
+                    // the lidar file needs to be converted to copc
+                    convert_file(path, input_crs[pi].clone(), sender.clone())
+                } else {
+                    // the lidar file needs both to be transformed into another CRS and written to COPC
+                    convert_and_transform_file(
+                        path,
+                        input_crs[pi].clone(),
+                        output_crs.clone().unwrap(),
+                    )
+                };
+            }
         }
 
         sender
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap()
     }
+
+    if write_single_copc {
+        let mut merged_path = save_location;
+        merged_path.set_extension("copc.laz");
+
+        sender
+            .send(FrontendTask::Log(format!(
+                "Writing {} relevant lidar files to {:?}",
+                relevant_paths.len(),
+                merged_path
+            )))
+            .unwrap();
+
+        run_copc_converter(&relevant_paths, &merged_path).unwrap();
+
+        sender
+            .send(FrontendTask::UpdateVariable(Variable::SingleCopcPath(
+                merged_path,
+            )))
+            .unwrap();
+    }
+
     let stats = stats.into_iter().reduce(LidarStats::combine_stats).unwrap();
 
     sender
@@ -99,129 +147,44 @@ pub fn convert_copc(
         .unwrap();
 }
 
-fn transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf {
+fn transform_file(_path: PathBuf, _current_crs: Option<CrsDef>, _out_crs: CrsDef) -> PathBuf {
     unimplemented!("Transforming CRS not yet supported");
 }
 
-fn convert_file(mut path: PathBuf, current_epsg: u16, sender: Sender<FrontendTask>) -> PathBuf {
-    let mut las_reader = Reader::from_path(&path).unwrap();
-
+fn convert_file(
+    mut path: PathBuf,
+    _current_crs: Option<CrsDef>,
+    _sender: Sender<FrontendTask>,
+) -> PathBuf {
     let raw_path = path.clone();
-
     path.set_extension("copc.laz");
 
-    let mut header = las_reader.header().clone();
-
-    if current_epsg == u16::MAX {
-        // Local coords => remove all CRS VLRs from the header (should not be any) and add our own
-        // Needs to be done because copc demands a crs vlr to exist
-        let mut raw_head = header.clone().into_raw().unwrap();
-
-        raw_head.global_encoding |= 0b10000; // set the wkt crs bit
-
-        let mut builder = Builder::new(raw_head).unwrap();
-
-        for evlr in header.evlrs() {
-            match (evlr.user_id.to_lowercase().as_str(), evlr.record_id) {
-                // not forwarding these VLRs
-                ("lasf_projection", 2112 | 34735..=34737) => (),
-                _ => builder.evlrs.push(evlr.clone()),
-            }
-        }
-        for vlr in header.vlrs() {
-            match (vlr.user_id.to_lowercase().as_str(), vlr.record_id) {
-                // not forwarding these VLRs
-                ("lasf_projection", 2112 | 34735..=34737) => (),
-                _ => builder.vlrs.push(vlr.clone()),
-            }
-        }
-        let mut user_id = [0; 16];
-        for (i, byte) in "LASF_Projection".as_bytes().iter().enumerate() {
-            user_id[i] = *byte;
-        }
-
-        let data = LOCAL_OUT_EPSG.as_bytes().to_vec();
-
-        let local_vlr = las::Vlr::new(las::raw::Vlr {
-            reserved: 0,
-            user_id,
-            record_id: 2112,
-            record_length_after_header: las::raw::vlr::RecordLength::Vlr(data.len() as u16),
-            description: [0; 32],
-            data,
-        });
-
-        builder.vlrs.push(local_vlr);
-
-        header = builder.into_header().unwrap();
-    } else if las_crs::parse_las_crs(&header).is_err() {
-        // check if a crs exists if not we must add our own
-        let data = crs_definitions::from_code(current_epsg)
-            .unwrap()
-            .wkt
-            .as_bytes()
-            .to_vec();
-
-        let mut user_id = [0; 16];
-        for (i, byte) in "LASF_Projection".as_bytes().iter().enumerate() {
-            user_id[i] = *byte;
-        }
-
-        let crs_vlr = las::Vlr::new(las::raw::Vlr {
-            reserved: 0,
-            user_id,
-            record_id: 2112,
-            record_length_after_header: las::raw::vlr::RecordLength::Vlr(data.len() as u16),
-            description: [0; 32],
-            data,
-        });
-
-        let mut raw_head = header.clone().into_raw().unwrap();
-
-        raw_head.global_encoding |= 0b10000; // set the wkt crs bit
-
-        let mut builder = Builder::new(raw_head).unwrap();
-
-        for evlr in header.evlrs() {
-            match (evlr.user_id.to_lowercase().as_str(), evlr.record_id) {
-                // not forwarding these vlrs
-                ("lasf_projection", 2112 | 34735..=34737) => (),
-                _ => builder.evlrs.push(evlr.clone()),
-            }
-        }
-        for vlr in header.vlrs() {
-            match (vlr.user_id.to_lowercase().as_str(), vlr.record_id) {
-                // not forwarding these vlrs
-                ("lasf_projection", 2112 | 34735..=34737) => (),
-                _ => builder.vlrs.push(vlr.clone()),
-            }
-        }
-
-        builder.vlrs.push(crs_vlr);
-
-        header = builder.into_header().unwrap();
-    }
-    // now the header is guaranteed to contain a crs vlr
-
-    let num_points = header.number_of_points() as i32;
-
-    let mut copc_writer = CopcWriter::from_path(&path, header, -1, -1).unwrap();
-
-    let points = las_reader.points().filter_map(las::Result::ok);
-
-    let result = copc_writer.write(points, num_points);
-
-    if let Err(error) = result {
-        let _ = sender.send(FrontendTask::Log(
-        format!(
-            "Invalidity of type {:?} discovered in lidar file: {:?}, one or more point(s) ignored when converting to copc",
-            error, raw_path
-        )));
-    }
-
+    run_copc_converter(&[raw_path], &path).unwrap();
     path
 }
 
-fn convert_and_transform_file(_path: PathBuf, _current_epsg: u16, _out_epsg: u16) -> PathBuf {
+fn run_copc_converter(input_files: &[PathBuf], output_path: &Path) -> copc_converter::Result<()> {
+    let config = PipelineConfig {
+        memory_budget: DEFAULT_COPC_MEMORY_BUDGET,
+        temp_dir: None,
+        temporal_index: None,
+        progress: None,
+        chunk_target_override: None,
+        temp_compression: TempCompression::None,
+        node_storage: NodeStorage::Files,
+    };
+
+    Pipeline::scan(input_files, config)?
+        .validate()?
+        .distribute()?
+        .build()?
+        .write(output_path)
+}
+
+fn convert_and_transform_file(
+    _path: PathBuf,
+    _current_crs: Option<CrsDef>,
+    _out_crs: CrsDef,
+) -> PathBuf {
     unimplemented!("Transforming CRS not yet supported");
 }

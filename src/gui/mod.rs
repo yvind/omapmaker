@@ -8,9 +8,13 @@ pub mod terminal_like;
 
 pub use gui_variables::GuiVariables;
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ProcessStage {
-    AdjustSliders,
+    AdjustContours,
+    AdjustOpenness,
+    AdjustVegetation,
+    AdjustCliffs,
+    AdjustIntensity,
     CheckLidar,
     ShowComponents,
     ChooseSquare,
@@ -29,8 +33,12 @@ impl ProcessStage {
             ProcessStage::CheckLidar => *self = ProcessStage::ChooseSquare,
             ProcessStage::ChooseSquare => *self = ProcessStage::ChooseSubTile,
             ProcessStage::ChooseSubTile => *self = ProcessStage::ConvertingCOPC,
-            ProcessStage::ConvertingCOPC => *self = ProcessStage::AdjustSliders,
-            ProcessStage::AdjustSliders => *self = ProcessStage::MakeMap,
+            ProcessStage::ConvertingCOPC => *self = ProcessStage::AdjustContours,
+            ProcessStage::AdjustContours => *self = ProcessStage::AdjustOpenness,
+            ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustVegetation,
+            ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustCliffs,
+            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustIntensity,
+            ProcessStage::AdjustIntensity => *self = ProcessStage::MakeMap,
             ProcessStage::MakeMap => *self = ProcessStage::ExportDone,
             _ => unreachable!("Should not call next on state for {:?} variant.", self),
         };
@@ -38,10 +46,25 @@ impl ProcessStage {
 
     pub fn prev(&mut self) {
         match self {
-            ProcessStage::AdjustSliders => *self = ProcessStage::ChooseSquare,
+            ProcessStage::AdjustContours => *self = ProcessStage::ChooseSquare,
+            ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustContours,
+            ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
+            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustVegetation,
+            ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustCliffs,
             ProcessStage::ChooseSubTile => *self = ProcessStage::ChooseSquare,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
             _ => unreachable!("Should not call prev on state for {:?} variant.", self),
         }
+    }
+
+    pub fn is_adjustment(self) -> bool {
+        matches!(
+            self,
+            ProcessStage::AdjustContours
+                | ProcessStage::AdjustOpenness
+                | ProcessStage::AdjustVegetation
+                | ProcessStage::AdjustCliffs
+                | ProcessStage::AdjustIntensity
+        )
     }
 }

@@ -2,12 +2,12 @@ use crate::{
     Result,
     comms::messages::*,
     map_gen,
+    map_gen::egui_map::TempMap,
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
 };
 use geo::{Area, BooleanOps, Intersects};
-use omap::Omap;
 
 use std::{
     num::NonZero,
@@ -37,12 +37,11 @@ pub fn make_map(
     let (laz_paths, laz_neighbor_map, bounds, ref_point, masl) =
         super::map_laz(&file_params.paths, &polygon_filter)?;
 
-    let crs = if let Some(crs) = map_params.output_crs {
-        omap::geo_referencing::CrsType::Epsg(crs.epsg() as u16)
-    } else {
-        omap::geo_referencing::CrsType::Local
-    };
-    let map = Arc::new(Mutex::new(Omap::default_15_000(ref_point, crs, masl)?));
+    let map = Arc::new(Mutex::new(TempMap::new(
+        ref_point,
+        map_params.scale,
+        map_params.output.crs.clone(),
+    )));
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {
@@ -93,11 +92,11 @@ pub fn make_map(
                         while thread_i < num_tiles {
                             let edge_tile = NeighborSide::is_edge_tile(thread_i, nx, ny);
 
-                            if let Some(polygon) = &polygon_filter {
-                                if !cut_bounds[thread_i].intersects(polygon) {
-                                    thread_i += num_threads;
-                                    continue;
-                                }
+                            if let Some(polygon) = &polygon_filter
+                                && !cut_bounds[thread_i].intersects(polygon)
+                            {
+                                thread_i += num_threads;
+                                continue;
                             }
 
                             let (cloud, mut hull) = match super::read_laz(
@@ -138,14 +137,19 @@ pub fn make_map(
                                 hull = mp.0.swap_remove(0);
                             }
 
-                            super::compute_map_objects(
-                                &map,
+                            let objects = super::compute_map_objects(
                                 &map_params,
                                 cloud,
                                 &stats,
                                 hull,
                                 cut_bounds[thread_i],
                             );
+                            {
+                                let mut map = map.lock().unwrap();
+                                for object in objects {
+                                    map.add_object(object);
+                                }
+                            }
                             sender
                                 .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)))
                                 .unwrap();
@@ -158,24 +162,21 @@ pub fn make_map(
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
     }
 
-    let mut omap = Arc::<Mutex<Omap>>::into_inner(map)
+    let mut map = Arc::<Mutex<TempMap>>::into_inner(map)
         .expect("Could not get inner value of arc, stray reference somewhere")
         .into_inner()
         .expect("Map mutex poisoned, a thread panicked while holding mutex");
 
     sender
-        .send(FrontendTask::Log("Merging contour lines...".to_string()))
+        .send(FrontendTask::Log("Post-processing contours...".to_string()))
         .unwrap();
 
-    // merge line symbols
-    omap.merge_lines(5. * crate::MERGE_DELTA);
-    // mark basemap depressions as such
-    omap.mark_basemap_depressions();
+    map.mark_basemap_depressions();
 
     // convert the smallest knolls and depressions to point symbols
-    omap.make_dotknolls_and_depressions(
-        map_params.dot_knoll_area.0,
-        map_params.dot_knoll_area.1,
+    map.make_dotknolls_and_depressions(
+        map_params.contour.dot_knoll_area.0,
+        map_params.contour.dot_knoll_area.1,
         1.5,
     );
 
@@ -183,14 +184,14 @@ pub fn make_map(
         .send(FrontendTask::Log("Writing Omap file...".to_string()))
         .unwrap();
 
-    let bezier_line_error = if map_params.bezier_bool {
-        Some(map_params.bezier_error)
-    } else {
-        None
-    };
-    let bezier_error = omap::BezierError::new(bezier_line_error, None);
+    let bezier_line_error = map_params
+        .geometry
+        .contours
+        .enabled
+        .then_some(map_params.geometry.contours.error);
+    let omap = map.into_omap(masl, bezier_line_error)?;
 
-    let _ = omap.write_to_file(file_params.save_location.clone(), bezier_error);
+    omap.write_to_file(file_params.save_location.clone())?;
 
     sender.send(FrontendTask::Log("Done!".to_string())).unwrap();
     Ok(())

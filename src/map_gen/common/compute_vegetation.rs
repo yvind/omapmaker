@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use crate::geometry::MapMultiPolygon;
 use crate::map_gen::egui_map::{AreaSymbol, MapObject};
-use crate::parameters::MapParameters;
+use crate::parameters::{BufferRule, MapParameters};
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
@@ -15,7 +15,8 @@ pub fn compute_vegetation(
     convex_hull: &Polygon,
     cut_overlay: &Polygon,
     symbol: AreaSymbol,
-    params: &MapParameters,
+    _params: &MapParameters,
+    buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
     let contours = dfm.marching_squares(threshold.inner());
 
@@ -23,7 +24,7 @@ pub fn compute_vegetation(
 
     veg_polygons = veg_polygons.simplify(crate::SIMPLIFICATION_DIST);
 
-    for buffer in params.buffer_rules.iter() {
+    for buffer in buffer_rules.iter() {
         veg_polygons = veg_polygons.apply_buffer_rule(buffer);
     }
 

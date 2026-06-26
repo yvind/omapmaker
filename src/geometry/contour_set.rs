@@ -1,7 +1,7 @@
-use crate::{geometry::MapLineString, raster::Dfm, SIDE_LENGTH};
+use crate::{SIDE_LENGTH, geometry::MapLineString, raster::Dfm};
 
 use geo::{Coord, MultiLineString, Vector2DOps};
-use log::{log, Level};
+use log::{Level, log};
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ impl ContourSet {
         // coarse estimate of number of nodes in triangulation
         // 3 * number of levels * number of lines in first level * number of points in first line of first level
         let mut points = Vec::with_capacity(
-            3 * self.0.len() * self.0[0].lines.0.len() * self.0[0].lines.0[0].0.len(),
+            20, // 3 * self.0.len() * self.0[0].lines.0.len() * self.0[0].lines.0[0].0.len(),
         );
 
         // add control (ghost) points along the DEM sides

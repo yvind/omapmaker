@@ -1,17 +1,16 @@
 use crate::{
+    Error, Result,
     geometry::{MapRect, PointCloud, PointLaz},
     neighbors::{NeighborSide, Neighborhood},
-    Error, Result,
 };
 
 use geo::{Coord, Polygon, Rect};
 
 use copc_rs::CopcReader;
-use fastrand::f64 as random;
-use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
 use las::point::Classification;
+use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
-use std::{num::NonZero, path::PathBuf};
+use std::path::PathBuf;
 
 pub fn read_laz(
     las_paths: &[PathBuf],
@@ -39,8 +38,7 @@ pub fn read_laz(
             )?
             .filter_map(|mut p| {
                 (p.classification == Classification::Ground && !p.is_withheld).then(|| {
-                    p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                    p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                    jitter_point(&mut p, ref_point);
                     PointLaz(p)
                 })
             })
@@ -97,8 +95,7 @@ pub fn read_laz(
                 )?
                 .filter_map(|mut p| {
                     (p.classification == Classification::Ground && !p.is_withheld).then(|| {
-                        p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                        p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                        jitter_point(&mut p, ref_point);
                         PointLaz(p)
                     })
                 })
@@ -118,8 +115,7 @@ pub fn read_laz(
         )?
         .filter_map(|mut p| {
             (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                jitter_point(&mut p, ref_point);
                 PointLaz(p)
             })
         })
@@ -137,8 +133,7 @@ pub fn read_laz(
                 )?
                 .filter_map(|mut p| {
                     (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                        p.x += 2. * (random() - 0.5) / 1_000. - ref_point.x;
-                        p.y += 2. * (random() - 0.5) / 1_000. - ref_point.y;
+                        jitter_point(&mut p, ref_point);
                         PointLaz(p)
                     })
                 })
@@ -156,18 +151,23 @@ pub fn read_laz(
     ];
     let mut zs = [0.; 4];
 
-    {
-        let pt: ImmutableKdTree<f64, usize, 2, 32> =
-            ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
-        for (i, qp) in query_points.iter().enumerate() {
-            let neighbors = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
-            let tot_weight = neighbors.iter().fold(0., |acc, n| acc + 1. / n.distance);
+    let pt = RTree::bulk_load(
+        point_cloud
+            .to_2d_slice()
+            .into_iter()
+            .enumerate()
+            .map(|(index, point)| GeomWithData::new(point, index))
+            .collect(),
+    );
+    for (i, qp) in query_points.iter().enumerate() {
+        let neighbors = pt.nearest_neighbor_iter(*qp).take(4).collect::<Vec<_>>();
+        let tot_weight = neighbors
+            .iter()
+            .fold(0., |acc, n| acc + 1. / n.distance_2(qp).max(f64::EPSILON));
 
-            zs[i] = neighbors
-                .iter()
-                .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
-                / tot_weight;
-        }
+        zs[i] = neighbors.iter().fold(0., |acc, n| {
+            acc + point_cloud[n.data].0.z / n.distance_2(qp).max(f64::EPSILON)
+        }) / tot_weight;
     }
 
     point_cloud.add(vec![
@@ -178,4 +178,10 @@ pub fn read_laz(
     ]);
 
     Ok((point_cloud, convex_hull))
+}
+
+fn jitter_point(point: &mut las::Point, ref_point: Coord) {
+    let jitter = |value: f64| (value.sin() * 43_758.545_312_3).rem_euclid(1.0) / 1_000.;
+    point.x += jitter(point.x) - 0.0005 - ref_point.x;
+    point.y += jitter(point.y) - 0.0005 - ref_point.y;
 }

@@ -24,25 +24,26 @@ pub fn regenerate_map_tile(
     z_range: (f64, f64),
     params: &MapParameters,
     old_params: &Option<MapParameters>,
+    scope: RegenerationScope,
 ) {
     let omap = Arc::new(Mutex::new(TempMap::new(
         ref_point,
         params.scale,
-        params.output_crs,
+        params.output.crs.clone(),
     )));
 
-    let needs_update = needs_regeneration(params, old_params.as_ref());
+    let needs_update = needs_regeneration(params, old_params.as_ref(), scope);
 
     if needs_update.intensities {
         // make sure the symbols used in the prev generation are cleared
         if let Some(old_params) = &old_params {
             let mut map = omap.lock().unwrap();
-            for filter in old_params.intensity_filters.iter() {
+            for filter in old_params.intensity.filters.iter() {
                 map.reserve_capacity(filter.symbol, 0);
             }
         }
     }
-    if !params.basemap_contour {
+    if !params.contour.basemap_contour {
         // make sure that the basemap gets removed if it is toggled off
         let mut ac_map = omap.lock().unwrap();
         ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
@@ -62,7 +63,7 @@ pub fn regenerate_map_tile(
                 .stack_size(crate::STACK_SIZE * 1024 * 1024)
                 .spawn_scoped(s, move || {
                     if needs_update.contours {
-                        let (error, energy) = match &params.contour_algorithm {
+                        let (error, energy) = match &params.contour.algorithm {
                             ContourAlgo::AI => (0., 0.),
                             ContourAlgo::NaiveIterations => {
                                 let (objects, error, energy) =
@@ -73,21 +74,31 @@ pub fn regenerate_map_tile(
                                         (0.1, 0.0),
                                         params,
                                     );
+                                add_objects(&omap, objects);
+                                (error, energy)
                             }
-                            ContourAlgo::NormalFieldSmoothing => map_gen::common::extract_contours(
-                                &dem[i],
-                                z_range,
-                                &cut_bounds[i],
-                                params,
-                                true,
-                            ),
-                            ContourAlgo::Raw => map_gen::common::extract_contours(
-                                &dem[i],
-                                z_range,
-                                &cut_bounds[i],
-                                params,
-                                true,
-                            ),
+                            ContourAlgo::NormalFieldSmoothing => {
+                                let (objects, error, energy) = map_gen::common::extract_contours(
+                                    &dem[i],
+                                    z_range,
+                                    &cut_bounds[i],
+                                    params,
+                                    true,
+                                );
+                                add_objects(&omap, objects);
+                                (error, energy)
+                            }
+                            ContourAlgo::Raw => {
+                                let (objects, error, energy) = map_gen::common::extract_contours(
+                                    &dem[i],
+                                    z_range,
+                                    &cut_bounds[i],
+                                    params,
+                                    true,
+                                );
+                                add_objects(&omap, objects);
+                                (error, energy)
+                            }
                         };
                         {
                             let mut energy_lock =
@@ -101,68 +112,90 @@ pub fn regenerate_map_tile(
                         }
                     }
 
-                    if params.basemap_contour
-                        && params.basemap_interval >= 0.1
+                    if params.contour.basemap_contour
+                        && params.contour.basemap_interval >= 0.1
                         && needs_update.basemap
                     {
-                        map_gen::common::compute_basemap(
+                        let objects = map_gen::common::compute_basemap(
                             &dem[i],
                             z_range,
                             &cut_bounds[i],
-                            params.basemap_interval,
+                            params.contour.basemap_interval,
                         );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.yellow {
-                        map_gen::common::compute_vegetation(
+                        let objects = map_gen::common::compute_vegetation(
                             &drm[i],
-                            Threshold::Upper(params.yellow),
+                            Threshold::Upper(params.vegetation.yellow),
                             hull,
                             &cut_bounds[i],
                             AreaSymbol::RoughOpenLand,
                             params,
+                            &params.geometry.openness.buffer_rules,
                         );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.l_green {
-                        map_gen::common::compute_vegetation(
+                        let objects = map_gen::common::compute_vegetation(
                             &drm[i],
-                            Threshold::Lower(params.green.0),
+                            Threshold::Lower(params.vegetation.green.0),
                             hull,
                             &cut_bounds[i],
                             AreaSymbol::LightGreen,
                             params,
+                            &params.geometry.vegetation.buffer_rules,
                         );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.m_green {
-                        map_gen::common::compute_vegetation(
+                        let objects = map_gen::common::compute_vegetation(
                             &drm[i],
-                            Threshold::Lower(params.green.1),
+                            Threshold::Lower(params.vegetation.green.1),
                             hull,
                             &cut_bounds[i],
                             AreaSymbol::MediumGreen,
                             params,
+                            &params.geometry.vegetation.buffer_rules,
                         );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.d_green {
-                        map_gen::common::compute_vegetation(
+                        let objects = map_gen::common::compute_vegetation(
                             &drm[i],
-                            Threshold::Lower(params.green.2),
+                            Threshold::Lower(params.vegetation.green.2),
                             hull,
                             &cut_bounds[i],
                             AreaSymbol::DarkGreen,
                             params,
+                            &params.geometry.vegetation.buffer_rules,
                         );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.cliff {
-                        map_gen::common::compute_cliffs(&g_dem[i], hull, &cut_bounds[i], params);
+                        let objects = map_gen::common::compute_cliffs(
+                            &g_dem[i],
+                            hull,
+                            &cut_bounds[i],
+                            params,
+                        );
+                        add_objects(&omap, objects);
                     }
 
                     if needs_update.intensities {
-                        map_gen::common::compute_intensity(&dim[i], hull, &cut_bounds[i], params);
+                        let objects = map_gen::common::compute_intensity(
+                            &dim[i],
+                            hull,
+                            &cut_bounds[i],
+                            params,
+                            &params.geometry.intensity.buffer_rules,
+                        );
+                        add_objects(&omap, objects);
                     }
                 });
         }
@@ -192,16 +225,14 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
-        omap.make_dotknolls_and_depressions(params.dot_knoll_area.0, params.dot_knoll_area.1, 1.5);
+        omap.make_dotknolls_and_depressions(
+            params.contour.dot_knoll_area.0,
+            params.contour.dot_knoll_area.1,
+            1.5,
+        );
     }
 
-    let bez_error = if params.bezier_bool {
-        Some(params.bezier_error)
-    } else {
-        None
-    };
-
-    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), bez_error);
+    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), &params.geometry);
 
     if needs_update.contours {
         let mut tot_energy = tot_energy
@@ -232,39 +263,40 @@ pub fn regenerate_map_tile(
         .unwrap();
 }
 
-fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> UpdateMap {
+fn add_objects(omap: &Arc<Mutex<TempMap>>, objects: Vec<crate::map_gen::egui_map::MapObject>) {
+    let mut omap = omap.lock().unwrap();
+    for object in objects {
+        omap.add_object(object);
+    }
+}
+
+fn needs_regeneration(
+    new: &MapParameters,
+    old: Option<&MapParameters>,
+    scope: RegenerationScope,
+) -> UpdateMap {
     let mut update_map = UpdateMap::default();
     if old.is_none() {
+        update_map.force_scope(scope);
         return update_map;
     }
     let old = old.unwrap();
 
-    if new.scale != old.scale
-        || new.bezier_bool != old.bezier_bool
-        || (new.bezier_bool && (new.bezier_error != old.bezier_error))
-    {
+    if new.scale != old.scale {
+        update_map.force_scope(scope);
         return update_map;
     }
 
-    let mut buffer_update = true;
-    if new.buffer_rules.len() == old.buffer_rules.len() {
-        buffer_update = false;
-
-        for (new, old) in new.buffer_rules.iter().zip(old.buffer_rules.iter()) {
-            if new != old {
-                buffer_update = true;
-                break;
-            }
-        }
-    }
-
-    if new.intensity_filters.len() == old.intensity_filters.len() && !buffer_update {
+    if new.intensity.filters.len() == old.intensity.filters.len()
+        && new.geometry.intensity == old.geometry.intensity
+    {
         update_map.intensities = false;
 
         for (new, old) in new
-            .intensity_filters
+            .intensity
+            .filters
             .iter()
-            .zip(old.intensity_filters.iter())
+            .zip(old.intensity.filters.iter())
         {
             if new != old {
                 update_map.intensities = true;
@@ -273,24 +305,31 @@ fn needs_regeneration(new: &MapParameters, old: Option<&MapParameters>) -> Updat
         }
     }
 
-    update_map.yellow = new.yellow != old.yellow || buffer_update;
-    update_map.l_green = new.green.0 != old.green.0 || buffer_update;
-    update_map.m_green = new.green.1 != old.green.1 || buffer_update;
-    update_map.d_green = new.green.2 != old.green.2 || buffer_update;
-    update_map.cliff = new.cliff != old.cliff || buffer_update;
+    update_map.yellow = new.vegetation.yellow != old.vegetation.yellow
+        || new.geometry.openness != old.geometry.openness;
+    update_map.l_green = new.vegetation.green.0 != old.vegetation.green.0
+        || new.geometry.vegetation != old.geometry.vegetation;
+    update_map.m_green = new.vegetation.green.1 != old.vegetation.green.1
+        || new.geometry.vegetation != old.geometry.vegetation;
+    update_map.d_green = new.vegetation.green.2 != old.vegetation.green.2
+        || new.geometry.vegetation != old.geometry.vegetation;
+    update_map.cliff =
+        new.vegetation.cliff != old.vegetation.cliff || new.geometry.cliffs != old.geometry.cliffs;
 
-    update_map.basemap =
-        new.basemap_interval != old.basemap_interval || new.basemap_contour != old.basemap_contour;
+    update_map.basemap = new.contour.basemap_interval != old.contour.basemap_interval
+        || new.contour.basemap_contour != old.contour.basemap_contour;
 
-    update_map.contours = new.contour_algorithm != old.contour_algorithm
-        || new.contour_algo_lambda != old.contour_algo_lambda
-        || new.contour_algo_steps != old.contour_algo_steps
-        || new.form_lines != old.form_lines
-        || (new.form_lines && (new.form_line_prune != old.form_line_prune))
-        || new.contour_interval != old.contour_interval
-        || new.dot_knoll_area.0 != old.dot_knoll_area.0
-        || new.dot_knoll_area.1 != old.dot_knoll_area.1;
+    update_map.contours = new.contour.algorithm != old.contour.algorithm
+        || new.contour.algo_lambda != old.contour.algo_lambda
+        || new.contour.algo_steps != old.contour.algo_steps
+        || new.geometry.contours != old.geometry.contours
+        || new.contour.form_lines != old.contour.form_lines
+        || (new.contour.form_lines && (new.contour.form_line_prune != old.contour.form_line_prune))
+        || new.contour.interval != old.contour.interval
+        || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
+        || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;
 
+    update_map.force_scope(scope);
     update_map
 }
 
@@ -308,14 +347,30 @@ struct UpdateMap {
 impl Default for UpdateMap {
     fn default() -> Self {
         Self {
-            basemap: true,
+            basemap: false,
             contours: true,
-            yellow: true,
-            l_green: true,
-            m_green: true,
-            d_green: true,
-            cliff: true,
-            intensities: true,
+            yellow: false,
+            l_green: false,
+            m_green: false,
+            d_green: false,
+            cliff: false,
+            intensities: false,
+        }
+    }
+}
+
+impl UpdateMap {
+    fn force_scope(&mut self, scope: RegenerationScope) {
+        match scope {
+            RegenerationScope::Changed => (),
+            RegenerationScope::Section(MapPreviewSection::Openness) => self.yellow = true,
+            RegenerationScope::Section(MapPreviewSection::Vegetation) => {
+                self.l_green = true;
+                self.m_green = true;
+                self.d_green = true;
+            }
+            RegenerationScope::Section(MapPreviewSection::Cliffs) => self.cliff = true,
+            RegenerationScope::Section(MapPreviewSection::Intensity) => self.intensities = true,
         }
     }
 }

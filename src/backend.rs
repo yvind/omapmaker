@@ -1,7 +1,7 @@
 use eframe::egui;
 use las::Reader;
 
-use crate::comms::{messages::*, OmapComms};
+use crate::comms::{OmapComms, messages::*};
 use crate::geometry::MapRect;
 use crate::map_gen;
 use crate::neighbors::{self, Neighborhood};
@@ -71,18 +71,22 @@ impl Backend {
                         paths,
                         in_epsg,
                         out_epsg,
+                        save_location,
                         selected_file,
                         bounds,
                         polygon,
+                        write_single_copc,
                     ) => {
                         crate::convert_copc::convert_copc(
                             self.comms.clone_sender(),
                             paths,
                             in_epsg,
                             out_epsg,
+                            save_location,
                             selected_file,
                             bounds,
                             polygon,
+                            write_single_copc,
                         );
                     }
 
@@ -104,7 +108,7 @@ impl Backend {
                         self.z_range = z_range;
                     }
 
-                    BackendTask::RegenerateMap(params) => {
+                    BackendTask::RegenerateMap(params, scope) => {
                         assert!(!self.map_tile_dem.is_empty());
                         map_gen::egui_map::regenerate_map_tile(
                             self.comms.clone_sender(),
@@ -118,6 +122,7 @@ impl Backend {
                             self.z_range,
                             &params,
                             &self.map_params,
+                            scope,
                         );
 
                         self.map_params = Some(*params);
@@ -128,7 +133,7 @@ impl Backend {
                     BackendTask::MakeMap(map_params, file_params, polygon_filter, stats) => {
                         // transform the linestring to output coords
                         let local_polygon_filter = project::polygon::from_walkers_map_coords(
-                            map_params.output_crs,
+                            map_params.output.crs.clone(),
                             polygon_filter,
                         );
 

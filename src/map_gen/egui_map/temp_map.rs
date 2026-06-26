@@ -1,6 +1,11 @@
 use std::collections::HashMap;
 
-use geo::{Coord, LineString};
+use geo::{MapCoords, MapCoordsInPlace};
+use omap::{
+    Omap,
+    objects::{AreaObject, LineObject, PointObject},
+    symbols::{WeakAreaPathSymbol, WeakLinePathSymbol},
+};
 use proj_core::CrsDef;
 
 use crate::parameters::Scale;
@@ -10,6 +15,21 @@ pub enum Symbol {
     Area(AreaSymbol),
     Line(LineSymbol),
     Point(PointSymbol),
+}
+
+impl Symbol {
+    pub fn get_omap_symbol<'a>(
+        &self,
+        symbol_set: &'a omap::symbols::SymbolSet,
+    ) -> Option<&'a omap::symbols::Symbol> {
+        let code = match self {
+            Symbol::Area(area_symbol) => area_symbol.get_code(),
+            Symbol::Line(line_symbol) => line_symbol.get_code(),
+            Symbol::Point(point_symbol) => point_symbol.get_code(),
+        };
+
+        symbol_set.get_symbol_by_code(code)
+    }
 }
 
 impl From<AreaSymbol> for Symbol {
@@ -49,6 +69,28 @@ pub enum AreaSymbol {
     OutOfBounds,
 }
 
+impl AreaSymbol {
+    pub fn get_code(&self) -> omap::Code {
+        match self {
+            AreaSymbol::RoughOpenLand => omap::Code::new(403, 0, 0),
+            AreaSymbol::OpenLand => omap::Code::new(401, 0, 0),
+            AreaSymbol::SandyGround => omap::Code::new(213, 0, 0),
+            AreaSymbol::BareRock => omap::Code::new(214, 0, 0),
+            AreaSymbol::LightGreen => omap::Code::new(406, 0, 0),
+            AreaSymbol::MediumGreen => omap::Code::new(408, 0, 0),
+            AreaSymbol::DarkGreen => omap::Code::new(410, 0, 0),
+            AreaSymbol::Marsh => omap::Code::new(308, 0, 0),
+            AreaSymbol::PrivateArea => omap::Code::new(520, 0, 0),
+            AreaSymbol::PavedAreaWithBoundary => omap::Code::new(501, 0, 0),
+            AreaSymbol::ShallowWaterWithSolidBankLine => omap::Code::new(302, 0, 0),
+            AreaSymbol::UncrossableWaterWithBankLine => omap::Code::new(301, 0, 0),
+            AreaSymbol::GiganticBoulder => omap::Code::new(206, 0, 0),
+            AreaSymbol::Building => omap::Code::new(521, 0, 0),
+            AreaSymbol::OutOfBounds => omap::Code::new(709, 0, 0),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum LineSymbol {
     BasemapContour,
@@ -57,6 +99,19 @@ pub enum LineSymbol {
     IndexContour,
     NegBasemapContour,
     SmallCrossableWatercourse,
+}
+
+impl LineSymbol {
+    pub fn get_code(&self) -> omap::Code {
+        match self {
+            LineSymbol::BasemapContour => omap::Code::new(101, 2, 0),
+            LineSymbol::FormLine => omap::Code::new(103, 0, 0),
+            LineSymbol::Contour => omap::Code::new(101, 0, 0),
+            LineSymbol::IndexContour => omap::Code::new(102, 0, 0),
+            LineSymbol::NegBasemapContour => omap::Code::new(101, 3, 0),
+            LineSymbol::SmallCrossableWatercourse => omap::Code::new(305, 0, 0),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -68,6 +123,20 @@ pub enum PointSymbol {
     UDepression,
     SmallBoulder,
     LargeBoulder,
+}
+
+impl PointSymbol {
+    pub fn get_code(&self) -> omap::Code {
+        match self {
+            PointSymbol::SlopeLineFormLine => omap::Code::new(103, 1, 0),
+            PointSymbol::SlopeLineContour => omap::Code::new(101, 1, 0),
+            PointSymbol::DotKnoll => omap::Code::new(109, 0, 0),
+            PointSymbol::ElongatedDotKnoll => omap::Code::new(110, 0, 0),
+            PointSymbol::UDepression => omap::Code::new(111, 0, 0),
+            PointSymbol::SmallBoulder => omap::Code::new(204, 0, 0),
+            PointSymbol::LargeBoulder => omap::Code::new(205, 0, 0),
+        }
+    }
 }
 
 pub enum MapObject {
@@ -215,6 +284,115 @@ impl TempMap {
         self.objects.retain(|_, v| !v.is_empty());
     }
 
+    pub fn into_omap(
+        mut self,
+        meters_above_sea: f64,
+        bezier_error: Option<f64>,
+    ) -> crate::Result<Omap> {
+        let crs = self
+            .crs
+            .as_ref()
+            .map(|crs| omap::geo_referencing::CrsType::Epsg(crs.epsg() as u16))
+            .unwrap_or(omap::geo_referencing::CrsType::Local);
+
+        let mut omap = match self.scale {
+            Scale::S10_000 => Omap::default_10_000(self.ref_point, crs, meters_above_sea)?,
+            Scale::S15_000 => Omap::default_15_000(self.ref_point, crs, meters_above_sea)?,
+        };
+        let transform = omap.geo_referencing.get_transform();
+
+        for (_, objects) in self.objects.drain() {
+            for object in objects {
+                let omap_object: omap::objects::MapObject = match object {
+                    MapObject::Area {
+                        mut object,
+                        symbol,
+                        tags,
+                    } => {
+                        object.map_coords_in_place(|c| c + self.ref_point);
+                        let mut area = AreaObject::new(
+                            WeakAreaPathSymbol::try_from(
+                                Symbol::Area(symbol)
+                                    .get_omap_symbol(&omap.symbols)
+                                    .ok_or_else(|| {
+                                        omap::Error::SymbolError(format!(
+                                            "Missing Omap symbol {}",
+                                            symbol.get_code()
+                                        ))
+                                    })?
+                                    .downgrade(),
+                            )?,
+                            transform.to_map_polygon(object),
+                        );
+                        area.tags = tags;
+                        area.into()
+                    }
+                    MapObject::Line {
+                        object,
+                        symbol,
+                        tags,
+                    } => {
+                        let object = object.map_coords(|c| c + self.ref_point);
+                        let mut line = LineObject::new(
+                            WeakLinePathSymbol::try_from(
+                                Symbol::Line(symbol)
+                                    .get_omap_symbol(&omap.symbols)
+                                    .ok_or_else(|| {
+                                        omap::Error::SymbolError(format!(
+                                            "Missing Omap symbol {}",
+                                            symbol.get_code()
+                                        ))
+                                    })?
+                                    .downgrade(),
+                            )?,
+                            transform.to_map_linestring(object),
+                        );
+                        line.tags = tags;
+                        line.write_as_bezier = bezier_error.is_some()
+                            && !matches!(
+                                symbol,
+                                LineSymbol::BasemapContour | LineSymbol::NegBasemapContour
+                            );
+                        line.into()
+                    }
+                    MapObject::Point {
+                        object,
+                        symbol,
+                        rotation,
+                        tags,
+                    } => {
+                        let object = object.map_coords(|c| c + self.ref_point);
+                        let omap_symbol = Symbol::Point(symbol)
+                            .get_omap_symbol(&omap.symbols)
+                            .ok_or_else(|| {
+                                omap::Error::SymbolError(format!(
+                                    "Missing Omap symbol {}",
+                                    symbol.get_code()
+                                ))
+                            })?;
+                        let symbol = match omap_symbol {
+                            omap::symbols::Symbol::Point(symbol) => std::rc::Rc::downgrade(symbol),
+                            _ => {
+                                return Err(omap::Error::SymbolError(format!(
+                                    "Omap symbol {} is not a point symbol",
+                                    symbol.get_code()
+                                ))
+                                .into());
+                            }
+                        };
+                        let mut point = PointObject::new(symbol, transform.to_map_point(object));
+                        point.rotation = rotation;
+                        point.tags = tags;
+                        point.into()
+                    }
+                };
+                omap.parts.0[0].add_object(omap_object);
+            }
+        }
+
+        Ok(omap)
+    }
+
     pub fn mark_basemap_depressions(&mut self) {
         let basemap = self
             .objects
@@ -235,7 +413,7 @@ impl TempMap {
                 tags: _,
             } = &basemap[i]
             {
-                if object.is_closed() && line_string_signed_area(&object) < 0. {
+                if object.is_closed() && line_string_signed_area(object) < 0. {
                     let mut neg = basemap.swap_remove(i);
 
                     let _ = neg.change_symbol(LineSymbol::NegBasemapContour);
@@ -290,12 +468,12 @@ impl TempMap {
                 let contour_object = &contours[i];
                 if let MapObject::Line {
                     object,
-                    symbol,
-                    tags,
+                    symbol: _,
+                    tags: _,
                 } = contour_object
                 {
                     if object.is_closed() {
-                        let area = line_string_signed_area(&object);
+                        let area = line_string_signed_area(object);
 
                         if area.abs() <= max_area {
                             small_loops.push(contours.swap_remove(i));
@@ -313,11 +491,11 @@ impl TempMap {
             for small_loop in small_loops {
                 if let MapObject::Line {
                     object,
-                    symbol,
-                    tags,
+                    symbol: _,
+                    tags: _,
                 } = &small_loop
                 {
-                    let area = line_string_signed_area(&object);
+                    let area = line_string_signed_area(object);
 
                     // ignore too small loops
                     if area.abs() < min_area {
@@ -325,7 +503,7 @@ impl TempMap {
                     }
 
                     let (aspect, mid_point, rotation) =
-                        line_string_aspect_midpoint_rotation(&object);
+                        line_string_aspect_midpoint_rotation(object);
 
                     let map_object = if area < 0. {
                         MapObject::Point {
@@ -356,7 +534,7 @@ impl TempMap {
     }
 }
 
-fn line_string_signed_area(line: &LineString) -> f64 {
+fn line_string_signed_area(line: &geo::LineString) -> f64 {
     if line.0.len() < 3 {
         return 0.;
     }
@@ -367,8 +545,8 @@ fn line_string_signed_area(line: &LineString) -> f64 {
     0.5 * area
 }
 
-fn line_string_aspect_midpoint_rotation(line: &LineString) -> (f64, Coord, f64) {
-    let mut midpoint = Coord::zero();
+fn line_string_aspect_midpoint_rotation(line: &geo::LineString) -> (f64, geo::Coord, f64) {
+    let mut midpoint = geo::Coord::zero();
 
     let len_f64 = line.0.len() as f64;
     for c in line.0.iter() {

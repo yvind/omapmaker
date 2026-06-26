@@ -1,8 +1,8 @@
+use crate::SIDE_LENGTH;
 use crate::geometry::{ContourLevel, ContourSet};
 use crate::map_gen::egui_map::{LineSymbol, MapObject};
 use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
-use crate::SIDE_LENGTH;
 
 use geo::{BooleanOps, LineString, Polygon, Simplify};
 
@@ -18,10 +18,10 @@ pub fn compute_naive_contours(
 ) -> (Vec<MapObject>, f64, f64) {
     let (min_threshold, conv_threshold) = thresholds;
 
-    let effective_interval = if params.form_lines {
-        params.contour_interval / 2.
+    let effective_interval = if params.contour.form_lines {
+        params.contour.interval / 2.
     } else {
-        params.contour_interval
+        params.contour.interval
     };
 
     let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
@@ -65,7 +65,7 @@ pub fn compute_naive_contours(
             contours.0.push(ContourLevel::new(c_contours, c_level));
         }
 
-        if iterations >= params.contour_algo_steps {
+        if iterations >= params.contour.algo_steps {
             break;
         }
 
@@ -82,18 +82,18 @@ pub fn compute_naive_contours(
         error = true_dem.error(&interpolated_dem);
         energy = contours.energy(1);
 
-        score = error + params.contour_algo_lambda * energy;
+        score = error + params.contour.algo_lambda * energy;
 
         if score <= min_threshold || (score - prev_score).abs() <= conv_threshold {
             break;
         }
 
         // adjust dem, increasing frequency decreasing amplitude
-        let filter_half_size = ((params.contour_algo_steps - iterations) as f64
-            / params.contour_algo_steps as f64
+        let filter_half_size = ((params.contour.algo_steps - iterations) as f64
+            / params.contour.algo_steps as f64
             * 30.) as usize;
         let filter_amplitude =
-            (params.contour_algo_steps - iterations) as f64 / (params.contour_algo_steps as f64);
+            (params.contour.algo_steps - iterations) as f64 / (params.contour.algo_steps as f64);
 
         adjusted_dem.adjust(
             true_dem,
@@ -114,9 +114,9 @@ pub fn compute_naive_contours(
 
         let c_contours = cut_overlay.clip(&c_level.lines, false);
 
-        let symbol = if z % (5. * params.contour_interval) == 0. {
+        let symbol = if z % (5. * params.contour.interval) == 0. {
             LineSymbol::IndexContour
-        } else if z % params.contour_interval == 0. {
+        } else if z % params.contour.interval == 0. {
             LineSymbol::Contour
         } else {
             LineSymbol::FormLine
@@ -145,16 +145,16 @@ pub fn extract_contours(
     params: &MapParameters,
     compute_energy: bool,
 ) -> (Vec<MapObject>, f64, f64) {
-    let effective_interval = if params.form_lines {
-        params.contour_interval / 2.
+    let effective_interval = if params.contour.form_lines {
+        params.contour.interval / 2.
     } else {
-        params.contour_interval
+        params.contour.interval
     };
 
-    let dem = if params.contour_algorithm == ContourAlgo::Raw {
+    let dem = if params.contour.algorithm == ContourAlgo::Raw {
         true_dem
     } else {
-        &true_dem.smoothen(15., 15, params.contour_algo_steps as usize)
+        &true_dem.smoothen(15., 15, params.contour.algo_steps as usize)
     };
 
     let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
@@ -199,9 +199,9 @@ pub fn extract_contours(
     for c_level in contour_set.0 {
         let contours = cut_overlay.clip(&c_level.lines, false);
 
-        let symbol = if c_level.z % (5. * params.contour_interval) == 0. {
+        let symbol = if c_level.z % (5. * params.contour.interval) == 0. {
             LineSymbol::IndexContour
-        } else if c_level.z % params.contour_interval == 0. {
+        } else if c_level.z % params.contour.interval == 0. {
             LineSymbol::Contour
         } else {
             LineSymbol::FormLine

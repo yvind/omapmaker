@@ -18,6 +18,8 @@ pub enum Error {
     #[error(transparent)]
     CopcError(#[from] copc_converter::Error),
     #[error(transparent)]
+    CopcRsError(#[from] copc_rs::Error),
+    #[error(transparent)]
     LasError(#[from] las::Error),
     #[error("The area contains no ground points")]
     NoGroundPoints,

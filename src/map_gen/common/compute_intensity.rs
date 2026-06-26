@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
 
 use crate::{
-    geometry::MapMultiPolygon, map_gen::egui_map::MapObject, parameters::MapParameters, raster::Dfm,
+    geometry::MapMultiPolygon,
+    map_gen::egui_map::MapObject,
+    parameters::{BufferRule, MapParameters},
+    raster::Dfm,
 };
 
 pub fn compute_intensity(
@@ -11,9 +14,10 @@ pub fn compute_intensity(
     convex_hull: &Polygon,
     cut_overlay: &Polygon,
     params: &MapParameters,
+    buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
     let mut objects = Vec::new();
-    for filter in params.intensity_filters.iter() {
+    for filter in params.intensity.filters.iter() {
         let lower_contours = dim.marching_squares(filter.low);
         let upper_contours = dim.marching_squares(filter.high);
 
@@ -24,7 +28,7 @@ pub fn compute_intensity(
 
         polygons = polygons.simplify(crate::SIMPLIFICATION_DIST);
 
-        for buffer in params.buffer_rules.iter() {
+        for buffer in buffer_rules.iter() {
             polygons = polygons.apply_buffer_rule(buffer);
         }
 

@@ -63,8 +63,8 @@ impl DrawablePolygonObject {
             .into_iter()
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
-        let obj = if let Some(epsg) = crs {
-            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
+        let obj = if let Some(crs) = crs {
+            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
             let transformed_points = transform.convert_batch(&vertices).unwrap();
             transformed_points
@@ -202,8 +202,8 @@ impl DrawableLineObject {
             line
         };
 
-        let obj = if let Some(epsg) = crs {
-            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
+        let obj = if let Some(crs) = crs {
+            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
             let line: Vec<(f64, f64)> = line
                 .0
@@ -264,8 +264,8 @@ impl DrawablePointObject {
         ref_point: Coord,
         crs: Option<CrsDef>,
     ) -> Result<Self> {
-        let pos = if let Some(epsg) = crs {
-            let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
+        let pos = if let Some(crs) = crs {
+            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
             let p = (point.x() + ref_point.x, point.y() + ref_point.y);
             let transformed_p = transform.convert(p).unwrap();

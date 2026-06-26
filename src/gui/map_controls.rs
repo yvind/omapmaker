@@ -204,5 +204,6 @@ pub fn render_background_map_choice(ui: &egui::Ui, source: &mut TileProvider) {
         .show(ui.ctx(), |ui| {
             ui.radio_value(source, TileProvider::OpenStreetMap, "OpenStreetMap");
             ui.radio_value(source, TileProvider::OpenTopoMap, "OpenTopoMap");
+            ui.radio_value(source, TileProvider::ArcGis, "ArcGIS Satelite");
         });
 }

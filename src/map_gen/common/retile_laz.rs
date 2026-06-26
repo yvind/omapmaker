@@ -1,4 +1,4 @@
-use crate::{neighbors::Neighborhood, MIN_NEIGHBOR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE};
+use crate::{MIN_NEIGHBOR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE, neighbors::Neighborhood};
 
 use geo::{Coord, Rect};
 

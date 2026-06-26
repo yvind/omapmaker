@@ -1,7 +1,7 @@
+use crate::SIDE_LENGTH;
 use crate::geometry::{PointCloud, PointLaz};
 use crate::raster::Dfm;
 use crate::statistics::LidarStats;
-use crate::SIDE_LENGTH;
 
 use geo::Coord;
 use spade::DelaunayTriangulation;

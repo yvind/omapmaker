@@ -1,7 +1,5 @@
-use std::num::NonZero;
-
 use geo::Rect;
-use kiddo::{immutable::float::kdtree::ImmutableKdTree, SquaredEuclidean};
+use rstar::{RTree, primitives::GeomWithData};
 
 use crate::geometry::MapRect;
 
@@ -92,8 +90,14 @@ impl Neighborhood {
     }
 
     pub fn neighboring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<Neighborhood> {
-        let tree: ImmutableKdTree<f64, usize, 2, 32> =
-            ImmutableKdTree::new_from_slice(tile_centers);
+        let tree = RTree::bulk_load(
+            tile_centers
+                .iter()
+                .copied()
+                .enumerate()
+                .map(|(index, point)| GeomWithData::new(point, index))
+                .collect(),
+        );
 
         let mut avg_tile_size = 0.;
         tile_bounds
@@ -107,8 +111,11 @@ impl Neighborhood {
         for (i, point) in tile_centers.iter().enumerate() {
             let bounds = &tile_bounds[i];
 
-            let nn = tree.nearest_n::<SquaredEuclidean>(point, NonZero::new(9).unwrap());
-            let mut neighbors_index: Vec<usize> = nn.iter().map(|n| n.item).collect();
+            let mut neighbors_index: Vec<usize> = tree
+                .nearest_neighbor_iter(*point)
+                .take(9)
+                .map(|n| n.data)
+                .collect();
 
             neighbors_index.retain(|&e| tile_bounds[i].touch_margin(&tile_bounds[e], margin));
 

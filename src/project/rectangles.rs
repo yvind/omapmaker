@@ -1,36 +1,39 @@
 use geo::{Coord, Point, Rect};
-use proj_core::Transform;
+use proj_core::{CrsDef, Transform};
 
-pub fn to_walkers_map_points(epsg: Option<u16>, rects: &Vec<Rect>) -> Vec<[Point; 4]> {
+pub fn to_walkers_map_points(crs: Option<CrsDef>, rects: &Vec<Rect>) -> Vec<[Point; 4]> {
     let mut out = Vec::with_capacity(rects.len());
-    if epsg.is_none() {
+    if crs.is_none() {
         for rect in rects {
-            out.push([
-                Point(Coord {
-                    x: rect.min().x,
-                    y: rect.max().y,
-                }),
-                rect.min().into(),
-                Point(Coord {
-                    x: rect.max().x,
-                    y: rect.min().y,
-                }),
-                rect.max().into(),
-            ]);
+            out.push(rect_to_map_coords(rect).map(Point));
         }
-    } else if let Some(epsg) = epsg {
-        let transform = Transform::from_epsg(epsg as u32, 4326).unwrap();
+    } else if let Some(crs) = crs {
+        let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
         for rect in rects {
-            let transformed_polygon = transform.convert_geometry(rect.to_polygon()).unwrap();
-
-            out.push([
-                Point(transformed_polygon.exterior().0[0]),
-                Point(transformed_polygon.exterior().0[1]),
-                Point(transformed_polygon.exterior().0[2]),
-                Point(transformed_polygon.exterior().0[3]),
-            ]);
+            out.push(rect_to_map_coords(rect).map(|point| {
+                let transformed = transform.convert((point.x, point.y)).unwrap();
+                Point(Coord {
+                    x: transformed.0,
+                    y: transformed.1,
+                })
+            }));
         }
     }
     out
+}
+
+fn rect_to_map_coords(rect: &Rect) -> [Coord; 4] {
+    [
+        Coord {
+            x: rect.min().x,
+            y: rect.max().y,
+        },
+        rect.min(),
+        Coord {
+            x: rect.max().x,
+            y: rect.min().y,
+        },
+        rect.max(),
+    ]
 }

@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use geo::LineString;
+use proj_core::CrsDef;
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
@@ -12,61 +13,148 @@ use crate::{
     statistics::LidarStats,
 };
 
+#[derive(Debug, thiserror::Error)]
+pub enum StageValidationError {
+    #[error("Choose at least one lidar file before continuing")]
+    MissingLidarFiles,
+    #[error("Choose an output .omap save location before continuing")]
+    MissingSaveLocation,
+    #[error("Select a lidar file before continuing")]
+    MissingSelectedFile,
+    #[error("The selected lidar file is no longer available")]
+    InvalidSelectedFile,
+    #[error("Select a sub-tile before continuing")]
+    MissingSelectedTile,
+    #[error("The selected sub-tile is no longer available")]
+    InvalidSelectedTile,
+    #[error("Lidar statistics are not ready yet")]
+    MissingLidarStats,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum TileProvider {
     #[default]
     OpenStreetMap,
     OpenTopoMap,
+    ArcGis,
 }
 
-pub struct GuiVariables {
-    // lidar file overlay
+#[derive(Default, Clone)]
+pub struct ProjectFiles {
+    pub paths: Vec<std::path::PathBuf>,
+    pub save_location: std::path::PathBuf,
+    pub selected_file: Option<usize>,
+    pub crs_epsg: Vec<Option<CrsDef>>,
+    pub write_single_copc: bool,
+    pub single_copc_path: Option<std::path::PathBuf>,
+}
+
+impl ProjectFiles {
+    pub fn validate_welcome(&self) -> Result<ReadyForCrsCheck, StageValidationError> {
+        if self.paths.is_empty() {
+            return Err(StageValidationError::MissingLidarFiles);
+        }
+        if self.save_location.as_os_str().is_empty() {
+            return Err(StageValidationError::MissingSaveLocation);
+        }
+
+        Ok(ReadyForCrsCheck {
+            paths: self.paths.clone(),
+        })
+    }
+
+    pub fn validate_selected_file(&self) -> Result<ReadyForTileSelection, StageValidationError> {
+        let selected_file = self
+            .selected_file
+            .ok_or(StageValidationError::MissingSelectedFile)?;
+        if selected_file >= self.paths.len() || selected_file >= self.crs_epsg.len() {
+            return Err(StageValidationError::InvalidSelectedFile);
+        }
+
+        Ok(ReadyForTileSelection {
+            path: self.paths[selected_file].clone(),
+            crs: self.crs_epsg[selected_file].clone(),
+        })
+    }
+
+    pub fn to_file_parameters(&self) -> FileParameters {
+        if let Some(single_copc_path) = &self.single_copc_path {
+            return FileParameters {
+                paths: vec![single_copc_path.clone()],
+                save_location: self.save_location.clone(),
+                crs_epsg: vec![],
+            };
+        }
+
+        FileParameters {
+            paths: self.paths.clone(),
+            save_location: self.save_location.clone(),
+            crs_epsg: self.crs_epsg.clone(),
+        }
+    }
+}
+
+pub struct ReadyForCrsCheck {
+    pub paths: Vec<std::path::PathBuf>,
+}
+
+pub struct ReadyForTileSelection {
+    pub path: std::path::PathBuf,
+    pub crs: Option<CrsDef>,
+}
+
+#[derive(Default)]
+pub struct LidarAnalysisState {
     pub boundaries: Vec<[Position; 4]>,
-
-    pub polygon_filter: LineString,
-
-    // lidar crs's
     pub crs_less_search_strings: Vec<String>,
-    pub unique_crs: Vec<u16>,
-
-    // lidar stats
-    pub lidar_stats: Option<LidarStats>,
-
-    // set output crs
+    pub unique_crs: Vec<CrsDef>,
     pub output_crs_string: String,
-
-    // perform connected component
     pub connected_components: Vec<Vec<usize>>,
-
-    // checkboxes
     pub drop_checkboxes: Vec<bool>,
-    pub visibility_checkboxes: HashMap<Symbol, bool>,
-    // true when the backend is busy generating a map tile
-    pub generating_map_tile: bool,
+    pub stats: Option<LidarStats>,
+}
 
-    // logging to the in app "console"
-    pub log_terminal: TerminalLike,
+pub struct AreaSelectionState {
+    pub polygon_filter: LineString,
+}
 
-    pub map_params: MapParameters,
-    pub file_params: FileParameters,
+impl Default for AreaSelectionState {
+    fn default() -> Self {
+        Self {
+            polygon_filter: LineString::new(vec![]),
+        }
+    }
+}
 
-    // sub_tile parameters
+#[derive(Default)]
+pub struct TileSelectionState {
     pub selected_tile: Option<usize>,
     pub subtile_boundaries: Vec<[walkers::Position; 4]>,
     pub subtile_neighbors: Vec<Neighborhood>,
-
-    // for storing the generated map tile for drawing
-    pub map_tile: Option<DrawableOmap>,
-    pub map_opacity: f32,
-
-    // the contour "score" (error, energy)
-    pub contour_score: (f32, f32),
-
-    // tile provider
-    pub tile_provider: TileProvider,
 }
 
-impl Default for GuiVariables {
+impl TileSelectionState {
+    pub fn validate_selected_tile(&self) -> Result<usize, StageValidationError> {
+        let selected_tile = self
+            .selected_tile
+            .ok_or(StageValidationError::MissingSelectedTile)?;
+        if selected_tile >= self.subtile_neighbors.len() {
+            return Err(StageValidationError::InvalidSelectedTile);
+        }
+
+        Ok(selected_tile)
+    }
+}
+
+pub struct MapPreviewState {
+    pub visibility_checkboxes: HashMap<Symbol, bool>,
+    pub generating_map_tile: bool,
+    pub map_tile: Option<DrawableOmap>,
+    pub map_opacity: f32,
+    pub contour_score: (f32, f32),
+}
+
+impl Default for MapPreviewState {
     fn default() -> Self {
         let mut visibility_checkboxes = HashMap::new();
         for symbol in Symbol::draw_order() {
@@ -75,52 +163,87 @@ impl Default for GuiVariables {
 
         Self {
             visibility_checkboxes,
+            generating_map_tile: false,
+            map_tile: None,
             map_opacity: 1.0,
-            polygon_filter: LineString::new(vec![]),
-
-            boundaries: Default::default(),
-            crs_less_search_strings: Default::default(),
-            unique_crs: Default::default(),
-            output_crs_string: Default::default(),
-            connected_components: Default::default(),
-            drop_checkboxes: Default::default(),
-            log_terminal: Default::default(),
-            map_params: Default::default(),
-            file_params: Default::default(),
-            map_tile: Default::default(),
-            generating_map_tile: Default::default(),
-            selected_tile: Default::default(),
-            subtile_boundaries: Default::default(),
-            subtile_neighbors: Default::default(),
-            contour_score: Default::default(),
-            tile_provider: Default::default(),
-            lidar_stats: Default::default(),
+            contour_score: (0.0, 0.0),
         }
     }
 }
 
+#[derive(Default)]
+pub struct MapViewState {
+    pub tile_provider: TileProvider,
+}
+
+#[derive(Default)]
+pub struct GenerationState {
+    pub params: MapParameters,
+}
+
+pub struct ReadyForCopcConversion {
+    pub file_params: FileParameters,
+    pub output_crs: Option<CrsDef>,
+    pub save_location: std::path::PathBuf,
+    pub selected_file: usize,
+    pub boundaries: Vec<[walkers::Position; 4]>,
+    pub polygon_filter: LineString,
+    pub write_single_copc: bool,
+}
+
+pub struct ReadyForMapPreview {
+    pub path: std::path::PathBuf,
+    pub tile: Neighborhood,
+    pub stats: LidarStats,
+}
+
+pub struct ReadyForFinalMap {
+    pub map_params: MapParameters,
+    pub file_params: FileParameters,
+    pub polygon_filter: LineString,
+    pub stats: LidarStats,
+}
+
+#[derive(Default)]
+pub struct GuiVariables {
+    pub project: ProjectFiles,
+    pub lidar: LidarAnalysisState,
+    pub area: AreaSelectionState,
+    pub tile: TileSelectionState,
+    pub preview: MapPreviewState,
+    pub map_view: MapViewState,
+    pub generation: GenerationState,
+    pub log_terminal: TerminalLike,
+}
+
 impl GuiVariables {
-    pub fn get_most_popular_crs(&self) -> Option<u16> {
-        let mut crs_tally = std::collections::HashMap::new();
-        for crs in self.file_params.crs_epsg.iter() {
-            if let Some(val) = crs_tally.get_mut(crs) {
-                *val += 1;
+    pub fn get_most_popular_crs(&self) -> Option<CrsDef> {
+        let mut crs_tally: Vec<(u32, u16, CrsDef)> = Vec::new();
+        for crs in self.project.crs_epsg.iter().flatten() {
+            let epsg = crs.epsg();
+            if let Some((_, count, _)) = crs_tally.iter_mut().find(|(code, _, _)| *code == epsg) {
+                *count += 1;
             } else {
-                crs_tally.insert(crs, 1_u16);
+                crs_tally.push((epsg, 1, crs.clone()));
             }
         }
-        if let Some((max_crs, _)) = crs_tally.drain().max_by(|(_, v1), (_, v2)| v1.cmp(v2)) {
-            Some(*max_crs)
-        } else {
-            None
-        }
+        crs_tally
+            .into_iter()
+            .max_by(|(_, v1, _), (_, v2, _)| v1.cmp(v2))
+            .map(|(_, _, crs)| crs)
     }
 
     pub fn update_unique_crs(&mut self) {
-        self.unique_crs.clear();
-        for crs in self.file_params.crs_epsg.iter() {
-            if *crs != u16::MAX && !self.unique_crs.contains(crs) {
-                self.unique_crs.push(*crs);
+        self.lidar.unique_crs.clear();
+        for crs in self.project.crs_epsg.iter() {
+            if let Some(def) = crs
+                && !self
+                    .lidar
+                    .unique_crs
+                    .iter()
+                    .any(|existing| existing.epsg() == def.epsg())
+            {
+                self.lidar.unique_crs.push(def.clone());
             }
         }
     }
@@ -130,14 +253,14 @@ impl GuiVariables {
 
         let mut biggest_component_index = 0;
         let mut biggest_component_size = 0;
-        for (i, v) in self.connected_components.iter().enumerate() {
+        for (i, v) in self.lidar.connected_components.iter().enumerate() {
             if v.len() > biggest_component_size {
                 biggest_component_size = v.len();
                 biggest_component_index = i;
             }
         }
 
-        for (i, v) in self.connected_components.iter().enumerate() {
+        for (i, v) in self.lidar.connected_components.iter().enumerate() {
             if i == biggest_component_index {
                 continue;
             }
@@ -149,27 +272,131 @@ impl GuiVariables {
         drop_files.sort_by(|a, b| b.cmp(a));
 
         for drop_file in drop_files {
-            self.file_params.paths.remove(drop_file);
-            self.file_params.crs_epsg.remove(drop_file);
-            self.boundaries.remove(drop_file);
+            self.project.paths.remove(drop_file);
+            self.project.crs_epsg.remove(drop_file);
+            self.lidar.boundaries.remove(drop_file);
         }
 
         let mut new_home = (0., 0.);
-        for bound in self.boundaries.iter() {
+        for bound in self.lidar.boundaries.iter() {
             new_home.0 += (bound[0].x() + bound[2].x()) / 2.;
             new_home.1 += (bound[0].y() + bound[2].y()) / 2.;
         }
-        new_home.0 /= self.boundaries.len() as f64;
-        new_home.1 /= self.boundaries.len() as f64;
+        new_home.0 /= self.lidar.boundaries.len() as f64;
+        new_home.1 /= self.lidar.boundaries.len() as f64;
 
         walkers::lon_lat(new_home.0, new_home.1)
     }
 
     pub fn update_map(&mut self, other: DrawableOmap) {
-        if let Some(map) = &mut self.map_tile {
+        if let Some(map) = &mut self.preview.map_tile {
             map.update(other);
         } else {
-            self.map_tile = Some(other);
+            self.preview.map_tile = Some(other);
         }
+    }
+
+    pub fn validate_copc_conversion(&self) -> Result<ReadyForCopcConversion, StageValidationError> {
+        let selected_file = self
+            .project
+            .selected_file
+            .ok_or(StageValidationError::MissingSelectedFile)?;
+        if selected_file >= self.project.paths.len() {
+            return Err(StageValidationError::InvalidSelectedFile);
+        }
+
+        Ok(ReadyForCopcConversion {
+            file_params: FileParameters {
+                paths: self.project.paths.clone(),
+                save_location: self.project.save_location.clone(),
+                crs_epsg: self.project.crs_epsg.clone(),
+            },
+            output_crs: self.generation.params.output.crs.clone(),
+            save_location: self.project.save_location.clone(),
+            selected_file,
+            boundaries: self.lidar.boundaries.clone(),
+            polygon_filter: self.area.polygon_filter.clone(),
+            write_single_copc: self.project.write_single_copc,
+        })
+    }
+
+    pub fn validate_map_preview(&self) -> Result<ReadyForMapPreview, StageValidationError> {
+        let selected_file = self
+            .project
+            .selected_file
+            .ok_or(StageValidationError::MissingSelectedFile)?;
+        if selected_file >= self.project.paths.len() {
+            return Err(StageValidationError::InvalidSelectedFile);
+        }
+        let selected_tile = self.tile.validate_selected_tile()?;
+        let stats = self
+            .lidar
+            .stats
+            .clone()
+            .ok_or(StageValidationError::MissingLidarStats)?;
+
+        Ok(ReadyForMapPreview {
+            path: self.project.paths[selected_file].clone(),
+            tile: self.tile.subtile_neighbors[selected_tile].clone(),
+            stats,
+        })
+    }
+
+    pub fn validate_final_map(&self) -> Result<ReadyForFinalMap, StageValidationError> {
+        let stats = self
+            .lidar
+            .stats
+            .clone()
+            .ok_or(StageValidationError::MissingLidarStats)?;
+
+        Ok(ReadyForFinalMap {
+            map_params: self.generation.params.clone(),
+            file_params: self.project.to_file_parameters(),
+            polygon_filter: self.area.polygon_filter.clone(),
+            stats,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn welcome_validation_requires_paths_and_save_location() {
+        let project = ProjectFiles::default();
+
+        assert!(matches!(
+            project.validate_welcome(),
+            Err(StageValidationError::MissingLidarFiles)
+        ));
+    }
+
+    #[test]
+    fn selected_file_validation_rejects_stale_index() {
+        let project = ProjectFiles {
+            paths: vec![std::path::PathBuf::from("one.laz")],
+            selected_file: Some(1),
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            project.validate_selected_file(),
+            Err(StageValidationError::InvalidSelectedFile)
+        ));
+    }
+
+    #[test]
+    fn selected_tile_validation_rejects_stale_index() {
+        let tile = TileSelectionState {
+            selected_tile: Some(0),
+            subtile_neighbors: vec![],
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            tile.validate_selected_tile(),
+            Err(StageValidationError::InvalidSelectedTile)
+        ));
     }
 }

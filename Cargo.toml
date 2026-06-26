@@ -37,7 +37,7 @@ rstar = "0.13.0"
 # read/write las/laz/copc
 las = { version = "0.9", features = ["laz-parallel"] }
 copc_converter = "0.11.0"
-copc-rs = { git = "https://github.com/pka/copc-rs"}
+copc-rs = { git = "https://github.com/pka/copc-rs" }
 omap = { version = "0.6.1", features = ["geo_ref"] }
 
 # better error enums

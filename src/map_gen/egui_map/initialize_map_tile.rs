@@ -4,7 +4,9 @@ use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
 use las::point::Classification;
 
-use std::{num::NonZero, path::PathBuf, sync::mpsc::Sender};
+use std::{path::PathBuf, sync::mpsc::Sender};
+
+use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
 use crate::{
     comms::messages::*,
@@ -90,15 +92,21 @@ pub fn initialize_map_tile(
         shifted_bounds.max.y -= ref_point.y;
         shifted_bounds.min.y -= ref_point.y;
 
-        let mut point_cloud = PointCloud::new(
+        let mut ground_point_cloud = PointCloud::new(
             reader
                 .points(LodSelection::All, BoundsSelection::Within(bounds))
                 .unwrap()
                 .filter_map(|mut p| {
-                    (!p.is_withheld
+                    if !p.is_withheld
                         && (p.classification == Classification::Ground
-                            || p.classification == Classification::Water))
-                        .then(|| PointLaz(p))
+                            || p.classification == Classification::Water)
+                    {
+                        p.x -= ref_point.x;
+                        p.y -= ref_point.y;
+                        Some(PointLaz(p))
+                    } else {
+                        None
+                    }
                 })
                 .collect(),
             shifted_bounds,
@@ -114,32 +122,39 @@ pub fn initialize_map_tile(
         ];
         let mut zs = [0.; 4];
 
-        {
-            let pt: ImmutableKdTree<f64, usize, 2, 32> =
-                ImmutableKdTree::new_from_slice(&point_cloud.to_2d_slice());
-            for (i, qp) in query_points.iter().enumerate() {
-                let neighbors = pt.nearest_n::<SquaredEuclidean>(qp, NonZero::new(4).unwrap());
-                let tot_weight = neighbors.iter().fold(0., |acc, n| acc + 1. / n.distance);
+        let pt = RTree::bulk_load(
+            ground_point_cloud
+                .to_2d_slice()
+                .into_iter()
+                .enumerate()
+                .map(|(index, point)| GeomWithData::new(point, index))
+                .collect(),
+        );
 
-                zs[i] = neighbors
-                    .iter()
-                    .fold(0., |acc, n| acc + point_cloud[n.item].0.z / n.distance)
-                    / tot_weight;
-            }
+        for (i, qp) in query_points.iter().enumerate() {
+            let neighbors = pt.nearest_neighbor_iter(*qp).take(4).collect::<Vec<_>>();
+            let tot_weight = neighbors
+                .iter()
+                .fold(0., |acc, n| acc + 1. / n.distance_2(qp).max(f64::EPSILON));
+
+            zs[i] = neighbors.iter().fold(0., |acc, n| {
+                acc + ground_point_cloud[n.data].0.z / n.distance_2(qp).max(f64::EPSILON)
+            }) / tot_weight;
         }
 
-        point_cloud.add(vec![
+        ground_point_cloud.add(vec![
             PointLaz::new(query_points[0][0], query_points[0][1], zs[0]),
             PointLaz::new(query_points[1][0], query_points[1][1], zs[1]),
             PointLaz::new(query_points[2][0], query_points[2][1], zs[2]),
             PointLaz::new(query_points[3][0], query_points[3][1], zs[3]),
         ]);
 
-        let dfm_bounds = point_cloud.get_dfm_dimensions();
+        let dfm_bounds = ground_point_cloud.get_dfm_dimensions();
 
-        let hull = point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
+        let hull = ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
 
-        let (dem, drm, dim, tile_z_range) = map_gen::common::compute_dfms(point_cloud, &stats);
+        let (dem, drm, dim, tile_z_range) =
+            map_gen::common::compute_dfms(ground_point_cloud, &stats);
         let grad_dem = dem.slope(3);
 
         if z_range.0 > tile_z_range.0 {

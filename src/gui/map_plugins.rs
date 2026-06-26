@@ -90,10 +90,10 @@ impl Plugin for LasBoundaryPainter<'_> {
         };
 
         let mut ni: Option<Vec<usize>> = None;
-        if let Some(neighbor_map) = self.neighbor_map {
-            if let Some(i) = self.selected {
-                ni = Some(neighbor_map[i].neighbor_indices().collect());
-            }
+        if let Some(neighbor_map) = self.neighbor_map
+            && let Some(i) = self.selected
+        {
+            ni = Some(neighbor_map[i].neighbor_indices().collect());
         }
 
         for (i, bound) in self.boundaries.iter().enumerate() {
@@ -183,10 +183,11 @@ impl Plugin for PolygonDrawer<'_> {
         // draw the polygon
         if !self.area_of_interest.0.is_empty() {
             let mut line = self.area_of_interest.clone();
-            if *self.state == ProcessStage::DrawPolygon && response.hovered() {
-                if let Some(pos) = response.hover_pos() {
-                    line.0.push(projector.unproject(pos).0);
-                }
+            if *self.state == ProcessStage::DrawPolygon
+                && response.hovered()
+                && let Some(pos) = response.hover_pos()
+            {
+                line.0.push(projector.unproject(pos).0);
             }
             line.close();
 
@@ -220,10 +221,11 @@ impl Plugin for PolygonDrawer<'_> {
                 .coords()
                 .map(|p| projector.project(geo::Point(*p)))
                 .collect();
-            if *self.state == ProcessStage::DrawPolygon && response.hovered() {
-                if let Some(pos) = response.hover_pos() {
-                    outline.push(pos);
-                }
+            if *self.state == ProcessStage::DrawPolygon
+                && response.hovered()
+                && let Some(pos) = response.hover_pos()
+            {
+                outline.push(pos);
             }
 
             ui.painter()

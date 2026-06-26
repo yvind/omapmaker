@@ -140,7 +140,7 @@ impl DrawableSymbol for LineSymbol {
             }
             LineSymbol::NegBasemapContour => Some((false, Stroke::new(1. * scale_factor, PURPLE))),
             LineSymbol::IndexContour => Some((false, Stroke::new(5. * scale_factor, BROWN))),
-            LineSymbol::FormLine => Some((true, Stroke::new(2. * scale_factor, MEDIUM_BROWN))),
+            LineSymbol::FormLine => Some((false, Stroke::new(2. * scale_factor, MEDIUM_BROWN))),
             LineSymbol::SmallCrossableWatercourse => {
                 Some((false, Stroke::new(4. * scale_factor, Color32::BLUE)))
             }

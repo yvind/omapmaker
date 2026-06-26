@@ -3,7 +3,7 @@ use super::PointLaz;
 use crate::{CELL_SIZE, TILE_SIZE};
 
 use geo::{LineString, Polygon, Simplify};
-use las::{point::Classification, Bounds, Vector};
+use las::{Bounds, Vector, point::Classification};
 use std::{cmp::Ordering, ops::Index};
 
 #[derive(Clone)]
