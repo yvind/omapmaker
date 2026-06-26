@@ -242,9 +242,7 @@ impl OmapMaker {
         );
 
         ui.add_space(10.);
-        ui.label(
-            "A file is deemed relevant if it overlaps with the map area or is the selected file.",
-        );
+        ui.label("A file is deemed relevant if it overlaps with the chosen map area.");
 
         ui.add_space(10.);
         ui.label(".copc.laz is a .laz file (compressed .las file) where the points internally are structered in an octree. \
@@ -260,7 +258,82 @@ impl OmapMaker {
         ui.label("The resulting files are stored next to their parent.");
 
         ui.add_space(20.);
-        ui.label("Finally the chosen area for adjusting parameters is prepared.");
+        ui.label("After conversion you will choose the lidar tile used for adjusting parameters.");
+    }
+
+    pub fn render_prepare_map_preview_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Preparing test tile");
+        ui.add_space(20.);
+        ui.label(
+            "The selected sub-tile and its neighbors are being read and prepared for parameter adjustment.",
+        );
+        ui.add_space(10.);
+        ui.label("This calculates the raster data used by the contour and vegetation preview.");
+    }
+
+    pub fn render_draw_polygon_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Choose map area");
+        ui.add_space(20.);
+        ui.label(
+            "All lidar bounds are shown on the map. Draw a polygon around the area to keep, \
+            or continue without one to use the full lidar coverage.",
+        );
+        ui.add_space(10.);
+        ui.label("Click Draw polygon, then click around the area and double click to close it.");
+
+        ui.add_space(20.);
+        ui.label(format!(
+            "Lidar bounds area: {}",
+            format_area(self.gui_variables.lidar_bounds_area())
+        ));
+        if !self.gui_variables.area.polygon_filter.0.is_empty() {
+            ui.label(format!(
+                "Polygon area: {}",
+                self.gui_variables
+                    .polygon_area()
+                    .map(format_area)
+                    .unwrap_or_else(|| format_area(0.0))
+            ));
+        }
+
+        ui.add_space(20.);
+        if self.gui_variables.area.drawing_polygon {
+            if ui.button("Cancel drawing").clicked() {
+                self.gui_variables.area.polygon_filter.0.clear();
+                self.gui_variables.area.drawing_polygon = false;
+            }
+            ui.label("Click the map to draw.");
+        } else if self.gui_variables.area.polygon_filter.0.is_empty() {
+            if ui.button("Draw polygon").clicked() {
+                self.gui_variables.area.drawing_polygon = true;
+            }
+        } else if ui.button("Clear polygon").clicked() {
+            self.gui_variables.area.polygon_filter.0.clear();
+            self.gui_variables.area.drawing_polygon = false;
+        }
+
+        if self.gui_variables.area.drawing_polygon
+            && !self.gui_variables.area.polygon_filter.0.is_empty()
+            && !polygon_is_closed(&self.gui_variables.area.polygon_filter)
+        {
+            ui.add_enabled(false, egui::Button::new("Double click to end polygon"));
+        }
+
+        ui.add_space(20.);
+        ui.horizontal(|ui| {
+            if ui.button("Start over").clicked() {
+                self.open_modal = OmapModal::ConfirmStartOver;
+            }
+            let polygon_ready = !self.gui_variables.area.drawing_polygon
+                && (self.gui_variables.area.polygon_filter.0.is_empty()
+                    || polygon_is_closed(&self.gui_variables.area.polygon_filter));
+            if ui
+                .add_enabled(polygon_ready, egui::Button::new("Next step"))
+                .clicked()
+            {
+                self.on_frontend_task(FrontendTask::NextState);
+            }
+        });
     }
 
     pub fn render_choose_lidar_panel(&mut self, ui: &mut egui::Ui, enabled: bool) {
@@ -291,14 +364,6 @@ impl OmapMaker {
                     }
                 }
             });
-
-        ui.add_space(20.);
-        ui.label(
-            "If you only need to map part of the area that your Lidar files cover, \
-                click the \"Draw Polygon\" button and click around the area you want to keep. \
-                Double click to close the polygon.\n\
-                If no polygon is drawn the whole area that the Lidar files cover will be mapped.",
-        );
 
         ui.add_space(20.);
         ui.horizontal(|ui| {
@@ -881,4 +946,12 @@ impl OmapMaker {
             }
         });
     }
+}
+
+fn polygon_is_closed(line: &geo::LineString) -> bool {
+    line.0.len() >= 4 && line.0.first() == line.0.last()
+}
+
+fn format_area(area: f64) -> String {
+    format!("{:.2} km^2", area / 1_000_000.0)
 }

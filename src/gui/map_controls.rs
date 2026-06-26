@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use eframe::egui;
 use walkers::{MapMemory, Position, Projection, sources::Attribution};
 
-use super::{ProcessStage, gui_variables::TileProvider};
+use super::gui_variables::TileProvider;
 use crate::{
     drawable::DrawableOmap,
     map_gen::egui_map::{AreaSymbol, Symbol},
@@ -54,34 +54,6 @@ pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory, home_zoom: f64
             {
                 map_memory.follow_my_position();
                 map_memory.set_zoom(home_zoom).unwrap();
-            }
-        });
-}
-
-pub fn render_draw_button(
-    ui: &mut egui::Ui,
-    active: bool,
-    rect: egui::Rect,
-    polygon: &mut geo::LineString,
-    state: &mut ProcessStage,
-) {
-    egui::Window::new("Draw Polygon")
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 20.])
-        .enabled(active)
-        .show(ui.ctx(), |ui| {
-            if active {
-                if !polygon.0.is_empty() {
-                    if ui.button("Clear polygon").clicked() {
-                        polygon.0.clear();
-                    };
-                } else if ui.button("Draw polygon").clicked() {
-                    *state = ProcessStage::DrawPolygon;
-                }
-            } else {
-                let _ = ui.button("Double click to end polygon");
             }
         });
 }
@@ -214,6 +186,6 @@ pub fn render_background_map_choice(ui: &egui::Ui, source: &mut TileProvider) {
         .show(ui.ctx(), |ui| {
             ui.radio_value(source, TileProvider::OpenStreetMap, "OpenStreetMap");
             ui.radio_value(source, TileProvider::OpenTopoMap, "OpenTopoMap");
-            ui.radio_value(source, TileProvider::ArcGis, "ArcGIS Satelite");
+            ui.radio_value(source, TileProvider::ArcGIS, "ArcGIS Satellite");
         });
 }

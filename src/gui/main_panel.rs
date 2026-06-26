@@ -72,7 +72,7 @@ impl OmapMaker {
             let http_tiles = match self.gui_variables.map_view.tile_provider {
                 super::gui_variables::TileProvider::OpenStreetMap => &mut self.http_tiles.0,
                 super::gui_variables::TileProvider::OpenTopoMap => &mut self.http_tiles.1,
-                super::gui_variables::TileProvider::ArcGis => &mut self.http_tiles.2,
+                super::gui_variables::TileProvider::ArcGIS => &mut self.http_tiles.2,
             };
 
             map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
@@ -88,7 +88,7 @@ impl OmapMaker {
                 super::gui_variables::TileProvider::OpenTopoMap => {
                     "If you see this the OTM background-map did not load."
                 }
-                super::gui_variables::TileProvider::ArcGis => {
+                super::gui_variables::TileProvider::ArcGIS => {
                     "If you see this the ArcGIS background-map did not load."
                 }
             };
@@ -115,10 +115,7 @@ impl OmapMaker {
                     &self.gui_variables.lidar.boundaries,
                     &mut self.gui_variables.project.selected_file,
                 ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.area.polygon_filter,
-                    &mut self.state,
-                ))
+                map
             }
             ProcessStage::ChooseSubTile => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
@@ -135,13 +132,13 @@ impl OmapMaker {
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.lidar.boundaries,
-                    self.gui_variables.project.selected_file,
+                    None,
                     false,
                     None,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
                     &mut self.gui_variables.area.polygon_filter,
-                    &mut self.state,
+                    &mut self.gui_variables.area.drawing_polygon,
                 ))
             }
             state if state.is_adjustment() => map.with_plugin(map_plugins::OmapDrawer::new(
@@ -156,9 +153,8 @@ impl OmapMaker {
                     false,
                     None,
                 ));
-                map.with_plugin(map_plugins::PolygonDrawer::new(
+                map.with_plugin(map_plugins::PolygonDrawer::readonly(
                     &mut self.gui_variables.area.polygon_filter,
-                    &mut self.state,
                 ))
             }
             ProcessStage::Welcome => map,
@@ -179,20 +175,6 @@ impl OmapMaker {
 
         // Draw utility windows.
         match self.state {
-            ProcessStage::ChooseSquare => map_controls::render_draw_button(
-                ui,
-                true,
-                rect,
-                &mut self.gui_variables.area.polygon_filter,
-                &mut self.state,
-            ),
-            ProcessStage::DrawPolygon => map_controls::render_draw_button(
-                ui,
-                false,
-                rect,
-                &mut self.gui_variables.area.polygon_filter,
-                &mut self.state,
-            ),
             state if state.is_adjustment() => {
                 map_controls::render_contour_scores(
                     ui,

@@ -7,7 +7,7 @@ use std::{
 
 use copc_converter::{NodeStorage, Pipeline, PipelineConfig, TempCompression};
 use copc_rs::CopcReader;
-use geo::Contains;
+use geo::Intersects;
 use proj_core::CrsDef;
 
 const DEFAULT_COPC_MEMORY_BUDGET: u64 = 8_u64 * 1024 * 1024 * 1024;
@@ -19,7 +19,6 @@ pub fn convert_copc(
     input_crs: Vec<Option<CrsDef>>,
     output_crs: Option<CrsDef>,
     save_location: PathBuf,
-    selected_file: usize,
     boundaries: Vec<[walkers::Position; 4]>,
     polygon_filter: geo::LineString,
     write_single_copc: bool,
@@ -41,21 +40,14 @@ pub fn convert_copc(
     let mut stats = Vec::new();
     let inc_size = 1. / paths.len() as f32;
     for (pi, path) in paths.iter().cloned().enumerate() {
-        // first check if the file is relevant i.e overlaps with the polygon or is the selected file
+        // first check if the file is relevant i.e overlaps with the polygon
         let bounds = boundaries[pi];
 
-        // ugly
-        let mut relevant = true;
-        if pi != selected_file && !polygon.exterior().0.is_empty() {
-            relevant = polygon.contains(&bounds[0])
-                || polygon.contains(&bounds[1])
-                || polygon.contains(&bounds[2])
-                || polygon.contains(&bounds[3]);
-        }
+        let relevant =
+            polygon.exterior().0.is_empty() || polygon.intersects(&boundary_polygon(bounds));
 
         if relevant {
             stats.push(LidarStats::calculate_statistics(&path).unwrap());
-            relevant_paths.push(path.clone());
 
             let transform_needed =
                 if let (Some(input), Some(output)) = (&input_crs[pi], &output_crs) {
@@ -66,45 +58,41 @@ pub fn convert_copc(
 
             let conversion_needed = CopcReader::from_path(&path).is_err();
 
-            if write_single_copc {
-                if transform_needed && !conversion_needed {
-                    // the lidar file needs to be transformed into another CRS but is already a copc
-                    transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap());
-                } else if transform_needed {
-                    // the lidar file needs both to be transformed into another CRS and written to COPC
-                    convert_and_transform_file(
-                        path,
-                        input_crs[pi].clone(),
-                        output_crs.clone().unwrap(),
-                    );
-                } else if pi == selected_file && conversion_needed {
-                    // Keep the selected file readable for the map preview stage.
-                    new_paths[pi] = convert_file(path, input_crs[pi].clone(), sender.clone());
-                }
+            new_paths[pi] = if !conversion_needed && !transform_needed {
+                // the lidar file is both a COPC and in the correct CRS
+                path
+            } else if transform_needed && !conversion_needed {
+                // the lidar file needs to be transformed into another CRS but is already a copc
+                transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
+            } else if conversion_needed && !transform_needed {
+                // the lidar file needs to be converted to copc
+                convert_file(path, input_crs[pi].clone(), sender.clone())
             } else {
-                new_paths[pi] = if !conversion_needed && !transform_needed {
-                    // the lidar file is both a COPC and in the correct CRS
-                    path
-                } else if transform_needed && !conversion_needed {
-                    // the lidar file needs to be transformed into another CRS but is already a copc
-                    transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
-                } else if conversion_needed && !transform_needed {
-                    // the lidar file needs to be converted to copc
-                    convert_file(path, input_crs[pi].clone(), sender.clone())
-                } else {
-                    // the lidar file needs both to be transformed into another CRS and written to COPC
-                    convert_and_transform_file(
-                        path,
-                        input_crs[pi].clone(),
-                        output_crs.clone().unwrap(),
-                    )
-                };
+                // the lidar file needs both to be transformed into another CRS and written to COPC
+                convert_and_transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
+            };
+
+            if write_single_copc {
+                relevant_paths.push(new_paths[pi].clone());
             }
         }
 
         sender
             .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
             .unwrap()
+    }
+
+    if stats.is_empty() {
+        sender
+            .send(FrontendTask::ProgressBar(ProgressBar::Finish))
+            .unwrap();
+        sender
+            .send(FrontendTask::Error(
+                "The chosen polygon filter does not intersect the lidar files".to_string(),
+                false,
+            ))
+            .unwrap();
+        return;
     }
 
     if write_single_copc {
@@ -145,6 +133,19 @@ pub fn convert_copc(
     sender
         .send(FrontendTask::TaskComplete(TaskDone::ConvertCopc))
         .unwrap();
+}
+
+fn boundary_polygon(bounds: [walkers::Position; 4]) -> geo::Polygon {
+    geo::Polygon::new(
+        geo::LineString::new(vec![
+            bounds[0].0,
+            bounds[1].0,
+            bounds[2].0,
+            bounds[3].0,
+            bounds[0].0,
+        ]),
+        vec![],
+    )
 }
 
 fn transform_file(_path: PathBuf, _current_crs: Option<CrsDef>, _out_crs: CrsDef) -> PathBuf {

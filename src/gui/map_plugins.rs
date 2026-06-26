@@ -4,7 +4,6 @@ use eframe::egui::{self, Color32, Response, Ui};
 use geo::{LineString, Polygon, TriangulateEarcut, Validation};
 use walkers::{Plugin, Position, ScreenProjector};
 
-use super::ProcessStage;
 use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol, neighbors::Neighborhood};
 
 const COLOR_LIST: [egui::Color32; 9] = [
@@ -139,14 +138,21 @@ impl Plugin for LasBoundaryPainter<'_> {
 }
 
 pub struct PolygonDrawer<'a> {
-    state: &'a mut ProcessStage,
+    drawing_enabled: Option<&'a mut bool>,
     area_of_interest: &'a mut LineString,
 }
 
 impl<'a> PolygonDrawer<'a> {
-    pub fn new(area_of_interest: &'a mut LineString, state: &'a mut ProcessStage) -> Self {
+    pub fn new(area_of_interest: &'a mut LineString, drawing_enabled: &'a mut bool) -> Self {
         PolygonDrawer {
-            state,
+            drawing_enabled: Some(drawing_enabled),
+            area_of_interest,
+        }
+    }
+
+    pub fn readonly(area_of_interest: &'a mut LineString) -> Self {
+        PolygonDrawer {
+            drawing_enabled: None,
             area_of_interest,
         }
     }
@@ -154,36 +160,46 @@ impl<'a> PolygonDrawer<'a> {
 
 impl Plugin for PolygonDrawer<'_> {
     fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
+        let PolygonDrawer {
+            drawing_enabled,
+            area_of_interest,
+        } = *self;
+        let drawing = drawing_enabled.as_deref().copied().unwrap_or(false);
+        let closed = polygon_is_closed(area_of_interest);
+
         // register clicks
-        if *self.state == ProcessStage::DrawPolygon && !response.changed() {
+        if drawing && !closed && !response.changed() {
             if response.double_clicked() {
-                if self.area_of_interest.0.len() < 3 {
-                    self.area_of_interest.0.clear();
+                if area_of_interest.0.len() < 3 {
+                    area_of_interest.0.clear();
                 } else {
-                    self.area_of_interest.close();
+                    area_of_interest.close();
                 }
 
-                let valid_check = Polygon::new(self.area_of_interest.clone(), vec![]);
+                let valid_check = Polygon::new(area_of_interest.clone(), vec![]);
                 if !valid_check.is_valid() {
-                    self.area_of_interest.0.clear();
+                    area_of_interest.0.clear();
                 }
 
-                *self.state = ProcessStage::ChooseSquare;
+                if let Some(enabled) = drawing_enabled {
+                    *enabled = false;
+                }
             } else if response.clicked_by(egui::PointerButton::Primary) {
                 let clicked_pos = response
                     .interact_pointer_pos()
                     .map(|p| projector.unproject(p));
 
                 if let Some(cp) = clicked_pos {
-                    self.area_of_interest.0.push(cp.0);
+                    area_of_interest.0.push(cp.0);
                 }
             }
         }
 
         // draw the polygon
-        if !self.area_of_interest.0.is_empty() {
-            let mut line = self.area_of_interest.clone();
-            if *self.state == ProcessStage::DrawPolygon
+        if !area_of_interest.0.is_empty() {
+            let mut line = area_of_interest.clone();
+            if drawing
+                && !closed
                 && response.hovered()
                 && let Some(pos) = response.hover_pos()
             {
@@ -216,12 +232,12 @@ impl Plugin for PolygonDrawer<'_> {
                 ui.painter().add(mesh);
             }
 
-            let mut outline: Vec<egui::Pos2> = self
-                .area_of_interest
+            let mut outline: Vec<egui::Pos2> = area_of_interest
                 .coords()
                 .map(|p| projector.project(geo::Point(*p)))
                 .collect();
-            if *self.state == ProcessStage::DrawPolygon
+            if drawing
+                && !closed
                 && response.hovered()
                 && let Some(pos) = response.hover_pos()
             {
@@ -232,6 +248,10 @@ impl Plugin for PolygonDrawer<'_> {
                 .line(outline, egui::Stroke::new(2., egui::Color32::ORANGE));
         }
     }
+}
+
+fn polygon_is_closed(line: &LineString) -> bool {
+    line.0.len() >= 4 && line.0.first() == line.0.last()
 }
 
 pub struct ClickListener<'a> {

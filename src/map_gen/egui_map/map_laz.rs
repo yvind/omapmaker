@@ -17,7 +17,8 @@ pub fn map_laz(
     paths: Vec<PathBuf>,
     crs_defs: Option<Vec<Option<CrsDef>>>,
 ) {
-    let (boundaries, mid_point, components) = match read_boundaries(paths, crs_defs) {
+    let (boundaries, boundary_areas, mid_point, components) = match read_boundaries(paths, crs_defs)
+    {
         Ok(bm) => bm,
         Err(e) => {
             sender
@@ -30,6 +31,12 @@ pub fn map_laz(
     sender
         .send(FrontendTask::UpdateVariable(Variable::Boundaries(
             boundaries.clone(),
+        )))
+        .unwrap();
+
+    sender
+        .send(FrontendTask::UpdateVariable(Variable::BoundaryAreas(
+            boundary_areas,
         )))
         .unwrap();
 
@@ -54,6 +61,7 @@ fn read_boundaries(
     crs_defs: Option<Vec<Option<CrsDef>>>,
 ) -> Result<(
     Vec<[walkers::Position; 4]>,
+    Vec<f64>,
     walkers::Position,
     Vec<Vec<usize>>,
 )> {
@@ -62,8 +70,11 @@ fn read_boundaries(
     let mut all_lidar_bounds = [(f64::MAX, f64::MIN), (f64::MIN, f64::MAX)];
 
     let mut walkers_boundaries = Vec::with_capacity(bounds.len());
+    let mut boundary_areas = Vec::with_capacity(bounds.len());
 
     for (i, bound) in bounds.iter().enumerate() {
+        boundary_areas.push((bound.max().x - bound.min().x) * (bound.max().y - bound.min().y));
+
         let mut points = [
             (bound.min().x, bound.max().y),
             (bound.min().x, bound.min().y),
@@ -107,7 +118,7 @@ fn read_boundaries(
         (all_lidar_bounds[0].0 + all_lidar_bounds[1].0) / 2.,
         (all_lidar_bounds[0].1 + all_lidar_bounds[1].1) / 2.,
     );
-    Ok((walkers_boundaries, mid_point, components))
+    Ok((walkers_boundaries, boundary_areas, mid_point, components))
 }
 
 fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<Rect>, Vec<Vec<usize>>) {

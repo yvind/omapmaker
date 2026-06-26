@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use geo::LineString;
+use geo::{Area, LineString, Validation};
 use proj_core::CrsDef;
 use walkers::Position;
 
@@ -29,6 +29,10 @@ pub enum StageValidationError {
     InvalidSelectedTile,
     #[error("Lidar statistics are not ready yet")]
     MissingLidarStats,
+    #[error("Finish or clear the polygon filter before continuing")]
+    UnfinishedPolygonFilter,
+    #[error("The polygon filter is not valid")]
+    InvalidPolygonFilter,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
@@ -36,7 +40,7 @@ pub enum TileProvider {
     #[default]
     OpenStreetMap,
     OpenTopoMap,
-    ArcGis,
+    ArcGIS,
 }
 
 #[derive(Default, Clone)]
@@ -106,6 +110,7 @@ pub struct ReadyForTileSelection {
 #[derive(Default)]
 pub struct LidarAnalysisState {
     pub boundaries: Vec<[Position; 4]>,
+    pub boundary_areas: Vec<f64>,
     pub crs_less_search_strings: Vec<String>,
     pub unique_crs: Vec<CrsDef>,
     pub output_crs_string: String,
@@ -116,12 +121,14 @@ pub struct LidarAnalysisState {
 
 pub struct AreaSelectionState {
     pub polygon_filter: LineString,
+    pub drawing_polygon: bool,
 }
 
 impl Default for AreaSelectionState {
     fn default() -> Self {
         Self {
             polygon_filter: LineString::new(vec![]),
+            drawing_polygon: false,
         }
     }
 }
@@ -186,7 +193,6 @@ pub struct ReadyForCopcConversion {
     pub file_params: FileParameters,
     pub output_crs: Option<CrsDef>,
     pub save_location: std::path::PathBuf,
-    pub selected_file: usize,
     pub boundaries: Vec<[walkers::Position; 4]>,
     pub polygon_filter: LineString,
     pub write_single_copc: bool,
@@ -276,6 +282,7 @@ impl GuiVariables {
             self.project.paths.remove(drop_file);
             self.project.crs_epsg.remove(drop_file);
             self.lidar.boundaries.remove(drop_file);
+            self.lidar.boundary_areas.remove(drop_file);
         }
 
         let mut new_home = (0., 0.);
@@ -298,12 +305,19 @@ impl GuiVariables {
     }
 
     pub fn validate_copc_conversion(&self) -> Result<ReadyForCopcConversion, StageValidationError> {
-        let selected_file = self
-            .project
-            .selected_file
-            .ok_or(StageValidationError::MissingSelectedFile)?;
-        if selected_file >= self.project.paths.len() {
-            return Err(StageValidationError::InvalidSelectedFile);
+        if self.area.drawing_polygon {
+            return Err(StageValidationError::UnfinishedPolygonFilter);
+        }
+
+        if !self.area.polygon_filter.0.is_empty() {
+            if !polygon_is_closed(&self.area.polygon_filter) {
+                return Err(StageValidationError::UnfinishedPolygonFilter);
+            }
+
+            let polygon = geo::Polygon::new(self.area.polygon_filter.clone(), vec![]);
+            if !polygon.is_valid() {
+                return Err(StageValidationError::InvalidPolygonFilter);
+            }
         }
 
         Ok(ReadyForCopcConversion {
@@ -314,11 +328,31 @@ impl GuiVariables {
             },
             output_crs: self.generation.params.output.crs.clone(),
             save_location: self.project.save_location.clone(),
-            selected_file,
             boundaries: self.lidar.boundaries.clone(),
             polygon_filter: self.area.polygon_filter.clone(),
             write_single_copc: self.project.write_single_copc,
         })
+    }
+
+    pub fn lidar_bounds_area(&self) -> f64 {
+        self.lidar.boundary_areas.iter().sum()
+    }
+
+    pub fn polygon_area(&self) -> Option<f64> {
+        if self.area.polygon_filter.0.len() < 3 {
+            return None;
+        }
+
+        let mut line = self.area.polygon_filter.clone();
+        if !polygon_is_closed(&line) {
+            line.close();
+        }
+
+        crate::project::polygon::from_walkers_map_coords(
+            self.generation.params.output.crs.clone(),
+            line,
+        )
+        .map(|polygon| polygon.unsigned_area())
     }
 
     pub fn validate_map_preview(&self) -> Result<ReadyForMapPreview, StageValidationError> {
@@ -357,6 +391,10 @@ impl GuiVariables {
             stats,
         })
     }
+}
+
+fn polygon_is_closed(line: &LineString) -> bool {
+    line.0.len() >= 4 && line.0.first() == line.0.last()
 }
 
 #[cfg(test)]

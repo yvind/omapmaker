@@ -23,6 +23,7 @@ pub enum ProcessStage {
     DrawPolygon,
     ExportDone,
     MakeMap,
+    PrepareMapPreview,
     Welcome,
 }
 
@@ -30,10 +31,12 @@ impl ProcessStage {
     pub fn next(&mut self) {
         match self {
             ProcessStage::Welcome => *self = ProcessStage::CheckLidar,
-            ProcessStage::CheckLidar => *self = ProcessStage::ChooseSquare,
+            ProcessStage::CheckLidar => *self = ProcessStage::DrawPolygon,
+            ProcessStage::DrawPolygon => *self = ProcessStage::ConvertingCOPC,
+            ProcessStage::ConvertingCOPC => *self = ProcessStage::ChooseSquare,
             ProcessStage::ChooseSquare => *self = ProcessStage::ChooseSubTile,
-            ProcessStage::ChooseSubTile => *self = ProcessStage::ConvertingCOPC,
-            ProcessStage::ConvertingCOPC => *self = ProcessStage::AdjustContours,
+            ProcessStage::ChooseSubTile => *self = ProcessStage::PrepareMapPreview,
+            ProcessStage::PrepareMapPreview => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustContours => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustVegetation,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustCliffs,
@@ -46,7 +49,7 @@ impl ProcessStage {
 
     pub fn prev(&mut self) {
         match self {
-            ProcessStage::AdjustContours => *self = ProcessStage::ChooseSquare,
+            ProcessStage::AdjustContours => *self = ProcessStage::ChooseSubTile,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustVegetation,

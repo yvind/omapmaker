@@ -65,7 +65,8 @@ impl eframe::App for OmapMaker {
                     ProcessStage::ConvertingCOPC => self.render_copc_panel(ui),
                     ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
                     ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
-                    ProcessStage::DrawPolygon => self.render_choose_lidar_panel(ui, false),
+                    ProcessStage::DrawPolygon => self.render_draw_polygon_panel(ui),
+                    ProcessStage::PrepareMapPreview => self.render_prepare_map_preview_panel(ui),
                     ProcessStage::AdjustContours
                     | ProcessStage::AdjustOpenness
                     | ProcessStage::AdjustVegetation
@@ -95,9 +96,10 @@ impl eframe::App for OmapMaker {
                 | ProcessStage::ShowComponents => {
                     self.render_map(ui);
                 }
-                ProcessStage::CheckLidar | ProcessStage::ConvertingCOPC | ProcessStage::MakeMap => {
-                    self.render_console(ui)
-                }
+                ProcessStage::CheckLidar
+                | ProcessStage::ConvertingCOPC
+                | ProcessStage::PrepareMapPreview
+                | ProcessStage::MakeMap => self.render_console(ui),
             });
 
         // render the open modal
@@ -204,6 +206,7 @@ impl OmapMaker {
         match variable {
             Variable::Paths(p) => self.gui_variables.project.paths = p,
             Variable::Boundaries(vec) => self.gui_variables.lidar.boundaries = vec,
+            Variable::BoundaryAreas(vec) => self.gui_variables.lidar.boundary_areas = vec,
             Variable::Home(position) => self.home = position,
             Variable::CrsDefs(vec) => {
                 self.gui_variables.project.crs_epsg = vec;
@@ -316,21 +319,7 @@ impl OmapMaker {
                 ));
             }
             TaskDone::ConvertCopc => {
-                let ready = match self.gui_variables.validate_map_preview() {
-                    Ok(ready) => ready,
-                    Err(error) => {
-                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
-                        return;
-                    }
-                };
-                self.gui_variables.preview.generating_map_tile = true;
-                self.comms
-                    .send(BackendTask::InitializeMapTile(
-                        ready.path,
-                        ready.tile,
-                        ready.stats,
-                    ))
-                    .unwrap();
+                self.next_state();
             }
             TaskDone::RegenerateMap => {
                 self.gui_variables.preview.generating_map_tile = false;
@@ -339,7 +328,8 @@ impl OmapMaker {
             TaskDone::Reset => (),
             TaskDone::InitializeMapTile => {
                 self.gui_variables.preview.generating_map_tile = false;
-                self.next_state();
+                self.state.next();
+                self.start_task(Task::RegenerateMap);
             }
         }
     }
@@ -365,6 +355,32 @@ impl OmapMaker {
                     self.gui_variables.project.selected_file = Some(0);
                 }
             }
+            ProcessStage::DrawPolygon => {
+                let ready = match self.gui_variables.validate_copc_conversion() {
+                    Ok(ready) => ready,
+                    Err(error) => {
+                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                        return;
+                    }
+                };
+                self.state.next();
+                self.gui_variables.project.single_copc_path = None;
+                self.comms
+                    .send(BackendTask::ConvertCopc(
+                        ready.file_params.paths,
+                        ready.file_params.crs_epsg,
+                        ready.output_crs,
+                        ready.save_location,
+                        ready.boundaries,
+                        ready.polygon_filter,
+                        ready.write_single_copc,
+                    ))
+                    .unwrap();
+            }
+            ProcessStage::ConvertingCOPC => {
+                self.state.next();
+                self.map_memory.follow_my_position();
+            }
             ProcessStage::ChooseSquare => {
                 let ready = match self.gui_variables.project.validate_selected_file() {
                     Ok(ready) => ready,
@@ -383,31 +399,22 @@ impl OmapMaker {
                     self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
                     return;
                 }
-                let ready = match self.gui_variables.validate_copc_conversion() {
+                let ready = match self.gui_variables.validate_map_preview() {
                     Ok(ready) => ready,
                     Err(error) => {
                         self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
                         return;
                     }
                 };
+                self.gui_variables.preview.generating_map_tile = true;
                 self.state.next();
-                self.gui_variables.project.single_copc_path = None;
                 self.comms
-                    .send(BackendTask::ConvertCopc(
-                        ready.file_params.paths,
-                        ready.file_params.crs_epsg,
-                        ready.output_crs,
-                        ready.save_location,
-                        ready.selected_file,
-                        ready.boundaries,
-                        ready.polygon_filter,
-                        ready.write_single_copc,
+                    .send(BackendTask::InitializeMapTile(
+                        ready.path,
+                        ready.tile,
+                        ready.stats,
                     ))
                     .unwrap();
-            }
-            ProcessStage::ConvertingCOPC => {
-                self.state.next();
-                self.regenerate_map(RegenerationScope::Changed);
             }
             state if state.is_adjustment() && state != ProcessStage::AdjustIntensity => {
                 self.state.next();
