@@ -9,16 +9,16 @@ use crate::{
 };
 use anyhow::Context;
 use geo::{Area, BooleanOps, Intersects};
+use rayon::{ThreadPool, prelude::*};
 
 use std::{
     cmp::Ordering,
-    num::NonZero,
     sync::{Arc, Mutex, mpsc::Sender},
-    thread,
 };
 
 pub fn make_map(
     sender: Sender<FrontendTask>,
+    thread_pool: &ThreadPool,
     map_params: MapParameters,
     file_params: FileParameters,
     mut polygon_filter: Option<geo::Polygon>,
@@ -26,13 +26,7 @@ pub fn make_map(
 ) -> Result<()> {
     let _ = sender.send(FrontendTask::Log("Starting map generation!".to_string()));
 
-    let num_threads = match std::thread::available_parallelism() {
-        Ok(threads) => threads.get(),
-        Err(_) => match NonZero::new(8_usize) {
-            Some(fallback) => fallback.get(),
-            None => 8,
-        },
-    };
+    let num_threads = thread_pool.current_num_threads();
 
     let _ = sender.send(FrontendTask::Log(format!(
         "Running on {} threads",
@@ -86,100 +80,78 @@ pub fn make_map(
         let num_tiles = nx * ny;
         let inc = 1. / num_tiles as f32;
 
-        thread::scope(|s| {
-            for mut thread_i in 0..num_threads {
-                let map = map.clone();
-                let tile_bounds = tile_bounds.clone();
-                let cut_bounds = cut_bounds.clone();
-                let sender = sender.clone();
-                let laz_neighbor_map = laz_neighbor_map.clone();
-                let laz_paths = laz_paths.clone();
-                let map_params = map_params.clone();
-                let polygon_filter = polygon_filter.clone();
-                let stats = stats.clone();
+        thread_pool.install(|| {
+            (0..num_tiles).into_par_iter().for_each(|tile_i| {
+                let edge_tile = NeighborSide::is_edge_tile(tile_i, nx, ny);
 
-                let _ = thread::Builder::new()
-                    .stack_size(crate::STACK_SIZE * 1024 * 1024)
-                    .spawn_scoped(s, move || {
-                        while thread_i < num_tiles {
-                            let edge_tile = NeighborSide::is_edge_tile(thread_i, nx, ny);
+                if let Some(polygon) = &polygon_filter
+                    && !cut_bounds[tile_i].intersects(polygon)
+                {
+                    return;
+                }
 
-                            if let Some(polygon) = &polygon_filter
-                                && !cut_bounds[thread_i].intersects(polygon)
-                            {
-                                thread_i += num_threads;
-                                continue;
-                            }
-
-                            let (cloud, mut hull) = match super::read_laz(
-                                &laz_paths,
-                                &laz_neighbor_map[fi],
-                                tile_bounds[thread_i],
-                                edge_tile,
-                                ref_point,
-                            ) {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    if e.downcast_ref::<crate::Error>()
-                                        .is_some_and(|e| matches!(e, crate::Error::NoGroundPoints))
-                                    {
-                                        thread_i += num_threads;
-                                        continue;
-                                    }
-                                    let _ = sender.send(FrontendTask::Error(e.to_string(), true));
-                                    continue;
-                                }
-                            };
-
-                            if let Some(polygon) = &polygon_filter {
-                                let mut mp = polygon.intersection(&hull);
-
-                                if mp.0.is_empty() {
-                                    thread_i += num_threads;
-                                    continue;
-                                }
-
-                                mp.0.sort_by(|a, b| {
-                                    a.signed_area()
-                                        .partial_cmp(&b.signed_area())
-                                        .unwrap_or(Ordering::Equal)
-                                });
-                                hull = mp.0.swap_remove(0);
-                            }
-
-                            let objects = match super::compute_map_objects(
-                                &map_params,
-                                cloud,
-                                &stats,
-                                hull,
-                                cut_bounds[thread_i],
-                            ) {
-                                Ok(objects) => objects,
-                                Err(e) => {
-                                    let _ = sender.send(FrontendTask::Error(e.to_string(), true));
-                                    thread_i += num_threads;
-                                    continue;
-                                }
-                            };
-                            {
-                                if let Ok(mut map) = map.lock() {
-                                    for object in objects {
-                                        map.add_object(object);
-                                    }
-                                } else {
-                                    let _ = sender.send(FrontendTask::Error(
-                                        "Map generation mutex was poisoned".to_string(),
-                                        true,
-                                    ));
-                                    thread_i += num_threads;
-                                    continue;
-                                }
-                            }
-                            let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)));
-                            thread_i += num_threads;
+                let (cloud, mut hull) = match super::read_laz(
+                    &laz_paths,
+                    &laz_neighbor_map[fi],
+                    tile_bounds[tile_i],
+                    edge_tile,
+                    ref_point,
+                ) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        if e.downcast_ref::<crate::Error>()
+                            .is_some_and(|e| matches!(e, crate::Error::NoGroundPoints))
+                        {
+                            return;
                         }
+                        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                        return;
+                    }
+                };
+
+                if let Some(polygon) = &polygon_filter {
+                    let mut mp = polygon.intersection(&hull);
+
+                    if mp.0.is_empty() {
+                        return;
+                    }
+
+                    mp.0.sort_by(|a, b| {
+                        a.signed_area()
+                            .partial_cmp(&b.signed_area())
+                            .unwrap_or(Ordering::Equal)
                     });
-            }
+                    hull = mp.0.swap_remove(0);
+                }
+
+                let objects = match super::compute_map_objects(
+                    &map_params,
+                    cloud,
+                    &stats,
+                    hull,
+                    cut_bounds[tile_i],
+                ) {
+                    Ok(objects) => objects,
+                    Err(e) => {
+                        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                        return;
+                    }
+                };
+                {
+                    if let Ok(mut map) = map.lock() {
+                        for object in objects {
+                            map.add_object(object);
+                        }
+                    } else {
+                        let _ = sender.send(FrontendTask::Error(
+                            "Map generation mutex was poisoned".to_string(),
+                            true,
+                        ));
+                        return;
+                    }
+                }
+                let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)));
+            });
         });
 
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));

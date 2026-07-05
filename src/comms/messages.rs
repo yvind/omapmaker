@@ -23,6 +23,7 @@ pub enum FrontendTask {
 
 pub enum BackendTask {
     ClearParams,
+    SetWorkerThreads(usize),
     TileSelectedFile(PathBuf, Option<CrsDef>),
     InitializeMapTile(PathBuf, Neighborhood, LidarStats),
     ParseCrs(Vec<PathBuf>),

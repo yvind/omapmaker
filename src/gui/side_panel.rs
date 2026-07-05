@@ -92,6 +92,21 @@ impl OmapMaker {
         egui::CollapsingHeader::new("Advanced options")
             .id_salt("welcome_advanced_options")
             .show(ui, |ui| {
+                let max_threads = std::thread::available_parallelism()
+                    .map(|threads| threads.get())
+                    .unwrap_or(8)
+                    .max(self.gui_variables.project.worker_threads)
+                    .max(1);
+
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.project.worker_threads,
+                        1..=max_threads,
+                    )
+                    .text("Backend threads"),
+                )
+                .on_hover_text("Number of worker threads used by the backend Rayon thread pool.");
+
                 ui.checkbox(
                     &mut self.gui_variables.project.write_single_copc,
                     "Write all relevant lidar files to one COPC file",

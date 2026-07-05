@@ -43,7 +43,7 @@ pub enum TileProvider {
     ArcGIS,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ProjectFiles {
     pub paths: Vec<std::path::PathBuf>,
     pub save_location: std::path::PathBuf,
@@ -51,6 +51,21 @@ pub struct ProjectFiles {
     pub crs_epsg: Vec<Option<CrsDef>>,
     pub write_single_copc: bool,
     pub single_copc_path: Option<std::path::PathBuf>,
+    pub worker_threads: usize,
+}
+
+impl Default for ProjectFiles {
+    fn default() -> Self {
+        Self {
+            paths: Default::default(),
+            save_location: Default::default(),
+            selected_file: Default::default(),
+            crs_epsg: Default::default(),
+            write_single_copc: Default::default(),
+            single_copc_path: Default::default(),
+            worker_threads: default_worker_threads(),
+        }
+    }
 }
 
 impl ProjectFiles {
@@ -96,6 +111,13 @@ impl ProjectFiles {
             crs_epsg: self.crs_epsg.clone(),
         }
     }
+}
+
+fn default_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|threads| threads.get())
+        .unwrap_or(8)
+        .max(1)
 }
 
 pub struct ReadyForCrsCheck {

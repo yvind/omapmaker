@@ -342,6 +342,9 @@ impl OmapMaker {
                 };
                 self.state.next();
                 self.gui_variables.project.selected_file = None;
+                let _ = self.comms.send(BackendTask::SetWorkerThreads(
+                    self.gui_variables.project.worker_threads,
+                ));
                 let _ = self.comms.send(BackendTask::ParseCrs(ready.paths));
             }
             ProcessStage::CheckLidar => {

@@ -10,6 +10,7 @@ use crate::parameters::MapParameters;
 use crate::project;
 use crate::raster::Dfm;
 
+use rayon::{ThreadPool, ThreadPoolBuilder};
 use std::time::Duration;
 
 pub struct Backend {
@@ -29,6 +30,8 @@ pub struct Backend {
     hull: geo::Polygon,
     ref_point: geo::Coord,
     z_range: (f64, f64),
+    thread_pool: ThreadPool,
+    worker_threads: usize,
 }
 
 impl Backend {
@@ -36,6 +39,15 @@ impl Backend {
         if let Err(e) = std::thread::Builder::new()
             .stack_size(crate::STACK_SIZE * 1024 * 1024)
             .spawn(move || {
+                let worker_threads = default_worker_threads();
+                let thread_pool = match build_thread_pool(worker_threads) {
+                    Ok(pool) => pool,
+                    Err(e) => {
+                        eprintln!("Failed to create backend Rayon thread pool: {e}");
+                        return;
+                    }
+                };
+
                 let mut backend = Backend {
                     comms,
                     ctx,
@@ -48,6 +60,8 @@ impl Backend {
                     hull: geo::Polygon::new(geo::LineString::new(vec![]), vec![]),
                     ref_point: geo::Coord { x: 0., y: 0. },
                     z_range: (0., 0.),
+                    thread_pool,
+                    worker_threads,
                 };
 
                 backend.run();
@@ -63,6 +77,11 @@ impl Backend {
                 match task {
                     BackendTask::ClearParams => {
                         self.map_params = None;
+                    }
+                    BackendTask::SetWorkerThreads(worker_threads) => {
+                        if let Err(e) = self.set_worker_threads(worker_threads) {
+                            let _ = self.comms.send(FrontendTask::Error(e.to_string(), false));
+                        }
                     }
                     BackendTask::ParseCrs(paths) => {
                         crate::parse_crs::parse_crs(self.comms.clone_sender(), paths);
@@ -121,6 +140,7 @@ impl Backend {
                         assert!(!self.map_tile_dem.is_empty());
                         map_gen::egui_map::regenerate_map_tile(
                             self.comms.clone_sender(),
+                            &self.thread_pool,
                             &self.map_tile_dem,
                             &self.map_tile_grad_dem,
                             &self.map_tile_drm,
@@ -157,6 +177,7 @@ impl Backend {
 
                         let _ = match map_gen::final_map::make_map(
                             self.comms.clone_sender(),
+                            &self.thread_pool,
                             *map_params,
                             *file_params,
                             local_polygon_filter,
@@ -197,6 +218,20 @@ impl Backend {
         self.ref_point = geo::Coord { x: 0., y: 0. };
     }
 
+    fn set_worker_threads(&mut self, worker_threads: usize) -> crate::Result<()> {
+        let worker_threads = worker_threads.max(1);
+        if worker_threads == self.worker_threads {
+            return Ok(());
+        }
+
+        self.thread_pool = build_thread_pool(worker_threads)?;
+        self.worker_threads = worker_threads;
+        let _ = self.comms.send(FrontendTask::Log(format!(
+            "Backend worker pool set to {worker_threads} threads"
+        )));
+        Ok(())
+    }
+
     fn tile_selected_file(
         &self,
         path: std::path::PathBuf,
@@ -227,4 +262,19 @@ impl Backend {
 
         Ok(())
     }
+}
+
+fn default_worker_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|threads| threads.get())
+        .unwrap_or(8)
+        .max(1)
+}
+
+fn build_thread_pool(worker_threads: usize) -> crate::Result<ThreadPool> {
+    ThreadPoolBuilder::new()
+        .num_threads(worker_threads.max(1))
+        .stack_size(crate::STACK_SIZE * 1024 * 1024)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to create backend Rayon thread pool: {e}"))
 }

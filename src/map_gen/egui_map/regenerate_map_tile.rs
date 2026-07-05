@@ -9,11 +9,12 @@ use crate::{
     raster::{Dfm, Threshold},
 };
 
+use rayon::{ThreadPool, prelude::*};
 use std::sync::{Arc, Mutex, mpsc::Sender};
-use std::thread;
 
 pub fn regenerate_map_tile(
     sender: Sender<FrontendTask>,
+    thread_pool: &ThreadPool,
     dem: &[Dfm],
     g_dem: &[Dfm],
     drm: &[Dfm],
@@ -28,6 +29,7 @@ pub fn regenerate_map_tile(
 ) {
     if let Err(e) = try_regenerate_map_tile(
         sender.clone(),
+        thread_pool,
         dem,
         g_dem,
         drm,
@@ -46,6 +48,7 @@ pub fn regenerate_map_tile(
 
 fn try_regenerate_map_tile(
     sender: Sender<FrontendTask>,
+    thread_pool: &ThreadPool,
     dem: &[Dfm],
     g_dem: &[Dfm],
     drm: &[Dfm],
@@ -87,195 +90,181 @@ fn try_regenerate_map_tile(
     let tot_energy = Arc::new(Mutex::new(0.));
     let tot_error = Arc::new(Mutex::new(0.));
 
-    thread::scope(|s| {
-        for i in 0..dem.len() {
+    thread_pool.install(|| {
+        (0..dem.len()).into_par_iter().for_each(|i| {
             let omap = omap.clone();
             let tot_energy = tot_energy.clone();
             let tot_error = tot_error.clone();
             let sender = sender.clone();
 
-            let _ = thread::Builder::new()
-                .stack_size(crate::STACK_SIZE * 1024 * 1024)
-                .spawn_scoped(s, move || {
-                    if needs_update.contours {
-                        let (error, energy) = match &params.contour.algorithm {
-                            ContourAlgo::NaiveIterations => {
-                                let Ok((objects, error, energy)) =
-                                    map_gen::common::compute_naive_contours(
-                                        &dem[i],
-                                        z_range,
-                                        &cut_bounds[i],
-                                        (0.1, 0.0),
-                                        params,
-                                    )
-                                else {
-                                    let _ = sender.send(FrontendTask::Error(
-                                        "Failed to compute naive contours".to_string(),
-                                        true,
-                                    ));
-                                    return;
-                                };
-                                add_objects(&omap, objects);
-                                (error, energy)
-                            }
-                            ContourAlgo::NormalFieldSmoothing => {
-                                let Ok((objects, error, energy)) =
-                                    map_gen::common::extract_contours(
-                                        &dem[i],
-                                        z_range,
-                                        &cut_bounds[i],
-                                        params,
-                                        true,
-                                    )
-                                else {
-                                    let _ = sender.send(FrontendTask::Error(
-                                        "Failed to extract smoothed contours".to_string(),
-                                        true,
-                                    ));
-                                    return;
-                                };
-                                add_objects(&omap, objects);
-                                (error, energy)
-                            }
-                            ContourAlgo::Raw => {
-                                let Ok((objects, error, energy)) =
-                                    map_gen::common::extract_contours(
-                                        &dem[i],
-                                        z_range,
-                                        &cut_bounds[i],
-                                        params,
-                                        true,
-                                    )
-                                else {
-                                    let _ = sender.send(FrontendTask::Error(
-                                        "Failed to extract raw contours".to_string(),
-                                        true,
-                                    ));
-                                    return;
-                                };
-                                add_objects(&omap, objects);
-                                (error, energy)
-                            }
-                        };
-                        {
-                            if let Ok(mut energy_lock) = tot_energy.lock() {
-                                *energy_lock += energy;
-                            }
-                        }
-                        {
-                            if let Ok(mut error_lock) = tot_error.lock() {
-                                *error_lock += error;
-                            }
-                        }
-                    }
-
-                    if params.contour.basemap_contour
-                        && params.contour.basemap_interval >= 0.1
-                        && needs_update.basemap
-                    {
-                        let objects = map_gen::common::compute_basemap(
+            if needs_update.contours {
+                let (error, energy) = match &params.contour.algorithm {
+                    ContourAlgo::NaiveIterations => {
+                        let Ok((objects, error, energy)) = map_gen::common::compute_naive_contours(
                             &dem[i],
                             z_range,
                             &cut_bounds[i],
-                            params.contour.basemap_interval,
-                        );
+                            (0.1, 0.0),
+                            params,
+                        ) else {
+                            let _ = sender.send(FrontendTask::Error(
+                                "Failed to compute naive contours".to_string(),
+                                true,
+                            ));
+                            return;
+                        };
                         add_objects(&omap, objects);
+                        (error, energy)
                     }
-
-                    if needs_update.yellow {
-                        let objects = map_gen::common::compute_vegetation(
-                            &drm[i],
-                            Threshold::Upper(params.vegetation.yellow),
-                            hull,
-                            &cut_bounds[i],
-                            AreaSymbol::RoughOpenLand,
-                            params,
-                            &params.geometry.openness.buffer_rules,
-                        );
-                        if objects.is_empty() {
-                            clear_objects(&omap, AreaSymbol::RoughOpenLand);
-                        } else {
-                            add_objects(&omap, objects);
-                        }
-                    }
-
-                    if needs_update.l_green {
-                        let objects = map_gen::common::compute_vegetation(
-                            &drm[i],
-                            Threshold::Lower(params.vegetation.green.0),
-                            hull,
-                            &cut_bounds[i],
-                            AreaSymbol::LightGreen,
-                            params,
-                            &params.geometry.vegetation.buffer_rules,
-                        );
-                        if objects.is_empty() {
-                            clear_objects(&omap, AreaSymbol::LightGreen);
-                        } else {
-                            add_objects(&omap, objects);
-                        }
-                    }
-
-                    if needs_update.m_green {
-                        let objects = map_gen::common::compute_vegetation(
-                            &drm[i],
-                            Threshold::Lower(params.vegetation.green.1),
-                            hull,
-                            &cut_bounds[i],
-                            AreaSymbol::MediumGreen,
-                            params,
-                            &params.geometry.vegetation.buffer_rules,
-                        );
-                        if objects.is_empty() {
-                            clear_objects(&omap, AreaSymbol::MediumGreen);
-                        } else {
-                            add_objects(&omap, objects);
-                        }
-                    }
-
-                    if needs_update.d_green {
-                        let objects = map_gen::common::compute_vegetation(
-                            &drm[i],
-                            Threshold::Lower(params.vegetation.green.2),
-                            hull,
-                            &cut_bounds[i],
-                            AreaSymbol::DarkGreen,
-                            params,
-                            &params.geometry.vegetation.buffer_rules,
-                        );
-                        if objects.is_empty() {
-                            clear_objects(&omap, AreaSymbol::DarkGreen);
-                        } else {
-                            add_objects(&omap, objects);
-                        }
-                    }
-
-                    if needs_update.cliff {
-                        let objects = map_gen::common::compute_cliffs(
-                            &g_dem[i],
-                            hull,
+                    ContourAlgo::NormalFieldSmoothing => {
+                        let Ok((objects, error, energy)) = map_gen::common::extract_contours(
+                            &dem[i],
+                            z_range,
                             &cut_bounds[i],
                             params,
-                        );
-                        if objects.is_empty() {
-                            clear_objects(&omap, AreaSymbol::GiganticBoulder);
-                        } else {
-                            add_objects(&omap, objects);
-                        }
-                    }
-
-                    if needs_update.intensities {
-                        let objects = map_gen::common::compute_intensity(
-                            &dim[i],
-                            hull,
-                            &cut_bounds[i],
-                            params,
-                            &params.geometry.intensity.buffer_rules,
-                        );
+                            true,
+                        ) else {
+                            let _ = sender.send(FrontendTask::Error(
+                                "Failed to extract smoothed contours".to_string(),
+                                true,
+                            ));
+                            return;
+                        };
                         add_objects(&omap, objects);
+                        (error, energy)
                     }
-                });
-        }
+                    ContourAlgo::Raw => {
+                        let Ok((objects, error, energy)) = map_gen::common::extract_contours(
+                            &dem[i],
+                            z_range,
+                            &cut_bounds[i],
+                            params,
+                            true,
+                        ) else {
+                            let _ = sender.send(FrontendTask::Error(
+                                "Failed to extract raw contours".to_string(),
+                                true,
+                            ));
+                            return;
+                        };
+                        add_objects(&omap, objects);
+                        (error, energy)
+                    }
+                };
+                {
+                    if let Ok(mut energy_lock) = tot_energy.lock() {
+                        *energy_lock += energy;
+                    }
+                }
+                {
+                    if let Ok(mut error_lock) = tot_error.lock() {
+                        *error_lock += error;
+                    }
+                }
+            }
+
+            if params.contour.basemap_contour
+                && params.contour.basemap_interval >= 0.1
+                && needs_update.basemap
+            {
+                let objects = map_gen::common::compute_basemap(
+                    &dem[i],
+                    z_range,
+                    &cut_bounds[i],
+                    params.contour.basemap_interval,
+                );
+                add_objects(&omap, objects);
+            }
+
+            if needs_update.yellow {
+                let objects = map_gen::common::compute_vegetation(
+                    &drm[i],
+                    Threshold::Upper(params.vegetation.yellow),
+                    hull,
+                    &cut_bounds[i],
+                    AreaSymbol::RoughOpenLand,
+                    params,
+                    &params.geometry.openness.buffer_rules,
+                );
+                if objects.is_empty() {
+                    clear_objects(&omap, AreaSymbol::RoughOpenLand);
+                } else {
+                    add_objects(&omap, objects);
+                }
+            }
+
+            if needs_update.l_green {
+                let objects = map_gen::common::compute_vegetation(
+                    &drm[i],
+                    Threshold::Lower(params.vegetation.green.0),
+                    hull,
+                    &cut_bounds[i],
+                    AreaSymbol::LightGreen,
+                    params,
+                    &params.geometry.vegetation.buffer_rules,
+                );
+                if objects.is_empty() {
+                    clear_objects(&omap, AreaSymbol::LightGreen);
+                } else {
+                    add_objects(&omap, objects);
+                }
+            }
+
+            if needs_update.m_green {
+                let objects = map_gen::common::compute_vegetation(
+                    &drm[i],
+                    Threshold::Lower(params.vegetation.green.1),
+                    hull,
+                    &cut_bounds[i],
+                    AreaSymbol::MediumGreen,
+                    params,
+                    &params.geometry.vegetation.buffer_rules,
+                );
+                if objects.is_empty() {
+                    clear_objects(&omap, AreaSymbol::MediumGreen);
+                } else {
+                    add_objects(&omap, objects);
+                }
+            }
+
+            if needs_update.d_green {
+                let objects = map_gen::common::compute_vegetation(
+                    &drm[i],
+                    Threshold::Lower(params.vegetation.green.2),
+                    hull,
+                    &cut_bounds[i],
+                    AreaSymbol::DarkGreen,
+                    params,
+                    &params.geometry.vegetation.buffer_rules,
+                );
+                if objects.is_empty() {
+                    clear_objects(&omap, AreaSymbol::DarkGreen);
+                } else {
+                    add_objects(&omap, objects);
+                }
+            }
+
+            if needs_update.cliff {
+                let objects =
+                    map_gen::common::compute_cliffs(&g_dem[i], hull, &cut_bounds[i], params);
+                if objects.is_empty() {
+                    clear_objects(&omap, AreaSymbol::GiganticBoulder);
+                } else {
+                    add_objects(&omap, objects);
+                }
+            }
+
+            if needs_update.intensities {
+                let objects = map_gen::common::compute_intensity(
+                    &dim[i],
+                    hull,
+                    &cut_bounds[i],
+                    params,
+                    &params.geometry.intensity.buffer_rules,
+                );
+                add_objects(&omap, objects);
+            }
+        });
     });
 
     let mut omap = Arc::<Mutex<TempMap>>::into_inner(omap)
