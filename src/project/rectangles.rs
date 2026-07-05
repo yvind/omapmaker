@@ -3,22 +3,22 @@ use proj_core::{CrsDef, Transform};
 
 pub fn to_walkers_map_points(crs: Option<CrsDef>, rects: &Vec<Rect>) -> Vec<[Point; 4]> {
     let mut out = Vec::with_capacity(rects.len());
-    if crs.is_none() {
+    let Some(crs) = crs else {
         for rect in rects {
             out.push(rect_to_map_coords(rect).map(Point));
         }
-    } else if let Some(crs) = crs {
-        let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+        return out;
+    };
+    let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
 
-        for rect in rects {
-            out.push(rect_to_map_coords(rect).map(|point| {
-                let transformed = transform.convert((point.x, point.y)).unwrap();
-                Point(Coord {
-                    x: transformed.0,
-                    y: transformed.1,
-                })
-            }));
-        }
+    for rect in rects {
+        out.push(rect_to_map_coords(rect).map(|point| {
+            let transformed = transform.convert((point.x, point.y)).unwrap();
+            Point(Coord {
+                x: transformed.0,
+                y: transformed.1,
+            })
+        }));
     }
     out
 }

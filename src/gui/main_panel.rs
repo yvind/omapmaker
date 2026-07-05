@@ -111,11 +111,11 @@ impl OmapMaker {
                     true,
                     None,
                 ));
-                let map = map.with_plugin(map_plugins::ClickListener::new(
+
+                map.with_plugin(map_plugins::ClickListener::new(
                     &self.gui_variables.lidar.boundaries,
                     &mut self.gui_variables.project.selected_file,
-                ));
-                map
+                ))
             }
             ProcessStage::ChooseSubTile => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(

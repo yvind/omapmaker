@@ -48,7 +48,7 @@ pub struct GeometryParameters {
     pub intensity: BufferedGeometryParameters,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct IntensityParameters {
     pub filters: Vec<IntensityFilter>,
 }
@@ -203,4 +203,17 @@ pub enum BufferDirection {
 pub enum Scale {
     S10_000,
     S15_000,
+}
+
+impl Scale {
+    pub fn denominator(self) -> f64 {
+        match self {
+            Self::S10_000 => 10_000.,
+            Self::S15_000 => 15_000.,
+        }
+    }
+
+    pub fn meters_to_paper_mm(self, meters: f64) -> f64 {
+        meters * 1000. / self.denominator()
+    }
 }

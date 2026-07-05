@@ -173,6 +173,8 @@ pub fn make_map(
 
     map.mark_basemap_depressions();
 
+    map.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+
     // convert the smallest knolls and depressions to point symbols
     map.make_dotknolls_and_depressions(
         map_params.contour.dot_knoll_area.0,
@@ -184,11 +186,11 @@ pub fn make_map(
         .send(FrontendTask::Log("Writing Omap file...".to_string()))
         .unwrap();
 
-    let bezier_line_error = map_params
-        .geometry
-        .contours
-        .enabled
-        .then_some(map_params.geometry.contours.error);
+    let bezier_line_error = map_params.geometry.contours.enabled.then(|| {
+        map_params
+            .scale
+            .meters_to_paper_mm(map_params.geometry.contours.error)
+    });
     let omap = map.into_omap(masl, bezier_line_error)?;
 
     omap.write_to_file(file_params.save_location.clone())?;

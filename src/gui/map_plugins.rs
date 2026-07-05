@@ -209,7 +209,7 @@ impl Plugin for PolygonDrawer<'_> {
 
             let poly = Polygon::new(line, vec![]);
 
-            if poly.exterior().0.len() > 2 {
+            if poly.exterior().0.len() > 3 {
                 // does the triangulation WGS84 coordinates, but the earth is locally almost flat so it's almost ok
                 let tri = poly.earcut_triangles_raw();
 

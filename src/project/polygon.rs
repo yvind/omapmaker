@@ -5,10 +5,9 @@ pub fn from_walkers_map_coords(crs: Option<CrsDef>, line: LineString) -> Option<
     if line.0.is_empty() {
         return None;
     }
-    if crs.is_none() {
+    let Some(crs) = crs else {
         return Some(Polygon::new(line, vec![]));
-    }
-    let crs = crs.unwrap();
+    };
 
     let transform = Transform::from_epsg(4326, crs.epsg()).unwrap();
 

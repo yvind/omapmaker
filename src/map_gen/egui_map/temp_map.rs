@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use geo::{MapCoords, MapCoordsInPlace};
 use omap::{
-    Omap,
+    NonNegativeF64, Omap,
     objects::{AreaObject, LineObject, PointObject},
     symbols::{WeakAreaPathSymbol, WeakLinePathSymbol},
 };
 use proj_core::CrsDef;
+use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
 use crate::parameters::Scale;
 
@@ -263,6 +264,39 @@ pub struct TempMap {
     pub objects: HashMap<Symbol, Vec<MapObject>>,
 }
 
+struct MergeLine {
+    object: geo::LineString,
+    symbol: LineSymbol,
+    tags: HashMap<String, String>,
+}
+
+impl MergeLine {
+    fn elevation_key(&self) -> Option<i64> {
+        self.tags
+            .get("Elevation")
+            .and_then(|elevation| elevation.parse::<f64>().ok())
+            .map(|elevation| (elevation * 100.).round() as i64)
+    }
+
+    fn start_point(&self) -> [f64; 2] {
+        let start = self.object.0[0];
+        [start.x, start.y]
+    }
+
+    fn end_point(&self) -> [f64; 2] {
+        let end = self.object.0[self.object.0.len() - 1];
+        [end.x, end.y]
+    }
+
+    fn into_map_object(self) -> MapObject {
+        MapObject::Line {
+            object: self.object,
+            symbol: self.symbol,
+            tags: self.tags,
+        }
+    }
+}
+
 impl TempMap {
     pub fn new(ref_point: geo::Coord, scale: Scale, crs: Option<CrsDef>) -> Self {
         TempMap {
@@ -308,8 +342,12 @@ impl TempMap {
             .unwrap_or(omap::geo_referencing::CrsType::Local);
 
         let mut omap = match self.scale {
-            Scale::S10_000 => Omap::default_10_000(self.ref_point, crs, meters_above_sea)?,
-            Scale::S15_000 => Omap::default_15_000(self.ref_point, crs, meters_above_sea)?,
+            Scale::S10_000 => {
+                Omap::default_10_000_geo_referenced(self.ref_point, crs, meters_above_sea)?
+            }
+            Scale::S15_000 => {
+                Omap::default_15_000_geo_referenced(self.ref_point, crs, meters_above_sea)?
+            }
         };
         let transform = omap.geo_referencing.get_transform();
 
@@ -326,12 +364,7 @@ impl TempMap {
                             WeakAreaPathSymbol::try_from(
                                 Symbol::Area(symbol)
                                     .get_omap_symbol(&omap.symbols)
-                                    .ok_or_else(|| {
-                                        omap::Error::SymbolError(format!(
-                                            "Missing Omap symbol {}",
-                                            symbol.get_code()
-                                        ))
-                                    })?
+                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
                                     .downgrade(),
                             )?,
                             transform.to_map_polygon(object),
@@ -349,22 +382,21 @@ impl TempMap {
                             WeakLinePathSymbol::try_from(
                                 Symbol::Line(symbol)
                                     .get_omap_symbol(&omap.symbols)
-                                    .ok_or_else(|| {
-                                        omap::Error::SymbolError(format!(
-                                            "Missing Omap symbol {}",
-                                            symbol.get_code()
-                                        ))
-                                    })?
+                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
                                     .downgrade(),
                             )?,
                             transform.to_map_linestring(object),
                         );
                         line.tags = tags;
-                        line.write_as_bezier = bezier_error.is_some()
+                        line.write_as_bezier = if let Some(err) = bezier_error
                             && !matches!(
                                 symbol,
                                 LineSymbol::BasemapContour | LineSymbol::NegBasemapContour
-                            );
+                            ) {
+                            NonNegativeF64::try_from(err).ok()
+                        } else {
+                            None
+                        };
                         line.into()
                     }
                     MapObject::Point {
@@ -376,21 +408,10 @@ impl TempMap {
                         let object = object.map_coords(|c| c + self.ref_point);
                         let omap_symbol = Symbol::Point(symbol)
                             .get_omap_symbol(&omap.symbols)
-                            .ok_or_else(|| {
-                                omap::Error::SymbolError(format!(
-                                    "Missing Omap symbol {}",
-                                    symbol.get_code()
-                                ))
-                            })?;
+                            .ok_or_else(|| omap::Error::MissingSymbolId)?;
                         let symbol = match omap_symbol {
                             omap::symbols::Symbol::Point(symbol) => std::rc::Rc::downgrade(symbol),
-                            _ => {
-                                return Err(omap::Error::SymbolError(format!(
-                                    "Omap symbol {} is not a point symbol",
-                                    symbol.get_code()
-                                ))
-                                .into());
-                            }
+                            _ => Err(omap::Error::MissingSymbolId)?,
                         };
                         let mut point = PointObject::new(symbol, transform.to_map_point(object));
                         point.rotation = rotation;
@@ -410,10 +431,9 @@ impl TempMap {
             .objects
             .get_mut(&Symbol::Line(LineSymbol::BasemapContour));
 
-        if basemap.is_none() {
+        let Some(basemap) = basemap else {
             return;
-        }
-        let basemap = basemap.unwrap();
+        };
 
         let mut neg_basemap = Vec::new();
 
@@ -468,11 +488,9 @@ impl TempMap {
         for key in keys {
             let contours = self.objects.get_mut(&key);
 
-            if contours.is_none() {
+            let Some(contours) = contours else {
                 continue;
-            }
-
-            let contours = contours.unwrap();
+            };
             let mut small_loops = Vec::with_capacity(contours.len());
 
             let mut i = 0;
@@ -541,6 +559,143 @@ impl TempMap {
                     };
                     self.add_object(map_object);
                 }
+            }
+        }
+    }
+
+    /// Merge line objects that are tip to tail.
+    /// Line ends (directed) of the same symbol that are less than `delta`
+    /// units apart are merged. Elevation tags are respected and only elements
+    /// with equal elevation tags can be merged.
+    pub fn merge_lines(&mut self, delta: f64) {
+        for (key, map_objects) in self.objects.iter_mut() {
+            if !matches!(key, Symbol::Line(_)) {
+                continue;
+            }
+            let delta = delta * delta;
+
+            let mut unclosed_objects = Vec::with_capacity(map_objects.len());
+
+            let mut i = 0;
+            while i < map_objects.len() {
+                if let MapObject::Line {
+                    object,
+                    symbol: _,
+                    tags: _,
+                } = &map_objects[i]
+                {
+                    if !object.is_closed() && object.0.len() >= 2 {
+                        let MapObject::Line {
+                            object,
+                            symbol,
+                            tags,
+                        } = map_objects.swap_remove(i)
+                        else {
+                            unreachable!("checked line object before swap_remove");
+                        };
+                        unclosed_objects.push(MergeLine {
+                            object,
+                            symbol,
+                            tags,
+                        });
+                    } else {
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+            }
+
+            let mut unclosed_object_groups = HashMap::<Option<i64>, Vec<MergeLine>>::new();
+            for unclosed_object in unclosed_objects {
+                unclosed_object_groups
+                    .entry(unclosed_object.elevation_key())
+                    .or_default()
+                    .push(unclosed_object);
+            }
+
+            for (_, mut unclosed_objects) in unclosed_object_groups {
+                let (line_ends, line_starts): (Vec<_>, Vec<_>) = unclosed_objects
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| (GeomWithData::new(o.end_point(), i), o.start_point()))
+                    .collect();
+
+                // detect the merges needed
+                let end_tree = RTree::bulk_load(line_ends);
+
+                let mut merges = Vec::with_capacity(line_starts.len());
+                for (start_i, line_start) in line_starts.iter().enumerate() {
+                    if let Some(nn) = end_tree.nearest_neighbor(*line_start)
+                        && nn.distance_2(line_start) <= delta
+                    {
+                        merges.push((start_i, nn.data));
+                    }
+                }
+
+                // start doing merges keeping track of the moved objects
+                while let Some(merge) = merges.pop() {
+                    if merge.0 == merge.1 {
+                        let mut line = unclosed_objects.swap_remove(merge.0);
+                        line.object.close();
+
+                        map_objects.push(line.into_map_object());
+                    } else {
+                        // merge
+                        let part2 = unclosed_objects.swap_remove(merge.0);
+
+                        let part1 = if merge.1 >= unclosed_objects.len() {
+                            &mut unclosed_objects[merge.0]
+                        } else {
+                            &mut unclosed_objects[merge.1]
+                        };
+
+                        let _ = part1.object.0.pop();
+                        part1.object.0.extend(part2.object.0);
+                    }
+                    // update map
+                    let mut i = 0;
+                    while i < merges.len() {
+                        let other_merge = &mut merges[i];
+
+                        // find merges made impossible
+                        if other_merge.1 == merge.1 || other_merge.0 == merge.0 {
+                            let _ = merges.swap_remove(i);
+                            continue;
+                        } else {
+                            i += 1;
+                        }
+
+                        // update map as merge.0 is now called merge.1
+                        if other_merge.0 == merge.0 {
+                            other_merge.0 = merge.1
+                        }
+                        if other_merge.1 == merge.0 {
+                            other_merge.1 = merge.1
+                        }
+
+                        // correct map for swap remove moving object
+                        if other_merge.0 >= unclosed_objects.len() {
+                            other_merge.0 = merge.0;
+                        }
+                        if other_merge.1 >= unclosed_objects.len() {
+                            other_merge.1 = merge.0;
+                        }
+                    }
+                }
+                let unclosed = unclosed_objects.into_iter().map(|mut line_object| {
+                    // check if it is almost closed
+                    let start = line_object.object.0[0];
+                    let end = line_object.object.0[line_object.object.0.len() - 1];
+
+                    if (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= delta {
+                        line_object.object.close();
+                    }
+
+                    line_object.into_map_object()
+                });
+
+                map_objects.extend(unclosed);
             }
         }
     }

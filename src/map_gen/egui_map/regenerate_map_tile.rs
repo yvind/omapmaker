@@ -135,7 +135,11 @@ pub fn regenerate_map_tile(
                             params,
                             &params.geometry.openness.buffer_rules,
                         );
-                        add_objects(&omap, objects);
+                        if objects.is_empty() {
+                            clear_objects(&omap, AreaSymbol::RoughOpenLand);
+                        } else {
+                            add_objects(&omap, objects);
+                        }
                     }
 
                     if needs_update.l_green {
@@ -148,7 +152,11 @@ pub fn regenerate_map_tile(
                             params,
                             &params.geometry.vegetation.buffer_rules,
                         );
-                        add_objects(&omap, objects);
+                        if objects.is_empty() {
+                            clear_objects(&omap, AreaSymbol::LightGreen);
+                        } else {
+                            add_objects(&omap, objects);
+                        }
                     }
 
                     if needs_update.m_green {
@@ -161,7 +169,11 @@ pub fn regenerate_map_tile(
                             params,
                             &params.geometry.vegetation.buffer_rules,
                         );
-                        add_objects(&omap, objects);
+                        if objects.is_empty() {
+                            clear_objects(&omap, AreaSymbol::MediumGreen);
+                        } else {
+                            add_objects(&omap, objects);
+                        }
                     }
 
                     if needs_update.d_green {
@@ -174,7 +186,11 @@ pub fn regenerate_map_tile(
                             params,
                             &params.geometry.vegetation.buffer_rules,
                         );
-                        add_objects(&omap, objects);
+                        if objects.is_empty() {
+                            clear_objects(&omap, AreaSymbol::DarkGreen);
+                        } else {
+                            add_objects(&omap, objects);
+                        }
                     }
 
                     if needs_update.cliff {
@@ -184,7 +200,11 @@ pub fn regenerate_map_tile(
                             &cut_bounds[i],
                             params,
                         );
-                        add_objects(&omap, objects);
+                        if objects.is_empty() {
+                            clear_objects(&omap, AreaSymbol::GiganticBoulder);
+                        } else {
+                            add_objects(&omap, objects);
+                        }
                     }
 
                     if needs_update.intensities {
@@ -212,8 +232,6 @@ pub fn regenerate_map_tile(
         // as then the empty entries are used to mark removal of objects from the map
         omap.remove_empty_keys();
     }
-
-    // omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
 
     if needs_update.basemap {
         omap.reserve_capacity(LineSymbol::BasemapContour, 1);
@@ -270,40 +288,29 @@ fn add_objects(omap: &Arc<Mutex<TempMap>>, objects: Vec<crate::map_gen::egui_map
     }
 }
 
+fn clear_objects(omap: &Arc<Mutex<TempMap>>, symbol: impl Into<crate::map_gen::egui_map::Symbol>) {
+    let mut omap = omap.lock().unwrap();
+    omap.reserve_capacity(symbol, 0);
+}
+
 fn needs_regeneration(
     new: &MapParameters,
     old: Option<&MapParameters>,
     scope: RegenerationScope,
 ) -> UpdateMap {
     let mut update_map = UpdateMap::default();
-    if old.is_none() {
+    let Some(old) = old else {
         update_map.force_scope(scope);
         return update_map;
-    }
-    let old = old.unwrap();
+    };
 
     if new.scale != old.scale {
         update_map.force_scope(scope);
         return update_map;
     }
 
-    if new.intensity.filters.len() == old.intensity.filters.len()
-        && new.geometry.intensity == old.geometry.intensity
-    {
-        update_map.intensities = false;
-
-        for (new, old) in new
-            .intensity
-            .filters
-            .iter()
-            .zip(old.intensity.filters.iter())
-        {
-            if new != old {
-                update_map.intensities = true;
-                break;
-            }
-        }
-    }
+    update_map.intensities = new.intensity.filters != old.intensity.filters
+        || new.geometry.intensity != old.geometry.intensity;
 
     update_map.yellow = new.vegetation.yellow != old.vegetation.yellow
         || new.geometry.openness != old.geometry.openness;

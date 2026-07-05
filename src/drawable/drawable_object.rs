@@ -180,24 +180,32 @@ impl DrawableLineObject {
         line: geo::LineString,
         ref_point: Coord,
         crs: Option<CrsDef>,
-        bezier_error: Option<f64>,
+        mut bezier_error: Option<f64>,
     ) -> Result<Self> {
-        let line = if let Some(bezier_error) = bezier_error {
+        let line = if let Some(bez_error) = bezier_error {
             let mut vec = Vec::with_capacity(line.0.len());
-            let bezier_string = BezierString::from_linestring(line, bezier_error);
-
-            for segment in bezier_string.0 {
-                vec.push(segment.start);
-                if let Some(handles) = segment.handles {
-                    vec.push(handles.0);
-                    vec.push(handles.1);
-                } else {
-                    vec.push(segment.start + (segment.end - segment.start) / 3.);
-                    vec.push(segment.start + (segment.end - segment.start) * 2. / 3.);
+            match BezierString::from_line_string(line.clone(), bez_error) {
+                Ok(bs) => {
+                    for segment in bs.0 {
+                        match segment {
+                            linestring2bezier::BezierSegment::Bezier(bezier_curve) => {
+                                vec.extend_from_slice(&bezier_curve.to_array());
+                            }
+                            linestring2bezier::BezierSegment::Line(line) => {
+                                vec.push(line.start);
+                                vec.push(line.start + (line.end - line.start) / 3.);
+                                vec.push(line.start + (line.end - line.start) * 2. / 3.);
+                                vec.push(line.end);
+                            }
+                        }
+                    }
+                    LineString::new(vec)
                 }
-                vec.push(segment.end);
+                Err(_) => {
+                    bezier_error = None;
+                    line
+                }
             }
-            LineString::new(vec)
         } else {
             line
         };
