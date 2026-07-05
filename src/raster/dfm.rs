@@ -6,14 +6,14 @@ use std::ops::{Index, IndexMut};
 
 #[derive(Clone, Debug)]
 pub struct Dfm {
-    pub field: [f64; SIDE_LENGTH * SIDE_LENGTH],
+    pub field: Box<[f64]>,
     pub tl_coord: Coord,
 }
 
 impl Dfm {
     pub fn new(tl_coord: Coord) -> Dfm {
         Dfm {
-            field: [f64::MIN; SIDE_LENGTH * SIDE_LENGTH],
+            field: vec![f64::MIN; SIDE_LENGTH * SIDE_LENGTH].into_boxed_slice(),
             tl_coord,
         }
     }
@@ -372,7 +372,7 @@ impl Dfm {
         let threshold = max_norm_diff.to_radians().cos();
 
         // calculate normal vectors
-        let mut normal_vecs = [(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
+        let mut normal_vecs = vec![(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
         for y in 0..SIDE_LENGTH {
             let y_min_1 = y.saturating_sub(1);
             let y_plus_1 = (y + 1).min(SIDE_LENGTH - 1);
@@ -406,7 +406,7 @@ impl Dfm {
         }
 
         // Smooth normal vectors
-        let mut smooth_normal_vecs = [(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
+        let mut smooth_normal_vecs = vec![(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
 
         let mut dx = vec![0; filter_size * filter_size];
         let mut dy = vec![0; filter_size * filter_size];
