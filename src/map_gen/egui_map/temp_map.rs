@@ -514,7 +514,7 @@ impl TempMap {
                         i += 1;
                     }
                 } else {
-                    panic!("Non-line object under contour symbol in objects hashmap");
+                    i += 1;
                 }
             }
 

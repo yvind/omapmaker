@@ -7,9 +7,11 @@ use crate::{
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
 };
+use anyhow::Context;
 use geo::{Area, BooleanOps, Intersects};
 
 use std::{
+    cmp::Ordering,
     num::NonZero,
     sync::{Arc, Mutex, mpsc::Sender},
     thread,
@@ -24,9 +26,13 @@ pub fn make_map(
 ) -> Result<()> {
     let _ = sender.send(FrontendTask::Log("Starting map generation!".to_string()));
 
-    let num_threads = std::thread::available_parallelism()
-        .unwrap_or(NonZero::new(8_usize).unwrap())
-        .get();
+    let num_threads = match std::thread::available_parallelism() {
+        Ok(threads) => threads.get(),
+        Err(_) => match NonZero::new(8_usize) {
+            Some(fallback) => fallback.get(),
+            None => 8,
+        },
+    };
 
     let _ = sender.send(FrontendTask::Log(format!(
         "Running on {} threads",
@@ -57,7 +63,13 @@ pub fn make_map(
         #[rustfmt::skip]
         let _ = sender.send(FrontendTask::Log(format!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len())));
         #[rustfmt::skip]
-        let _ = sender.send(FrontendTask::Log(format!("\t{:?}", laz_paths[fi].file_name().unwrap())));
+        let _ = sender.send(FrontendTask::Log(format!(
+            "\t{:?}",
+            laz_paths[fi]
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_else(|| laz_paths[fi].display().to_string())
+        )));
         #[rustfmt::skip]
         let _ = sender.send(FrontendTask::Log("-----------------------------------------------".to_string()));
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
@@ -107,18 +119,16 @@ pub fn make_map(
                                 ref_point,
                             ) {
                                 Ok(p) => p,
-                                Err(e) => match e {
-                                    crate::Error::NoGroundPoints => {
+                                Err(e) => {
+                                    if e.downcast_ref::<crate::Error>()
+                                        .is_some_and(|e| matches!(e, crate::Error::NoGroundPoints))
+                                    {
                                         thread_i += num_threads;
                                         continue;
                                     }
-                                    e => {
-                                        sender
-                                            .send(FrontendTask::Error(e.to_string(), true))
-                                            .unwrap();
-                                        continue;
-                                    }
-                                },
+                                    let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                                    continue;
+                                }
                             };
 
                             if let Some(polygon) = &polygon_filter {
@@ -132,27 +142,40 @@ pub fn make_map(
                                 mp.0.sort_by(|a, b| {
                                     a.signed_area()
                                         .partial_cmp(&b.signed_area())
-                                        .expect("Non-normal polygon area")
+                                        .unwrap_or(Ordering::Equal)
                                 });
                                 hull = mp.0.swap_remove(0);
                             }
 
-                            let objects = super::compute_map_objects(
+                            let objects = match super::compute_map_objects(
                                 &map_params,
                                 cloud,
                                 &stats,
                                 hull,
                                 cut_bounds[thread_i],
-                            );
+                            ) {
+                                Ok(objects) => objects,
+                                Err(e) => {
+                                    let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                                    thread_i += num_threads;
+                                    continue;
+                                }
+                            };
                             {
-                                let mut map = map.lock().unwrap();
-                                for object in objects {
-                                    map.add_object(object);
+                                if let Ok(mut map) = map.lock() {
+                                    for object in objects {
+                                        map.add_object(object);
+                                    }
+                                } else {
+                                    let _ = sender.send(FrontendTask::Error(
+                                        "Map generation mutex was poisoned".to_string(),
+                                        true,
+                                    ));
+                                    thread_i += num_threads;
+                                    continue;
                                 }
                             }
-                            sender
-                                .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)))
-                                .unwrap();
+                            let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc)));
                             thread_i += num_threads;
                         }
                     });
@@ -163,13 +186,11 @@ pub fn make_map(
     }
 
     let mut map = Arc::<Mutex<TempMap>>::into_inner(map)
-        .expect("Could not get inner value of arc, stray reference somewhere")
+        .context("Could not get inner map value; a worker still holds a reference")?
         .into_inner()
-        .expect("Map mutex poisoned, a thread panicked while holding mutex");
+        .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;
 
-    sender
-        .send(FrontendTask::Log("Post-processing contours...".to_string()))
-        .unwrap();
+    let _ = sender.send(FrontendTask::Log("Post-processing contours...".to_string()));
 
     map.mark_basemap_depressions();
 
@@ -182,9 +203,7 @@ pub fn make_map(
         1.5,
     );
 
-    sender
-        .send(FrontendTask::Log("Writing Omap file...".to_string()))
-        .unwrap();
+    let _ = sender.send(FrontendTask::Log("Writing Omap file...".to_string()));
 
     let bezier_line_error = map_params.geometry.contours.enabled.then(|| {
         map_params
@@ -195,6 +214,6 @@ pub fn make_map(
 
     omap.write_to_file(file_params.save_location.clone())?;
 
-    sender.send(FrontendTask::Log("Done!".to_string())).unwrap();
+    let _ = sender.send(FrontendTask::Log("Done!".to_string()));
     Ok(())
 }

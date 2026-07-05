@@ -1,4 +1,5 @@
-use crate::{comms::messages::*, statistics::LidarStats};
+use crate::{Result, comms::messages::*, statistics::LidarStats};
+use anyhow::{Context, bail};
 use std::{
     path::{Path, PathBuf},
     sync::mpsc::Sender,
@@ -23,17 +24,38 @@ pub fn convert_copc(
     polygon_filter: geo::LineString,
     write_single_copc: bool,
 ) {
+    if let Err(e) = try_convert_copc(
+        sender.clone(),
+        paths,
+        input_crs,
+        output_crs,
+        save_location,
+        boundaries,
+        polygon_filter,
+        write_single_copc,
+    ) {
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
+        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+    }
+}
+
+fn try_convert_copc(
+    sender: Sender<FrontendTask>,
+    paths: Vec<PathBuf>,
+    input_crs: Vec<Option<CrsDef>>,
+    output_crs: Option<CrsDef>,
+    save_location: PathBuf,
+    boundaries: Vec<[walkers::Position; 4]>,
+    polygon_filter: geo::LineString,
+    write_single_copc: bool,
+) -> Result<()> {
     let mut new_paths = paths.clone();
     let mut relevant_paths = Vec::new();
 
-    sender
-        .send(FrontendTask::Log(
-            "Gathering statistics and Converting files...".to_string(),
-        ))
-        .unwrap();
-    sender
-        .send(FrontendTask::ProgressBar(ProgressBar::Start))
-        .unwrap();
+    let _ = sender.send(FrontendTask::Log(
+        "Gathering statistics and Converting files...".to_string(),
+    ));
+    let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
 
     let polygon = geo::Polygon::new(polygon_filter, vec![]);
 
@@ -47,7 +69,10 @@ pub fn convert_copc(
             polygon.exterior().0.is_empty() || polygon.intersects(&boundary_polygon(bounds));
 
         if relevant {
-            stats.push(LidarStats::calculate_statistics(&path).unwrap());
+            stats.push(
+                LidarStats::calculate_statistics(&path)
+                    .with_context(|| format!("Failed to calculate statistics for {path:?}"))?,
+            );
 
             let transform_needed =
                 if let (Some(input), Some(output)) = (&input_crs[pi], &output_crs) {
@@ -63,13 +88,25 @@ pub fn convert_copc(
                 path
             } else if transform_needed && !conversion_needed {
                 // the lidar file needs to be transformed into another CRS but is already a copc
-                transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
+                transform_file(
+                    path,
+                    input_crs[pi].clone(),
+                    output_crs
+                        .clone()
+                        .context("Output CRS is required when transforming COPC files")?,
+                )?
             } else if conversion_needed && !transform_needed {
                 // the lidar file needs to be converted to copc
-                convert_file(path, input_crs[pi].clone(), sender.clone())
+                convert_file(path, input_crs[pi].clone(), sender.clone())?
             } else {
                 // the lidar file needs both to be transformed into another CRS and written to COPC
-                convert_and_transform_file(path, input_crs[pi].clone(), output_crs.clone().unwrap())
+                convert_and_transform_file(
+                    path,
+                    input_crs[pi].clone(),
+                    output_crs
+                        .clone()
+                        .context("Output CRS is required when converting and transforming files")?,
+                )?
             };
 
             if write_single_copc {
@@ -77,62 +114,50 @@ pub fn convert_copc(
             }
         }
 
-        sender
-            .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
-            .unwrap()
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));
     }
 
     if stats.is_empty() {
-        sender
-            .send(FrontendTask::ProgressBar(ProgressBar::Finish))
-            .unwrap();
-        sender
-            .send(FrontendTask::Error(
-                "The chosen polygon filter does not intersect the lidar files".to_string(),
-                false,
-            ))
-            .unwrap();
-        return;
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
+        let _ = sender.send(FrontendTask::Error(
+            "The chosen polygon filter does not intersect the lidar files".to_string(),
+            false,
+        ));
+        return Ok(());
     }
 
     if write_single_copc {
         let mut merged_path = save_location;
         merged_path.set_extension("copc.laz");
 
-        sender
-            .send(FrontendTask::Log(format!(
-                "Writing {} relevant lidar files to {:?}",
-                relevant_paths.len(),
-                merged_path
-            )))
-            .unwrap();
+        let _ = sender.send(FrontendTask::Log(format!(
+            "Writing {} relevant lidar files to {:?}",
+            relevant_paths.len(),
+            merged_path
+        )));
 
-        run_copc_converter(&relevant_paths, &merged_path).unwrap();
+        run_copc_converter(&relevant_paths, &merged_path)
+            .with_context(|| format!("Failed to write merged COPC to {merged_path:?}"))?;
 
-        sender
-            .send(FrontendTask::UpdateVariable(Variable::SingleCopcPath(
-                merged_path,
-            )))
-            .unwrap();
+        let _ = sender.send(FrontendTask::UpdateVariable(Variable::SingleCopcPath(
+            merged_path,
+        )));
     }
 
-    let stats = stats.into_iter().reduce(LidarStats::combine_stats).unwrap();
+    let stats = stats
+        .into_iter()
+        .reduce(LidarStats::combine_stats)
+        .context("No lidar statistics were produced")?;
 
-    sender
-        .send(FrontendTask::ProgressBar(ProgressBar::Finish))
-        .unwrap();
+    let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Stats(stats)))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Stats(stats)));
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Paths(new_paths)))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Paths(new_paths)));
 
-    sender
-        .send(FrontendTask::TaskComplete(TaskDone::ConvertCopc))
-        .unwrap();
+    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::ConvertCopc));
+
+    Ok(())
 }
 
 fn boundary_polygon(bounds: [walkers::Position; 4]) -> geo::Polygon {
@@ -148,20 +173,25 @@ fn boundary_polygon(bounds: [walkers::Position; 4]) -> geo::Polygon {
     )
 }
 
-fn transform_file(_path: PathBuf, _current_crs: Option<CrsDef>, _out_crs: CrsDef) -> PathBuf {
-    unimplemented!("Transforming CRS not yet supported");
+fn transform_file(
+    _path: PathBuf,
+    _current_crs: Option<CrsDef>,
+    _out_crs: CrsDef,
+) -> Result<PathBuf> {
+    bail!("Transforming CRS is not yet supported");
 }
 
 fn convert_file(
     mut path: PathBuf,
     _current_crs: Option<CrsDef>,
     _sender: Sender<FrontendTask>,
-) -> PathBuf {
+) -> Result<PathBuf> {
     let raw_path = path.clone();
     path.set_extension("copc.laz");
 
-    run_copc_converter(&[raw_path], &path).unwrap();
-    path
+    run_copc_converter(&[raw_path], &path)
+        .with_context(|| format!("Failed to convert lidar file to COPC at {path:?}"))?;
+    Ok(path)
 }
 
 fn run_copc_converter(input_files: &[PathBuf], output_path: &Path) -> copc_converter::Result<()> {
@@ -186,6 +216,6 @@ fn convert_and_transform_file(
     _path: PathBuf,
     _current_crs: Option<CrsDef>,
     _out_crs: CrsDef,
-) -> PathBuf {
-    unimplemented!("Transforming CRS not yet supported");
+) -> Result<PathBuf> {
+    bail!("Transforming CRS is not yet supported");
 }

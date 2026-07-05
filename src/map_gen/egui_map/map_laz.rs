@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::type_complexity)]
 
+use anyhow::Context;
 use geo::Rect;
 use las::Reader;
 use proj_core::{CrsDef, Transform};
@@ -21,39 +22,27 @@ pub fn map_laz(
     {
         Ok(bm) => bm,
         Err(e) => {
-            sender
-                .send(FrontendTask::Error(e.to_string(), true))
-                .unwrap();
+            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
             return;
         }
     };
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Boundaries(
-            boundaries.clone(),
-        )))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Boundaries(
+        boundaries.clone(),
+    )));
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::BoundaryAreas(
-            boundary_areas,
-        )))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::BoundaryAreas(
+        boundary_areas,
+    )));
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::Home(mid_point)))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Home(mid_point)));
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::ConnectedComponents(
-            components,
-        )))
-        .unwrap();
-    sender
-        .send(FrontendTask::TaskComplete(
-            TaskDone::MapSpatialLidarRelations,
-        ))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::ConnectedComponents(
+        components,
+    )));
+    let _ = sender.send(FrontendTask::TaskComplete(
+        TaskDone::MapSpatialLidarRelations,
+    ));
 }
 
 fn read_boundaries(
@@ -86,12 +75,13 @@ fn read_boundaries(
             && let Some(crs) = &crs_defs[i]
         {
             // transform bounds to lat lon
-            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+            let transform = Transform::from_epsg(crs.epsg(), 4326)
+                .with_context(|| format!("Failed to create transform from EPSG {}", crs.epsg()))?;
 
-            points[0] = transform.convert(points[0]).unwrap();
-            points[1] = transform.convert(points[1]).unwrap();
-            points[2] = transform.convert(points[2]).unwrap();
-            points[3] = transform.convert(points[3]).unwrap();
+            points[0] = transform.convert(points[0])?;
+            points[1] = transform.convert(points[1])?;
+            points[2] = transform.convert(points[2])?;
+            points[3] = transform.convert(points[3])?;
         }
 
         walkers_boundaries.push([

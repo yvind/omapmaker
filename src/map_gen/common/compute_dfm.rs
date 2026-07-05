@@ -6,7 +6,10 @@ use crate::statistics::LidarStats;
 use geo::Coord;
 use spade::DelaunayTriangulation;
 
-pub fn compute_dfms(ground_cloud: PointCloud, stats: &LidarStats) -> (Dfm, Dfm, Dfm, (f64, f64)) {
+pub fn compute_dfms(
+    ground_cloud: PointCloud,
+    stats: &LidarStats,
+) -> crate::Result<(Dfm, Dfm, Dfm, (f64, f64))> {
     let dem_bounds = ground_cloud.get_dfm_dimensions();
     let tl = Coord {
         x: dem_bounds.min.x,
@@ -27,7 +30,7 @@ pub fn compute_dfms(ground_cloud: PointCloud, stats: &LidarStats) -> (Dfm, Dfm, 
         }
     }
 
-    let dt = DelaunayTriangulation::<PointLaz>::bulk_load_stable(ground_cloud.points).unwrap();
+    let dt = DelaunayTriangulation::<PointLaz>::bulk_load_stable(ground_cloud.points)?;
     let nn = dt.natural_neighbor();
 
     for y_index in 0..SIDE_LENGTH {
@@ -39,7 +42,9 @@ pub fn compute_dfms(ground_cloud: PointCloud, stats: &LidarStats) -> (Dfm, Dfm, 
             if let Some(elev) = nn.interpolate(|p| p.data().0.z, coords) {
                 dem[(y_index, x_index)] = elev;
             } else {
-                panic!("Interpolation point outside of point cloud hull!");
+                anyhow::bail!(
+                    "Interpolation point ({x_index}, {y_index}) is outside of the point cloud hull"
+                );
             }
             if let Some(rn) = nn.interpolate(|p| p.data().0.return_number as f64, coords) {
                 drm[(y_index, x_index)] = rn;
@@ -65,5 +70,5 @@ pub fn compute_dfms(ground_cloud: PointCloud, stats: &LidarStats) -> (Dfm, Dfm, 
         *i = (*i - stats.intensity.min) / stats.intensity.max
     }
 
-    (dem, drm, dim, z_range)
+    Ok((dem, drm, dim, z_range))
 }

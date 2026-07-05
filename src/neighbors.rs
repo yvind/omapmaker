@@ -217,146 +217,123 @@ pub fn neighbors_on_grid(nx: usize, ny: usize) -> Vec<Neighborhood> {
 
     for yi in 0..ny {
         for xi in 0..nx {
-            if xi == 0 && yi == 0 {
+            let neighbor_indices = if xi == 0 && yi == 0 {
                 //no neighbors to the left or top
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi + 1),
-                        Some(yi * nx + xi + 1 + nx),
-                        Some(yi * nx + xi + nx),
-                        None,
-                        None,
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + 1 + nx),
+                    Some(yi * nx + xi + nx),
+                    None,
+                    None,
+                ]
             } else if xi == nx - 1 && yi == 0 {
                 // no neighbors to the right or top
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi + nx),
-                        Some(yi * nx + xi + nx - 1),
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]
             } else if xi == 0 && yi == ny - 1 {
                 // no neighbors to the left or bottom
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        None,
-                        Some(yi * nx + xi - nx),
-                        Some(yi * nx + xi - nx + 1),
-                        Some(yi * nx + xi + 1),
-                        None,
-                        None,
-                        None,
-                        None,
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    None,
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    None,
+                    None,
+                    None,
+                    None,
+                ]
             } else if xi == nx - 1 && yi == ny - 1 {
                 // no neighbors to the right or bottom
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        Some(yi * nx + xi - 1 - nx),
-                        Some(yi * nx + xi - nx),
-                        None,
-                        None,
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi - 1),
+                ]
             } else if xi == 0 {
                 // no neighbors to the left
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        None,
-                        Some(yi * nx + xi - nx),
-                        Some(yi * nx + xi - nx + 1),
-                        Some(yi * nx + xi + 1),
-                        Some(yi * nx + xi + nx + 1),
-                        Some(yi * nx + xi + nx),
-                        None,
-                        None,
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    None,
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    None,
+                    None,
+                ]
             } else if xi == nx - 1 {
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        Some(yi * nx + xi - 1 - nx),
-                        Some(yi * nx + xi - nx),
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi + nx),
-                        Some(yi * nx + xi + nx - 1),
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]
             } else if yi == 0 {
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi + 1),
-                        Some(yi * nx + xi + nx + 1),
-                        Some(yi * nx + xi + nx),
-                        Some(yi * nx + xi + nx - 1),
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]
             } else if yi == ny - 1 {
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        Some(yi * nx + xi - 1 - nx),
-                        Some(yi * nx + xi - nx),
-                        Some(yi * nx + xi - nx + 1),
-                        Some(yi * nx + xi + 1),
-                        None,
-                        None,
-                        None,
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    None,
+                    None,
+                    None,
+                    Some(yi * nx + xi - 1),
+                ]
             } else {
-                neighbors.push(
-                    Neighborhood::try_from([
-                        Some(yi * nx + xi),
-                        Some(yi * nx + xi - 1 - nx),
-                        Some(yi * nx + xi - nx),
-                        Some(yi * nx + xi - nx + 1),
-                        Some(yi * nx + xi + 1),
-                        Some(yi * nx + xi + nx + 1),
-                        Some(yi * nx + xi + nx),
-                        Some(yi * nx + xi + nx - 1),
-                        Some(yi * nx + xi - 1),
-                    ])
-                    .unwrap(),
-                );
+                [
+                    Some(yi * nx + xi),
+                    Some(yi * nx + xi - 1 - nx),
+                    Some(yi * nx + xi - nx),
+                    Some(yi * nx + xi - nx + 1),
+                    Some(yi * nx + xi + 1),
+                    Some(yi * nx + xi + nx + 1),
+                    Some(yi * nx + xi + nx),
+                    Some(yi * nx + xi + nx - 1),
+                    Some(yi * nx + xi - 1),
+                ]
+            };
+
+            if let Ok(neighbor) = Neighborhood::try_from(neighbor_indices) {
+                neighbors.push(neighbor);
             }
         }
     }

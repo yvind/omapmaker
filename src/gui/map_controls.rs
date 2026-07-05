@@ -53,7 +53,7 @@ pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory, home_zoom: f64
                 .clicked()
             {
                 map_memory.follow_my_position();
-                map_memory.set_zoom(home_zoom).unwrap();
+                let _ = map_memory.set_zoom(home_zoom);
             }
         });
 }

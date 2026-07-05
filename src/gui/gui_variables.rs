@@ -352,6 +352,8 @@ impl GuiVariables {
             self.generation.params.output.crs.clone(),
             line,
         )
+        .ok()
+        .flatten()
         .map(|polygon| polygon.unsigned_area())
     }
 

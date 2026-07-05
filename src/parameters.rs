@@ -27,7 +27,6 @@ pub struct ContourParameters {
     pub dot_knoll_area: (f64, f64),
     pub algo_steps: u8,
     pub algo_lambda: f64,
-    pub form_line_prune: f64,
     pub basemap_contour: bool,
     pub form_lines: bool,
 }
@@ -77,7 +76,6 @@ impl Default for ContourParameters {
             algo_lambda: 0.01,
             basemap_contour: false,
             form_lines: false,
-            form_line_prune: 0.5,
         }
     }
 }
@@ -143,7 +141,6 @@ pub struct FileParameters {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub enum ContourAlgo {
-    AI,
     NaiveIterations,
     NormalFieldSmoothing,
     #[default]
@@ -153,7 +150,6 @@ pub enum ContourAlgo {
 impl Display for ContourAlgo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ContourAlgo::AI => f.write_str("AI"),
             ContourAlgo::NaiveIterations => f.write_str("Naive"),
             ContourAlgo::NormalFieldSmoothing => f.write_str("Smooth"),
             ContourAlgo::Raw => f.write_str("Raw"),

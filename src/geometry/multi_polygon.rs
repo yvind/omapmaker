@@ -33,7 +33,10 @@ impl MapMultiPolygon for MultiPolygon {
 
         let mut i = 0;
         while i < contours.0.len() {
-            let area = contours.0[i].line_string_signed_area().unwrap();
+            let Some(area) = contours.0[i].line_string_signed_area() else {
+                contours.0.swap_remove(i);
+                continue;
+            };
 
             if area > 0. {
                 polygons.push(Polygon::new(contours.0.swap_remove(i), vec![]));

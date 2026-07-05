@@ -213,9 +213,9 @@ impl OmapMaker {
     fn clamp_mercator_zoom_pos(map_memory: &mut MapMemory, projection: &MercatorProjection) {
         // clamp zoom
         if map_memory.zoom() > 21. {
-            map_memory.set_zoom(21.).unwrap();
+            let _ = map_memory.set_zoom(21.);
         } else if map_memory.zoom() < 3. {
-            map_memory.set_zoom(3.).unwrap();
+            let _ = map_memory.set_zoom(3.);
         }
 
         // clamp position
@@ -247,9 +247,9 @@ impl OmapMaker {
     fn clamp_projected_zoom_pos(map_memory: &mut MapMemory, projection: &ProjectedProjection) {
         // clamp zoom
         if map_memory.zoom() > 16. {
-            map_memory.set_zoom(16.).unwrap();
+            let _ = map_memory.set_zoom(16.);
         } else if map_memory.zoom() < 8. {
-            map_memory.set_zoom(8.).unwrap();
+            let _ = map_memory.set_zoom(8.);
         }
 
         // clamp position

@@ -12,7 +12,7 @@ impl ContourSet {
     }
 
     pub fn interpolate(&self, interpolated_dem: &mut Dfm, adjusted_dem: &Dfm) -> crate::Result<()> {
-        let tri = self.triangulate(adjusted_dem);
+        let tri = self.triangulate(adjusted_dem)?;
         let nn = tri.natural_neighbor();
 
         // interpolate triangulation
@@ -36,7 +36,7 @@ impl ContourSet {
         Ok(())
     }
 
-    fn triangulate(&self, dem: &Dfm) -> DelaunayTriangulation<ContourPoint> {
+    fn triangulate(&self, dem: &Dfm) -> crate::Result<DelaunayTriangulation<ContourPoint>> {
         // coarse estimate of number of nodes in triangulation
         // 3 * number of levels * number of lines in first level * number of points in first line of first level
         let mut points = Vec::with_capacity(
@@ -119,7 +119,7 @@ impl ContourSet {
 
         // must be loaded in a stable way bc the gradient lengths in the triangulation
         // needs to derived from the neighbors defined by the triangulation
-        let mut tri = DelaunayTriangulation::bulk_load_stable(points.clone()).unwrap();
+        let mut tri = DelaunayTriangulation::bulk_load_stable(points.clone())?;
 
         // We have the normalized direction of the gradients. Now get the length
         // skip 4 because of the 4 ghosts
@@ -164,7 +164,7 @@ impl ContourSet {
             tri.vertex_data_mut(v).grad = g;
         }
 
-        tri
+        Ok(tri)
     }
 
     pub fn energy(&self, length_exp: i32) -> f64 {

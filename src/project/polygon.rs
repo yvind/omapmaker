@@ -1,17 +1,20 @@
 use geo::{LineString, Polygon};
 use proj_core::{CrsDef, Transform};
 
-pub fn from_walkers_map_coords(crs: Option<CrsDef>, line: LineString) -> Option<Polygon> {
+pub fn from_walkers_map_coords(
+    crs: Option<CrsDef>,
+    line: LineString,
+) -> crate::Result<Option<Polygon>> {
     if line.0.is_empty() {
-        return None;
+        return Ok(None);
     }
     let Some(crs) = crs else {
-        return Some(Polygon::new(line, vec![]));
+        return Ok(Some(Polygon::new(line, vec![])));
     };
 
-    let transform = Transform::from_epsg(4326, crs.epsg()).unwrap();
+    let transform = Transform::from_epsg(4326, crs.epsg())?;
 
-    let transformed_line = transform.convert_geometry(line).unwrap();
+    let transformed_line = transform.convert_geometry(line)?;
 
-    Some(Polygon::new(transformed_line, vec![]))
+    Ok(Some(Polygon::new(transformed_line, vec![])))
 }

@@ -124,7 +124,12 @@ impl OmapMaker {
                             "{:?}",
                             self.gui_variables.project.paths[*crs_less]
                                 .file_name()
-                                .unwrap()
+                                .map(|name| name.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| {
+                                    self.gui_variables.project.paths[*crs_less]
+                                        .display()
+                                        .to_string()
+                                })
                         ));
                         ui.vertical(|ui| {
                             ui.checkbox(

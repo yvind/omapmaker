@@ -26,6 +26,38 @@ pub fn regenerate_map_tile(
     old_params: &Option<MapParameters>,
     scope: RegenerationScope,
 ) {
+    if let Err(e) = try_regenerate_map_tile(
+        sender.clone(),
+        dem,
+        g_dem,
+        drm,
+        dim,
+        cut_bounds,
+        hull,
+        ref_point,
+        z_range,
+        params,
+        old_params,
+        scope,
+    ) {
+        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+    }
+}
+
+fn try_regenerate_map_tile(
+    sender: Sender<FrontendTask>,
+    dem: &[Dfm],
+    g_dem: &[Dfm],
+    drm: &[Dfm],
+    dim: &[Dfm],
+    cut_bounds: &[geo::Polygon],
+    hull: &geo::Polygon,
+    ref_point: geo::Coord,
+    z_range: (f64, f64),
+    params: &MapParameters,
+    old_params: &Option<MapParameters>,
+    scope: RegenerationScope,
+) -> crate::Result<()> {
     let omap = Arc::new(Mutex::new(TempMap::new(
         ref_point,
         params.scale,
@@ -36,8 +68,9 @@ pub fn regenerate_map_tile(
 
     if needs_update.intensities {
         // make sure the symbols used in the prev generation are cleared
-        if let Some(old_params) = &old_params {
-            let mut map = omap.lock().unwrap();
+        if let Some(old_params) = &old_params
+            && let Ok(mut map) = omap.lock()
+        {
             for filter in old_params.intensity.filters.iter() {
                 map.reserve_capacity(filter.symbol, 0);
             }
@@ -45,9 +78,10 @@ pub fn regenerate_map_tile(
     }
     if !params.contour.basemap_contour {
         // make sure that the basemap gets removed if it is toggled off
-        let mut ac_map = omap.lock().unwrap();
-        ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
-        ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
+        if let Ok(mut ac_map) = omap.lock() {
+            ac_map.reserve_capacity(LineSymbol::NegBasemapContour, 0);
+            ac_map.reserve_capacity(LineSymbol::BasemapContour, 0);
+        }
     }
 
     let tot_energy = Arc::new(Mutex::new(0.));
@@ -58,57 +92,80 @@ pub fn regenerate_map_tile(
             let omap = omap.clone();
             let tot_energy = tot_energy.clone();
             let tot_error = tot_error.clone();
+            let sender = sender.clone();
 
             let _ = thread::Builder::new()
                 .stack_size(crate::STACK_SIZE * 1024 * 1024)
                 .spawn_scoped(s, move || {
                     if needs_update.contours {
                         let (error, energy) = match &params.contour.algorithm {
-                            ContourAlgo::AI => (0., 0.),
                             ContourAlgo::NaiveIterations => {
-                                let (objects, error, energy) =
+                                let Ok((objects, error, energy)) =
                                     map_gen::common::compute_naive_contours(
                                         &dem[i],
                                         z_range,
                                         &cut_bounds[i],
                                         (0.1, 0.0),
                                         params,
-                                    );
+                                    )
+                                else {
+                                    let _ = sender.send(FrontendTask::Error(
+                                        "Failed to compute naive contours".to_string(),
+                                        true,
+                                    ));
+                                    return;
+                                };
                                 add_objects(&omap, objects);
                                 (error, energy)
                             }
                             ContourAlgo::NormalFieldSmoothing => {
-                                let (objects, error, energy) = map_gen::common::extract_contours(
-                                    &dem[i],
-                                    z_range,
-                                    &cut_bounds[i],
-                                    params,
-                                    true,
-                                );
+                                let Ok((objects, error, energy)) =
+                                    map_gen::common::extract_contours(
+                                        &dem[i],
+                                        z_range,
+                                        &cut_bounds[i],
+                                        params,
+                                        true,
+                                    )
+                                else {
+                                    let _ = sender.send(FrontendTask::Error(
+                                        "Failed to extract smoothed contours".to_string(),
+                                        true,
+                                    ));
+                                    return;
+                                };
                                 add_objects(&omap, objects);
                                 (error, energy)
                             }
                             ContourAlgo::Raw => {
-                                let (objects, error, energy) = map_gen::common::extract_contours(
-                                    &dem[i],
-                                    z_range,
-                                    &cut_bounds[i],
-                                    params,
-                                    true,
-                                );
+                                let Ok((objects, error, energy)) =
+                                    map_gen::common::extract_contours(
+                                        &dem[i],
+                                        z_range,
+                                        &cut_bounds[i],
+                                        params,
+                                        true,
+                                    )
+                                else {
+                                    let _ = sender.send(FrontendTask::Error(
+                                        "Failed to extract raw contours".to_string(),
+                                        true,
+                                    ));
+                                    return;
+                                };
                                 add_objects(&omap, objects);
                                 (error, energy)
                             }
                         };
                         {
-                            let mut energy_lock =
-                                tot_energy.lock().expect("Could not lock energy mutex");
-                            *energy_lock += energy;
+                            if let Ok(mut energy_lock) = tot_energy.lock() {
+                                *energy_lock += energy;
+                            }
                         }
                         {
-                            let mut error_lock =
-                                tot_error.lock().expect("Could not lock error mutex");
-                            *error_lock += error;
+                            if let Ok(mut error_lock) = tot_error.lock() {
+                                *error_lock += error;
+                            }
                         }
                     }
 
@@ -222,9 +279,11 @@ pub fn regenerate_map_tile(
     });
 
     let mut omap = Arc::<Mutex<TempMap>>::into_inner(omap)
-        .unwrap()
+        .ok_or_else(|| {
+            anyhow::anyhow!("Could not get inner preview map; a worker still holds a reference")
+        })?
         .into_inner()
-        .unwrap();
+        .map_err(|_| anyhow::anyhow!("Preview map mutex was poisoned"))?;
 
     if old_params.is_none() {
         // remove empty hashmap entries
@@ -250,47 +309,44 @@ pub fn regenerate_map_tile(
         );
     }
 
-    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), &params.geometry);
+    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), &params.geometry)?;
 
     if needs_update.contours {
         let mut tot_energy = tot_energy
             .lock()
-            .expect("Could not lock energy mutex after scoped threads");
+            .map_err(|_| anyhow::anyhow!("Could not lock contour energy after regeneration"))?;
         let mut tot_error = tot_error
             .lock()
-            .expect("Could not lock error mutex after scoped threads");
+            .map_err(|_| anyhow::anyhow!("Could not lock contour error after regeneration"))?;
 
         *tot_energy /= dem.len() as f64;
         *tot_error /= dem.len() as f64;
 
-        sender
-            .send(FrontendTask::UpdateVariable(Variable::ContourScore((
-                *tot_error as f32,
-                *tot_energy as f32,
-            ))))
-            .unwrap();
+        let _ = sender.send(FrontendTask::UpdateVariable(Variable::ContourScore((
+            *tot_error as f32,
+            *tot_energy as f32,
+        ))));
     }
 
-    sender
-        .send(FrontendTask::UpdateVariable(Variable::MapTile(Box::new(
-            map,
-        ))))
-        .unwrap();
-    sender
-        .send(FrontendTask::TaskComplete(TaskDone::RegenerateMap))
-        .unwrap();
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::MapTile(Box::new(
+        map,
+    ))));
+    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::RegenerateMap));
+    Ok(())
 }
 
 fn add_objects(omap: &Arc<Mutex<TempMap>>, objects: Vec<crate::map_gen::egui_map::MapObject>) {
-    let mut omap = omap.lock().unwrap();
-    for object in objects {
-        omap.add_object(object);
+    if let Ok(mut omap) = omap.lock() {
+        for object in objects {
+            omap.add_object(object);
+        }
     }
 }
 
 fn clear_objects(omap: &Arc<Mutex<TempMap>>, symbol: impl Into<crate::map_gen::egui_map::Symbol>) {
-    let mut omap = omap.lock().unwrap();
-    omap.reserve_capacity(symbol, 0);
+    if let Ok(mut omap) = omap.lock() {
+        omap.reserve_capacity(symbol, 0);
+    }
 }
 
 fn needs_regeneration(
@@ -331,7 +387,7 @@ fn needs_regeneration(
         || new.contour.algo_steps != old.contour.algo_steps
         || new.geometry.contours != old.geometry.contours
         || new.contour.form_lines != old.contour.form_lines
-        || (new.contour.form_lines && (new.contour.form_line_prune != old.contour.form_line_prune))
+        || new.contour.form_lines
         || new.contour.interval != old.contour.interval
         || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;

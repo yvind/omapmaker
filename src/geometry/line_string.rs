@@ -26,7 +26,9 @@ impl MapLineString for LineString {
         let mut lines = self.lines().map(|l| l.delta());
 
         // store first line for use if the linestring is closed
-        let first_line = lines.next().unwrap();
+        let Some(first_line) = lines.next() else {
+            return 1000.;
+        };
         let first_len = first_line.magnitude();
         let norm_first = first_line / first_len;
 
@@ -90,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn test_geo_agreed_signed_area_linestring() {
+    fn test_geo_agreed_signed_area_linestring() -> Result<(), &'static str> {
         let line = LineString::new(vec![
             Coord { x: 0., y: 100. },
             Coord { x: 0., y: 0. },
@@ -99,10 +101,13 @@ mod tests {
             Coord { x: 0., y: 100. },
         ]);
 
-        let own_area = line.line_string_signed_area().unwrap();
+        let own_area = line
+            .line_string_signed_area()
+            .ok_or("test line should be closed and contain enough points")?;
 
         let polygon = Polygon::new(line, vec![]);
 
         assert_eq!(own_area, polygon.signed_area());
+        Ok(())
     }
 }

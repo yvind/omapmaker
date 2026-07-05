@@ -265,19 +265,15 @@ impl OmapMaker {
             }
             Task::DoConnectedComponentAnalysis => {
                 if self.gui_variables.generation.params.output.crs.is_some() {
-                    self.comms
-                        .send(BackendTask::MapSpatialLidarRelations(
-                            self.gui_variables.project.paths.clone(),
-                            Some(self.gui_variables.project.crs_epsg.clone()),
-                        ))
-                        .unwrap();
+                    let _ = self.comms.send(BackendTask::MapSpatialLidarRelations(
+                        self.gui_variables.project.paths.clone(),
+                        Some(self.gui_variables.project.crs_epsg.clone()),
+                    ));
                 } else {
-                    self.comms
-                        .send(BackendTask::MapSpatialLidarRelations(
-                            self.gui_variables.project.paths.clone(),
-                            None,
-                        ))
-                        .unwrap();
+                    let _ = self.comms.send(BackendTask::MapSpatialLidarRelations(
+                        self.gui_variables.project.paths.clone(),
+                        None,
+                    ));
                 }
             }
         }
@@ -346,7 +342,7 @@ impl OmapMaker {
                 };
                 self.state.next();
                 self.gui_variables.project.selected_file = None;
-                self.comms.send(BackendTask::ParseCrs(ready.paths)).unwrap();
+                let _ = self.comms.send(BackendTask::ParseCrs(ready.paths));
             }
             ProcessStage::CheckLidar => {
                 self.state.next();
@@ -365,17 +361,15 @@ impl OmapMaker {
                 };
                 self.state.next();
                 self.gui_variables.project.single_copc_path = None;
-                self.comms
-                    .send(BackendTask::ConvertCopc(
-                        ready.file_params.paths,
-                        ready.file_params.crs_epsg,
-                        ready.output_crs,
-                        ready.save_location,
-                        ready.boundaries,
-                        ready.polygon_filter,
-                        ready.write_single_copc,
-                    ))
-                    .unwrap();
+                let _ = self.comms.send(BackendTask::ConvertCopc(
+                    ready.file_params.paths,
+                    ready.file_params.crs_epsg,
+                    ready.output_crs,
+                    ready.save_location,
+                    ready.boundaries,
+                    ready.polygon_filter,
+                    ready.write_single_copc,
+                ));
             }
             ProcessStage::ConvertingCOPC => {
                 self.state.next();
@@ -390,9 +384,9 @@ impl OmapMaker {
                     }
                 };
                 self.state.next();
-                self.comms
-                    .send(BackendTask::TileSelectedFile(ready.path, ready.crs))
-                    .unwrap();
+                let _ = self
+                    .comms
+                    .send(BackendTask::TileSelectedFile(ready.path, ready.crs));
             }
             ProcessStage::ChooseSubTile => {
                 if let Err(error) = self.gui_variables.tile.validate_selected_tile() {
@@ -408,13 +402,11 @@ impl OmapMaker {
                 };
                 self.gui_variables.preview.generating_map_tile = true;
                 self.state.next();
-                self.comms
-                    .send(BackendTask::InitializeMapTile(
-                        ready.path,
-                        ready.tile,
-                        ready.stats,
-                    ))
-                    .unwrap();
+                let _ = self.comms.send(BackendTask::InitializeMapTile(
+                    ready.path,
+                    ready.tile,
+                    ready.stats,
+                ));
             }
             state if state.is_adjustment() && state != ProcessStage::AdjustIntensity => {
                 self.state.next();
@@ -429,14 +421,12 @@ impl OmapMaker {
                     }
                 };
                 self.state.next();
-                self.comms
-                    .send(BackendTask::MakeMap(
-                        Box::new(ready.map_params),
-                        Box::new(ready.file_params),
-                        ready.polygon_filter,
-                        ready.stats,
-                    ))
-                    .unwrap();
+                let _ = self.comms.send(BackendTask::MakeMap(
+                    Box::new(ready.map_params),
+                    Box::new(ready.file_params),
+                    ready.polygon_filter,
+                    ready.stats,
+                ));
             }
             ProcessStage::MakeMap => {
                 self.state.next();
@@ -454,7 +444,7 @@ impl OmapMaker {
             ProcessStage::AdjustContours => {
                 self.gui_variables.preview.map_tile = None;
                 self.gui_variables.tile.selected_tile = None;
-                self.comms.send(BackendTask::ClearParams).unwrap()
+                let _ = self.comms.send(BackendTask::ClearParams);
             }
             state if state.is_adjustment() => (),
             ProcessStage::ShowComponents => {
@@ -464,7 +454,7 @@ impl OmapMaker {
             ProcessStage::ChooseSubTile => {
                 self.gui_variables.tile.selected_tile = None;
             }
-            _ => unimplemented!("Should not have been called on this state"),
+            _ => return,
         }
 
         self.state.prev();
@@ -481,16 +471,26 @@ impl OmapMaker {
     fn update_crs(&mut self, message: SetCrs) {
         match message {
             SetCrs::SetAllEpsg => {
-                let a = self.gui_variables.lidar.crs_less_search_strings[0]
-                    .parse::<u16>()
-                    .unwrap();
+                let Ok(a) = self.gui_variables.lidar.crs_less_search_strings[0].parse::<u16>()
+                else {
+                    self.on_frontend_task(FrontendTask::Error(
+                        "Could not parse EPSG code".to_string(),
+                        false,
+                    ));
+                    return;
+                };
+
+                let Ok(parsed_crs) = proj_wkt::parse_crs(&a.to_string()) else {
+                    self.on_frontend_task(FrontendTask::Error(
+                        "Could not create a CRS from the given EPSG code".to_string(),
+                        false,
+                    ));
+                    return;
+                };
 
                 for crs in self.gui_variables.project.crs_epsg.iter_mut() {
                     if crs.is_none() {
-                        *crs = Some(
-                            proj_wkt::parse_crs(&a.to_string())
-                                .expect("Cannot create a crs from the given code"),
-                        );
+                        *crs = Some(parsed_crs.clone());
                     }
                 }
             }
@@ -512,8 +512,17 @@ impl OmapMaker {
                     if self.gui_variables.lidar.drop_checkboxes[i] {
                         drop_list.push(crs_less_indecies[i]);
                     } else {
-                        let crs =
-                            Some(proj_wkt::parse_crs(s).expect("Could not create crs from code"));
+                        let crs = match proj_wkt::parse_crs(s) {
+                            Ok(crs) => Some(crs),
+                            Err(_) => {
+                                self.on_frontend_task(FrontendTask::Error(
+                                    "Could not create a CRS from one of the provided codes"
+                                        .to_string(),
+                                    false,
+                                ));
+                                return;
+                            }
+                        };
                         self.gui_variables.project.crs_epsg[crs_less_indecies[i]] = crs;
                     }
                 }
@@ -573,12 +582,10 @@ impl OmapMaker {
 
     fn regenerate_map(&mut self, scope: RegenerationScope) {
         self.gui_variables.preview.generating_map_tile = true;
-        self.comms
-            .send(BackendTask::RegenerateMap(
-                Box::new(self.gui_variables.generation.params.clone()),
-                scope,
-            ))
-            .unwrap();
+        let _ = self.comms.send(BackendTask::RegenerateMap(
+            Box::new(self.gui_variables.generation.params.clone()),
+            scope,
+        ));
     }
 
     fn regenerate_current_adjustment_section(&mut self) {
@@ -598,7 +605,7 @@ impl OmapMaker {
         self.gui_variables = Default::default();
         self.open_modal = OmapModal::None;
         self.home_zoom = 16.;
-        self.map_memory.set_zoom(self.home_zoom).unwrap();
+        let _ = self.map_memory.set_zoom(self.home_zoom);
         self.map_memory.follow_my_position();
 
         match self.comms.send(BackendTask::Reset) {

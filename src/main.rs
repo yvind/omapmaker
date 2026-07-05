@@ -25,7 +25,7 @@ use frontend::OmapMaker;
 use eframe::egui;
 use std::sync::Arc;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let icon_bytes = include_bytes!("./assets/icon.raw");
     let rgba = icon_bytes.to_vec();
 
@@ -48,6 +48,7 @@ fn main() {
         "OmapMaker",
         options,
         Box::new(|cc| Ok(Box::new(OmapMaker::new(cc.egui_ctx.clone())))),
-    )
-    .unwrap();
+    )?;
+
+    Ok(())
 }

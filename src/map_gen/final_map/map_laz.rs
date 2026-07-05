@@ -37,7 +37,7 @@ pub fn map_laz(
     }
 
     if las_paths.is_empty() {
-        return Err(Error::MapAreaDistinctFromLidarArea);
+        return Err(Error::MapAreaDistinctFromLidarArea.into());
     }
 
     if tile_centers.len() == 1 {

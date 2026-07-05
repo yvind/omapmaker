@@ -1,6 +1,7 @@
 use super::PointLaz;
 
 use crate::{CELL_SIZE, TILE_SIZE};
+use anyhow::{Context, bail};
 
 use geo::{LineString, Polygon, Simplify};
 use las::{Bounds, Vector, point::Classification};
@@ -61,8 +62,12 @@ impl PointCloud {
         }
     }
 
-    pub fn bounded_convex_hull(&mut self, dfm_bounds: &Bounds, epsilon: f64) -> Polygon {
-        let convex_hull = self.convex_hull();
+    pub fn bounded_convex_hull(
+        &mut self,
+        dfm_bounds: &Bounds,
+        epsilon: f64,
+    ) -> crate::Result<Polygon> {
+        let convex_hull = self.convex_hull()?;
         let mut hull_contour: LineString = LineString::new(vec![]);
 
         for mut point in convex_hull {
@@ -81,16 +86,19 @@ impl PointCloud {
         }
         hull_contour.close();
 
-        Polygon::new(hull_contour.simplify(epsilon), vec![])
+        Ok(Polygon::new(hull_contour.simplify(epsilon), vec![]))
     }
 
-    fn convex_hull(&mut self) -> Vec<PointLaz> {
+    fn convex_hull(&mut self) -> crate::Result<Vec<PointLaz>> {
         let mut gp_iter = self
             .points
             .iter()
             .filter(|p| p.0.classification == Classification::Ground);
 
-        let mut bottom_point = gp_iter.next().unwrap().clone();
+        let mut bottom_point = gp_iter
+            .next()
+            .context("Cannot build a convex hull without ground points")?
+            .clone();
         for point in gp_iter {
             if point.y() < bottom_point.y()
                 || (point.y() == bottom_point.y() && point.x() < bottom_point.x())
@@ -122,7 +130,10 @@ impl PointCloud {
             .iter()
             .skip(1)
             .filter(|p| p.0.classification == Classification::Ground);
-        convex_hull.push(gp_iter.next().unwrap().clone());
+        let Some(second_point) = gp_iter.next() else {
+            bail!("Cannot build a convex hull with fewer than two ground points");
+        };
+        convex_hull.push(second_point.clone());
 
         for point in gp_iter {
             if bottom_point.consecutive_orientation(point, &convex_hull[convex_hull.len() - 1])
@@ -142,7 +153,7 @@ impl PointCloud {
             }
             convex_hull.push(point.clone());
         }
-        convex_hull
+        Ok(convex_hull)
     }
 }
 

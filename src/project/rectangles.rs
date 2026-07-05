@@ -1,26 +1,31 @@
 use geo::{Coord, Point, Rect};
 use proj_core::{CrsDef, Transform};
 
-pub fn to_walkers_map_points(crs: Option<CrsDef>, rects: &Vec<Rect>) -> Vec<[Point; 4]> {
+pub fn to_walkers_map_points(
+    crs: Option<CrsDef>,
+    rects: &Vec<Rect>,
+) -> crate::Result<Vec<[Point; 4]>> {
     let mut out = Vec::with_capacity(rects.len());
     let Some(crs) = crs else {
         for rect in rects {
             out.push(rect_to_map_coords(rect).map(Point));
         }
-        return out;
+        return Ok(out);
     };
-    let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+    let transform = Transform::from_epsg(crs.epsg(), 4326)?;
 
     for rect in rects {
-        out.push(rect_to_map_coords(rect).map(|point| {
-            let transformed = transform.convert((point.x, point.y)).unwrap();
-            Point(Coord {
+        let mut projected = [Point(Coord::default()); 4];
+        for (i, point) in rect_to_map_coords(rect).into_iter().enumerate() {
+            let transformed = transform.convert((point.x, point.y))?;
+            projected[i] = Point(Coord {
                 x: transformed.0,
                 y: transformed.1,
-            })
-        }));
+            });
+        }
+        out.push(projected);
     }
-    out
+    Ok(out)
 }
 
 fn rect_to_map_coords(rect: &Rect) -> [Coord; 4] {

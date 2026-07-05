@@ -1,3 +1,4 @@
+use anyhow::Context;
 use eframe::egui;
 use las::Reader;
 
@@ -32,7 +33,7 @@ pub struct Backend {
 
 impl Backend {
     pub fn boot(comms: OmapComms<FrontendTask, BackendTask>, ctx: egui::Context) {
-        std::thread::Builder::new()
+        if let Err(e) = std::thread::Builder::new()
             .stack_size(crate::STACK_SIZE * 1024 * 1024)
             .spawn(move || {
                 let mut backend = Backend {
@@ -51,7 +52,9 @@ impl Backend {
 
                 backend.run();
             })
-            .unwrap();
+        {
+            eprintln!("Failed to spawn backend thread: {e}");
+        }
     }
 
     fn run(&mut self) {
@@ -89,21 +92,29 @@ impl Backend {
                     }
 
                     BackendTask::InitializeMapTile(path, tiles, stats) => {
-                        let (dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range) =
-                            map_gen::egui_map::initialize_map_tile(
-                                self.comms.clone_sender(),
-                                path,
-                                tiles,
-                                stats,
-                            );
-                        self.map_tile_dem = dem;
-                        self.map_tile_grad_dem = gdem;
-                        self.map_tile_drm = drm;
-                        self.map_tile_dim = dim;
-                        self.cut_bounds = cut_bounds;
-                        self.hull = hull;
-                        self.ref_point = ref_point;
-                        self.z_range = z_range;
+                        match map_gen::egui_map::initialize_map_tile(
+                            self.comms.clone_sender(),
+                            path,
+                            tiles,
+                            stats,
+                        ) {
+                            Ok((dem, gdem, drm, dim, cut_bounds, hull, ref_point, z_range)) => {
+                                self.map_tile_dem = dem;
+                                self.map_tile_grad_dem = gdem;
+                                self.map_tile_drm = drm;
+                                self.map_tile_dim = dim;
+                                self.cut_bounds = cut_bounds;
+                                self.hull = hull;
+                                self.ref_point = ref_point;
+                                self.z_range = z_range;
+                            }
+                            Err(e) => {
+                                let _ = self
+                                    .comms
+                                    .send(FrontendTask::ProgressBar(ProgressBar::Finish));
+                                let _ = self.comms.send(FrontendTask::Error(e.to_string(), true));
+                            }
+                        }
                     }
 
                     BackendTask::RegenerateMap(params, scope) => {
@@ -130,15 +141,21 @@ impl Backend {
 
                     BackendTask::MakeMap(map_params, file_params, polygon_filter, stats) => {
                         // transform the linestring to output coords
-                        let local_polygon_filter = project::polygon::from_walkers_map_coords(
+                        let local_polygon_filter = match project::polygon::from_walkers_map_coords(
                             map_params.output.crs.clone(),
                             polygon_filter,
-                        );
+                        ) {
+                            Ok(polygon) => polygon,
+                            Err(e) => {
+                                let _ = self.comms.send(FrontendTask::Error(e.to_string(), true));
+                                continue;
+                            }
+                        };
 
                         // we are not going back here so can clear the DEMs to free some memory
                         self.reset();
 
-                        match map_gen::final_map::make_map(
+                        let _ = match map_gen::final_map::make_map(
                             self.comms.clone_sender(),
                             *map_params,
                             *file_params,
@@ -147,41 +164,18 @@ impl Backend {
                         ) {
                             Ok(_) => self
                                 .comms
-                                .send(FrontendTask::TaskComplete(TaskDone::MakeMap))
-                                .unwrap(),
-                            Err(e) => self
-                                .comms
-                                .send(FrontendTask::Error(e.to_string(), true))
-                                .unwrap(),
+                                .send(FrontendTask::TaskComplete(TaskDone::MakeMap)),
+                            Err(e) => self.comms.send(FrontendTask::Error(e.to_string(), true)),
                         };
                     }
                     BackendTask::Reset => {
                         self.reset();
-                        self.comms
-                            .send(FrontendTask::TaskComplete(TaskDone::Reset))
-                            .unwrap();
+                        let _ = self.comms.send(FrontendTask::TaskComplete(TaskDone::Reset));
                     }
                     BackendTask::TileSelectedFile(path, epsg) => {
-                        let bounds = Reader::from_path(&path).unwrap().header().bounds();
-                        let rect = geo::Rect::from_bounds(bounds);
-
-                        let (_, cb, n_x, n_y) =
-                            map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
-                        let neighbors = neighbors::neighbors_on_grid(n_x, n_y);
-
-                        let cb = project::rectangles::to_walkers_map_points(epsg, &cb);
-
-                        self.comms
-                            .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)))
-                            .unwrap();
-                        self.comms
-                            .send(FrontendTask::UpdateVariable(Variable::TileNeighbors(
-                                neighbors,
-                            )))
-                            .unwrap();
-                        self.comms
-                            .send(FrontendTask::TaskComplete(TaskDone::TileSelectedFile))
-                            .unwrap();
+                        if let Err(e) = self.tile_selected_file(path, epsg) {
+                            let _ = self.comms.send(FrontendTask::Error(e.to_string(), false));
+                        }
                     }
                 }
             }
@@ -201,5 +195,36 @@ impl Backend {
         self.hull.exterior_mut(|l| l.0.clear());
         self.z_range = (0., 0.);
         self.ref_point = geo::Coord { x: 0., y: 0. };
+    }
+
+    fn tile_selected_file(
+        &self,
+        path: std::path::PathBuf,
+        epsg: Option<proj_core::CrsDef>,
+    ) -> crate::Result<()> {
+        let bounds = Reader::from_path(&path)
+            .with_context(|| format!("Failed to read selected lidar file {path:?}"))?
+            .header()
+            .bounds();
+        let rect = geo::Rect::from_bounds(bounds);
+
+        let (_, cb, n_x, n_y) = map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
+        let neighbors = neighbors::neighbors_on_grid(n_x, n_y);
+
+        let cb = project::rectangles::to_walkers_map_points(epsg, &cb)?;
+
+        let _ = self
+            .comms
+            .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)));
+        let _ = self
+            .comms
+            .send(FrontendTask::UpdateVariable(Variable::TileNeighbors(
+                neighbors,
+            )));
+        let _ = self
+            .comms
+            .send(FrontendTask::TaskComplete(TaskDone::TileSelectedFile));
+
+        Ok(())
     }
 }

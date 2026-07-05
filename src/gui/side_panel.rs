@@ -69,7 +69,9 @@ impl OmapMaker {
                     if ui
                         .selectable_label(
                             self.gui_variables.project.selected_file == Some(index),
-                            p.file_name().unwrap().to_str().unwrap(),
+                            p.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_else(|| p.to_str().unwrap_or("<invalid path>")),
                         )
                         .clicked()
                     {
@@ -204,7 +206,9 @@ impl OmapMaker {
                     if ui
                         .selectable_label(
                             self.gui_variables.project.selected_file == Some(index),
-                            p.file_name().unwrap().to_str().unwrap(),
+                            p.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_else(|| p.to_str().unwrap_or("<invalid path>")),
                         )
                         .clicked()
                     {
@@ -352,7 +356,9 @@ impl OmapMaker {
                     if ui
                         .selectable_label(
                             self.gui_variables.project.selected_file == Some(index),
-                            p.file_name().unwrap().to_str().unwrap(),
+                            p.file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or_else(|| p.to_str().unwrap_or("<invalid path>")),
                         )
                         .clicked()
                     {
@@ -605,11 +611,6 @@ impl OmapMaker {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(
                         &mut self.gui_variables.generation.params.contour.algorithm,
-                        ContourAlgo::AI,
-                        "AI contours (slowest)",
-                    );
-                    ui.selectable_value(
-                        &mut self.gui_variables.generation.params.contour.algorithm,
                         ContourAlgo::NaiveIterations,
                         "Naive interpolation error correction (slow)",
                     );
@@ -642,16 +643,6 @@ impl OmapMaker {
                 .show_value(true),
             );
         }
-        if self.gui_variables.generation.params.contour.algorithm == ContourAlgo::AI {
-            ui.label("Contour Algo Regularization.\nBigger number punishes squiggly lines more.");
-            ui.add(
-                egui::Slider::new(
-                    &mut self.gui_variables.generation.params.contour.algo_lambda,
-                    0.0..=1.,
-                )
-                .show_value(true),
-            );
-        }
         ui.add_space(10.);
 
         ui.label(egui::RichText::new("Contour parameters").strong());
@@ -668,19 +659,6 @@ impl OmapMaker {
         ui.checkbox(
             &mut self.gui_variables.generation.params.contour.form_lines,
             "Add form lines to the map.",
-        );
-        ui.add_enabled_ui(
-            self.gui_variables.generation.params.contour.form_lines,
-            |ui| {
-                ui.label("Form line pruning parameter. \nBigger number gives more form lines.");
-                ui.add(
-                    egui::Slider::new(
-                        &mut self.gui_variables.generation.params.contour.form_line_prune,
-                        0.0..=1.,
-                    )
-                    .show_value(true),
-                );
-            },
         );
         ui.label("Area filter for marking small knolls as dotknolls:");
         ui.horizontal(|ui| {

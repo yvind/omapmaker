@@ -9,6 +9,7 @@ use std::{path::PathBuf, sync::mpsc::Sender};
 use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
 use crate::{
+    Result,
     comms::messages::*,
     geometry::{MapRect, PointCloud, PointLaz},
     map_gen,
@@ -17,12 +18,7 @@ use crate::{
     statistics::LidarStats,
 };
 
-pub fn initialize_map_tile(
-    sender: Sender<FrontendTask>,
-    path: PathBuf,
-    tile_indecies: Neighborhood,
-    stats: LidarStats,
-) -> (
+pub type InitializedMapTile = (
     Vec<Dfm>,
     Vec<Dfm>,
     Vec<Dfm>,
@@ -31,21 +27,24 @@ pub fn initialize_map_tile(
     Polygon,
     Coord,
     (f64, f64),
-) {
-    sender
-        .send(FrontendTask::Log(
-            "Calculating test tile rasters...".to_string(),
-        ))
-        .unwrap();
-    sender
-        .send(FrontendTask::ProgressBar(ProgressBar::Start))
-        .unwrap();
+);
+
+pub fn initialize_map_tile(
+    sender: Sender<FrontendTask>,
+    path: PathBuf,
+    tile_indecies: Neighborhood,
+    stats: LidarStats,
+) -> Result<InitializedMapTile> {
+    let _ = sender.send(FrontendTask::Log(
+        "Calculating test tile rasters...".to_string(),
+    ));
+    let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
 
     let tile_indecies = tile_indecies.all_indices();
 
     let inc_size = 1. / tile_indecies.len() as f32;
 
-    let mut reader = CopcReader::from_path(&path).unwrap();
+    let mut reader = CopcReader::from_path(&path)?;
     let header_bounds = reader.header().bounds();
 
     let ref_point = Coord {
@@ -94,8 +93,7 @@ pub fn initialize_map_tile(
 
         let mut ground_point_cloud = PointCloud::new(
             reader
-                .points(LodSelection::All, BoundsSelection::Within(bounds))
-                .unwrap()
+                .points(LodSelection::All, BoundsSelection::Within(bounds))?
                 .filter_map(|mut p| {
                     if !p.is_withheld
                         && (p.classification == Classification::Ground
@@ -151,10 +149,10 @@ pub fn initialize_map_tile(
 
         let dfm_bounds = ground_point_cloud.get_dfm_dimensions();
 
-        let hull = ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.);
+        let hull = ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.)?;
 
         let (dem, drm, dim, tile_z_range) =
-            map_gen::common::compute_dfms(ground_point_cloud, &stats);
+            map_gen::common::compute_dfms(ground_point_cloud, &stats)?;
         let grad_dem = dem.slope(3);
 
         if z_range.0 > tile_z_range.0 {
@@ -170,26 +168,22 @@ pub fn initialize_map_tile(
         drms.push(drm);
         dims.push(dim);
 
-        sender
-            .send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)))
-            .unwrap();
+        let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));
     }
 
-    let initial = all_hulls[0].clone();
+    let Some(initial) = all_hulls.first().cloned() else {
+        anyhow::bail!("No tile hulls were initialized");
+    };
     let super_hull = all_hulls
         .into_iter()
         .skip(1)
         .fold(initial, |acc, p| acc.union(&p).0[0].clone());
     let super_hull = super_hull.convex_hull();
 
-    sender
-        .send(FrontendTask::ProgressBar(ProgressBar::Finish))
-        .unwrap();
-    sender
-        .send(FrontendTask::TaskComplete(TaskDone::InitializeMapTile))
-        .unwrap();
+    let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
+    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::InitializeMapTile));
 
-    (
+    Ok((
         dems, g_dems, drms, dims, cut_bounds, super_hull, ref_point, z_range,
-    )
+    ))
 }

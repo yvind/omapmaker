@@ -15,7 +15,7 @@ pub fn compute_naive_contours(
     cut_overlay: &Polygon,
     thresholds: (f64, f64),
     params: &MapParameters,
-) -> (Vec<MapObject>, f64, f64) {
+) -> crate::Result<(Vec<MapObject>, f64, f64)> {
     let (min_threshold, conv_threshold) = thresholds;
 
     let effective_interval = if params.contour.form_lines {
@@ -70,9 +70,7 @@ pub fn compute_naive_contours(
         }
 
         // interpolate the contour set
-        contours
-            .interpolate(&mut interpolated_dem, &adjusted_dem)
-            .unwrap();
+        contours.interpolate(&mut interpolated_dem, &adjusted_dem)?;
 
         // calculate the error
         // should this only include contours inside the cut_bounds?
@@ -133,7 +131,7 @@ pub fn compute_naive_contours(
         }
     }
 
-    (objects, error, energy)
+    Ok((objects, error, energy))
 }
 
 // used for raw and smoothed contour extraction, with scoring which complicates it a bit
@@ -144,7 +142,7 @@ pub fn extract_contours(
     cut_overlay: &Polygon,
     params: &MapParameters,
     compute_energy: bool,
-) -> (Vec<MapObject>, f64, f64) {
+) -> crate::Result<(Vec<MapObject>, f64, f64)> {
     let effective_interval = if params.contour.form_lines {
         params.contour.interval / 2.
     } else {
@@ -188,7 +186,7 @@ pub fn extract_contours(
 
     let (error, energy) = if compute_energy {
         let mut interpolated_dem = dem.clone();
-        contour_set.interpolate(&mut interpolated_dem, dem).unwrap();
+        contour_set.interpolate(&mut interpolated_dem, dem)?;
 
         (true_dem.error(&interpolated_dem), contour_set.energy(1))
     } else {
@@ -217,5 +215,5 @@ pub fn extract_contours(
             objects.push(c_object);
         }
     }
-    (objects, error, energy)
+    Ok((objects, error, energy))
 }

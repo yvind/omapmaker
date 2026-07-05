@@ -64,9 +64,9 @@ impl DrawablePolygonObject {
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
         let obj = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
 
-            let transformed_points = transform.convert_batch(&vertices).unwrap();
+            let transformed_points = transform.convert_batch(&vertices)?;
             transformed_points
                 .iter()
                 .map(|c| walkers::lon_lat(c.0, c.1))
@@ -211,7 +211,7 @@ impl DrawableLineObject {
         };
 
         let obj = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
 
             let line: Vec<(f64, f64)> = line
                 .0
@@ -219,7 +219,7 @@ impl DrawableLineObject {
                 .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
                 .collect();
 
-            let transformed_line = transform.convert_batch(&line).unwrap();
+            let transformed_line = transform.convert_batch(&line)?;
 
             transformed_line
                 .iter()
@@ -273,10 +273,10 @@ impl DrawablePointObject {
         crs: Option<CrsDef>,
     ) -> Result<Self> {
         let pos = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326).unwrap();
+            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
 
             let p = (point.x() + ref_point.x, point.y() + ref_point.y);
-            let transformed_p = transform.convert(p).unwrap();
+            let transformed_p = transform.convert(p)?;
 
             walkers::lon_lat(transformed_p.0, transformed_p.1)
         } else {

@@ -83,11 +83,11 @@ impl DrawableOmap {
         tmap: TempMap,
         hull: geo::LineString,
         geometry: &GeometryParameters,
-    ) -> Self {
+    ) -> Result<Self> {
         let ref_point = tmap.ref_point;
 
         let global_hull = if let Some(epsg) = &tmap.crs {
-            let transform = Transform::from_epsg(epsg.epsg(), 4326).unwrap();
+            let transform = Transform::from_epsg(epsg.epsg(), 4326)?;
 
             let points: Vec<(f64, f64)> = hull
                 .0
@@ -95,7 +95,7 @@ impl DrawableOmap {
                 .map(|c| (c.x + ref_point.x, c.y + ref_point.y))
                 .collect();
 
-            let transformed_points = transform.convert_batch(&points).unwrap();
+            let transformed_points = transform.convert_batch(&points)?;
 
             transformed_points
                 .into_iter()
@@ -108,10 +108,10 @@ impl DrawableOmap {
                 .collect()
         };
 
-        DrawableOmap {
+        Ok(DrawableOmap {
             hull: global_hull,
             map_objects: Self::into_drawable(tmap.objects, ref_point, tmap.crs, geometry),
-        }
+        })
     }
 
     fn into_drawable(

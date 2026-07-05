@@ -5,6 +5,7 @@ use crate::{geometry::PointCloud, map_gen};
 
 use geo::{Area, BooleanOps, Polygon, Rect};
 use map_gen::egui_map::{AreaSymbol, MapObject};
+use std::cmp::Ordering;
 
 pub fn compute_map_objects(
     args: &MapParameters,
@@ -12,19 +13,19 @@ pub fn compute_map_objects(
     stats: &LidarStats,
     convex_hull: Polygon,
     cut_bounds: Rect,
-) -> Vec<MapObject> {
-    let (dem, drm, dim, z_range) = map_gen::common::compute_dfms(ground_cloud, stats);
+) -> crate::Result<Vec<MapObject>> {
+    let (dem, drm, dim, z_range) = map_gen::common::compute_dfms(ground_cloud, stats)?;
     let grad_dem = dem.slope(3);
 
     let mut mp = cut_bounds.to_polygon().intersection(&convex_hull);
     if mp.0.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     mp.0.sort_by(|a, b| {
         a.signed_area()
             .partial_cmp(&b.signed_area())
-            .expect("Non-normal polygon area!")
+            .unwrap_or(Ordering::Equal)
     });
     let cut_overlay = mp.0.swap_remove(0);
 
@@ -40,9 +41,6 @@ pub fn compute_map_objects(
     }
 
     match args.contour.algorithm {
-        crate::parameters::ContourAlgo::AI => {
-            unimplemented!("No AI contours yet...");
-        }
         crate::parameters::ContourAlgo::NaiveIterations => {
             let (contours, _, _) = map_gen::common::compute_naive_contours(
                 &dem,
@@ -50,18 +48,18 @@ pub fn compute_map_objects(
                 &cut_overlay,
                 (0.9, 1.1),
                 args,
-            );
+            )?;
             objects.extend(contours);
         }
         crate::parameters::ContourAlgo::NormalFieldSmoothing => {
             let smooth_dem = dem.smoothen(15., 15, args.contour.algo_steps as usize);
             let (contours, _, _) =
-                map_gen::common::extract_contours(&smooth_dem, z_range, &cut_overlay, args, false);
+                map_gen::common::extract_contours(&smooth_dem, z_range, &cut_overlay, args, false)?;
             objects.extend(contours);
         }
         crate::parameters::ContourAlgo::Raw => {
             let (contours, _, _) =
-                map_gen::common::extract_contours(&dem, z_range, &cut_overlay, args, false);
+                map_gen::common::extract_contours(&dem, z_range, &cut_overlay, args, false)?;
             objects.extend(contours);
         }
     }
@@ -121,5 +119,5 @@ pub fn compute_map_objects(
         &args.geometry.intensity.buffer_rules,
     ));
 
-    objects
+    Ok(objects)
 }

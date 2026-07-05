@@ -48,7 +48,7 @@ pub fn read_laz(
 
     // skip this tile if there is almost no ground points
     if point_cloud.points.len() < 4 {
-        return Err(Error::NoGroundPoints);
+        return Err(Error::NoGroundPoints.into());
     }
 
     // get the indices for neighboring laz file if edge tile
@@ -105,7 +105,7 @@ pub fn read_laz(
 
     let map_bounds = point_cloud.get_dfm_dimensions();
 
-    let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE);
+    let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE)?;
 
     // add the water points to the ground cloud
     let water_points = las_reader
