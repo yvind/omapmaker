@@ -108,7 +108,7 @@ impl eframe::App for OmapMaker {
         let ctx = ui.ctx();
         match &self.open_modal {
             OmapModal::None => (),
-            OmapModal::OutputCRS(crs) => self.output_crs_modal(ctx, crs.clone()),
+            OmapModal::OutputCRS(crs) => self.output_crs_modal(ctx, *crs.clone()),
             OmapModal::ManualSetCRS => self.manual_set_crs_modal(ctx),
             OmapModal::SetOneCrsForAll => self.set_one_crs_for_all_modal(ctx),
             OmapModal::SetOneCrsForEach => self.set_one_crs_for_each_modal(ctx),
@@ -260,7 +260,7 @@ impl OmapMaker {
             }
             Task::GetOutputCRS => {
                 if let Some(majority) = self.gui_variables.get_most_popular_crs() {
-                    self.open_modal = OmapModal::OutputCRS(majority);
+                    self.open_modal = OmapModal::OutputCRS(Box::new(majority));
                 } else {
                     self.open_modal = OmapModal::ManualSetCRS;
                 }

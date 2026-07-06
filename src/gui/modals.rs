@@ -8,7 +8,7 @@ use proj_core::CrsDef;
 #[derive(Debug, Clone)]
 pub enum OmapModal {
     None,
-    OutputCRS(CrsDef),
+    OutputCRS(Box<CrsDef>),
     ManualSetCRS,
     SetOneCrsForAll,
     SetOneCrsForEach,
