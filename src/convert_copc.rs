@@ -1,8 +1,11 @@
-use crate::{Result, comms::messages::*, statistics::LidarStats};
+use crate::{
+    Result,
+    comms::{FrontendSender, messages::*},
+    statistics::LidarStats,
+};
 use anyhow::{Context, bail};
 use std::{
     path::{Path, PathBuf},
-    sync::mpsc::Sender,
     vec,
 };
 
@@ -15,7 +18,7 @@ const DEFAULT_COPC_MEMORY_BUDGET: u64 = 8_u64 * 1024 * 1024 * 1024;
 
 // should be multithreaded
 pub fn convert_copc(
-    sender: Sender<FrontendTask>,
+    sender: FrontendSender,
     paths: Vec<PathBuf>,
     input_crs: Vec<Option<CrsDef>>,
     output_crs: Option<CrsDef>,
@@ -40,7 +43,7 @@ pub fn convert_copc(
 }
 
 fn try_convert_copc(
-    sender: Sender<FrontendTask>,
+    sender: FrontendSender,
     paths: Vec<PathBuf>,
     input_crs: Vec<Option<CrsDef>>,
     output_crs: Option<CrsDef>,
@@ -184,7 +187,7 @@ fn transform_file(
 fn convert_file(
     mut path: PathBuf,
     _current_crs: Option<CrsDef>,
-    _sender: Sender<FrontendTask>,
+    _sender: FrontendSender,
 ) -> Result<PathBuf> {
     let raw_path = path.clone();
     path.set_extension("copc.laz");

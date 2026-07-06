@@ -1,36 +1,29 @@
-#![allow(clippy::type_complexity)]
-
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
 use las::point::Classification;
 
-use std::{path::PathBuf, sync::mpsc::Sender};
+use std::path::PathBuf;
 
 use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
 use crate::{
     Result,
-    comms::messages::*,
+    comms::{FrontendSender, messages::*},
     geometry::{MapRect, PointCloud, PointLaz},
     map_gen,
+    map_gen::pipeline::PreparedTile,
     neighbors::Neighborhood,
-    raster::Dfm,
     statistics::LidarStats,
 };
 
-pub type InitializedMapTile = (
-    Vec<Dfm>,
-    Vec<Dfm>,
-    Vec<Dfm>,
-    Vec<Dfm>,
-    Vec<Polygon>,
-    Polygon,
-    Coord,
-    (f64, f64),
-);
+pub struct InitializedMapTile {
+    pub tiles: Vec<PreparedTile>,
+    pub hull: Polygon,
+    pub ref_point: Coord,
+}
 
 pub fn initialize_map_tile(
-    sender: Sender<FrontendTask>,
+    sender: FrontendSender,
     path: PathBuf,
     tile_indecies: Neighborhood,
     stats: LidarStats,
@@ -56,21 +49,15 @@ pub fn initialize_map_tile(
         map_gen::common::retile_bounds(&Rect::from_bounds(header_bounds), &Neighborhood::new(0));
 
     let mut z_range = (f64::MAX, f64::MIN);
-    let mut cut_bounds = Vec::with_capacity(9);
     let mut all_hulls = Vec::with_capacity(9);
-    let mut dems = Vec::with_capacity(9);
-    let mut g_dems = Vec::with_capacity(9);
-    let mut drms = Vec::with_capacity(9);
-    let mut dims = Vec::with_capacity(9);
+    let mut tiles = Vec::with_capacity(9);
     for ti in tile_indecies.iter() {
         let tile_bounds = all_tile_bounds[*ti];
-        cut_bounds.push(
-            Rect::new(
-                all_cut_bounds[*ti].max() - ref_point,
-                all_cut_bounds[*ti].min() - ref_point,
-            )
-            .into(),
-        );
+        let cut_overlay = Rect::new(
+            all_cut_bounds[*ti].max() - ref_point,
+            all_cut_bounds[*ti].min() - ref_point,
+        )
+        .into();
 
         let bounds = Bounds {
             min: Vector {
@@ -151,9 +138,8 @@ pub fn initialize_map_tile(
 
         let hull = ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.)?;
 
-        let (dem, drm, dim, tile_z_range) =
+        let (dem, return_number, intensity, tile_z_range) =
             map_gen::common::compute_dfms(ground_point_cloud, &stats)?;
-        let grad_dem = dem.slope(3);
 
         if z_range.0 > tile_z_range.0 {
             z_range.0 = tile_z_range.0;
@@ -162,11 +148,15 @@ pub fn initialize_map_tile(
             z_range.1 = tile_z_range.1;
         }
 
+        tiles.push(PreparedTile::new(
+            dem,
+            return_number,
+            intensity,
+            hull.clone(),
+            cut_overlay,
+            tile_z_range,
+        ));
         all_hulls.push(hull);
-        dems.push(dem);
-        g_dems.push(grad_dem);
-        drms.push(drm);
-        dims.push(dim);
 
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));
     }
@@ -179,11 +169,17 @@ pub fn initialize_map_tile(
         .skip(1)
         .fold(initial, |acc, p| acc.union(&p).0[0].clone());
     let super_hull = super_hull.convex_hull();
+    for tile in tiles.iter_mut() {
+        tile.hull = super_hull.clone();
+        tile.z_range = z_range;
+    }
 
     let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
     let _ = sender.send(FrontendTask::TaskComplete(TaskDone::InitializeMapTile));
 
-    Ok((
-        dems, g_dems, drms, dims, cut_bounds, super_hull, ref_point, z_range,
-    ))
+    Ok(InitializedMapTile {
+        tiles,
+        hull: super_hull,
+        ref_point,
+    })
 }

@@ -6,18 +6,14 @@ use geo::Rect;
 use las::Reader;
 use proj_core::{CrsDef, Transform};
 
-use std::{collections::HashSet, path::PathBuf, sync::mpsc::Sender};
+use std::{collections::HashSet, path::PathBuf};
 
 use crate::Result;
-use crate::comms::messages::*;
+use crate::comms::{FrontendSender, messages::*};
 use crate::geometry::MapRect;
 use crate::neighbors::Neighborhood;
 
-pub fn map_laz(
-    sender: Sender<FrontendTask>,
-    paths: Vec<PathBuf>,
-    crs_defs: Option<Vec<Option<CrsDef>>>,
-) {
+pub fn map_laz(sender: FrontendSender, paths: Vec<PathBuf>, crs_defs: Option<Vec<Option<CrsDef>>>) {
     let (boundaries, boundary_areas, mid_point, components) = match read_boundaries(paths, crs_defs)
     {
         Ok(bm) => bm,

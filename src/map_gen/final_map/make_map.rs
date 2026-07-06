@@ -1,6 +1,6 @@
 use crate::{
     Result,
-    comms::messages::*,
+    comms::{FrontendSender, messages::*},
     map_gen,
     map_gen::egui_map::TempMap,
     neighbors::NeighborSide,
@@ -13,11 +13,11 @@ use rayon::{ThreadPool, prelude::*};
 
 use std::{
     cmp::Ordering,
-    sync::{Arc, Mutex, mpsc::Sender},
+    sync::{Arc, Mutex},
 };
 
 pub fn make_map(
-    sender: Sender<FrontendTask>,
+    sender: FrontendSender,
     thread_pool: &ThreadPool,
     map_params: MapParameters,
     file_params: FileParameters,

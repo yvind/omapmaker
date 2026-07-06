@@ -9,6 +9,8 @@ use crate::{
 };
 use std::path::PathBuf;
 
+pub type JobId = u64;
+
 pub enum FrontendTask {
     ProgressBar(ProgressBar),
     Log(String),
@@ -37,7 +39,7 @@ pub enum BackendTask {
         geo::LineString,
         bool,
     ),
-    RegenerateMap(Box<MapParameters>, RegenerationScope), // boxed to keep the enum variant small
+    RegenerateMap(JobId, Box<MapParameters>, RegenerationScope), // boxed to keep the enum variant small
     Reset,
     MakeMap(
         Box<MapParameters>,
@@ -84,7 +86,7 @@ pub enum TaskDone {
     DropComponents,
     ConvertCopc,
     OutputCrs,
-    RegenerateMap,
+    RegenerateMap(JobId),
     Reset,
     MakeMap,
 }
@@ -99,7 +101,7 @@ pub enum SetCrs {
 }
 
 pub enum Variable {
-    MapTile(Box<DrawableOmap>),
+    MapTile(JobId, Box<DrawableOmap>),
     TileBounds(Vec<[walkers::Position; 4]>),
     TileNeighbors(Vec<Neighborhood>),
     Paths(Vec<PathBuf>),
@@ -110,7 +112,7 @@ pub enum Variable {
     CrsLessString(usize),
     CrsLessCheckBox(usize),
     ConnectedComponents(Vec<Vec<usize>>),
-    ContourScore((f32, f32)),
+    ContourScore(JobId, (f32, f32)),
     Stats(LidarStats),
     SingleCopcPath(PathBuf),
 }

@@ -1,6 +1,22 @@
 use std::sync::mpsc;
 
+use eframe::egui;
+
 use super::messages::{BackendTask, FrontendTask};
+
+#[derive(Clone)]
+pub struct FrontendSender {
+    sender: mpsc::Sender<FrontendTask>,
+    ctx: egui::Context,
+}
+
+impl FrontendSender {
+    pub fn send(&self, task: FrontendTask) -> Result<(), mpsc::SendError<FrontendTask>> {
+        let result = self.sender.send(task);
+        self.ctx.request_repaint();
+        result
+    }
+}
 
 // Multiple Producer Single Consumer, i.e. a sender is cloneable but the receiver not
 // A dual message passing channel for the frontend and backend
@@ -20,8 +36,17 @@ impl<T, S> OmapComms<T, S> {
         self.receiver.try_recv()
     }
 
-    pub fn clone_sender(&self) -> mpsc::Sender<T> {
-        self.sender.clone()
+    pub fn recv(&self) -> Result<S, mpsc::RecvError> {
+        self.receiver.recv()
+    }
+}
+
+impl OmapComms<FrontendTask, BackendTask> {
+    pub fn frontend_sender(&self, ctx: &egui::Context) -> FrontendSender {
+        FrontendSender {
+            sender: self.sender.clone(),
+            ctx: ctx.clone(),
+        }
     }
 }
 

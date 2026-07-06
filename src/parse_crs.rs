@@ -1,10 +1,13 @@
-use crate::{comms::messages::*, gui::modals::OmapModal};
+use crate::{
+    comms::{FrontendSender, messages::*},
+    gui::modals::OmapModal,
+};
 
-use std::{path::PathBuf, sync::mpsc};
+use std::path::PathBuf;
 
 use las::Reader;
 
-pub fn parse_crs(sender: mpsc::Sender<FrontendTask>, mut paths: Vec<PathBuf>) {
+pub fn parse_crs(sender: FrontendSender, mut paths: Vec<PathBuf>) {
     let _ = sender.send(FrontendTask::Log(
         "Detecting CRS of all provided files...".to_string(),
     ));

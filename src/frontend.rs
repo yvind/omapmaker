@@ -31,6 +31,8 @@ pub struct OmapMaker {
 
     // backend communication
     comms: OmapComms<BackendTask, FrontendTask>,
+    active_preview_job_id: Option<JobId>,
+    next_preview_job_id: JobId,
 }
 
 impl eframe::App for OmapMaker {
@@ -169,6 +171,8 @@ impl OmapMaker {
             state: ProcessStage::Welcome,
             ctx,
             comms: frontend_comms,
+            active_preview_job_id: None,
+            next_preview_job_id: 0,
             open_modal: OmapModal::None,
             home: walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
             home_zoom: 16.,
@@ -221,10 +225,18 @@ impl OmapMaker {
             Variable::ConnectedComponents(vec) => {
                 self.gui_variables.lidar.connected_components = vec
             }
-            Variable::MapTile(drawable_omap) => self.gui_variables.update_map(*drawable_omap),
+            Variable::MapTile(job_id, drawable_omap) => {
+                if self.is_current_preview_job(job_id) {
+                    self.gui_variables.update_map(*drawable_omap);
+                }
+            }
             Variable::TileBounds(tb) => self.gui_variables.tile.subtile_boundaries = tb,
             Variable::TileNeighbors(tn) => self.gui_variables.tile.subtile_neighbors = tn,
-            Variable::ContourScore(score) => self.gui_variables.preview.contour_score = score,
+            Variable::ContourScore(job_id, score) => {
+                if self.is_current_preview_job(job_id) {
+                    self.gui_variables.preview.contour_score = score;
+                }
+            }
             Variable::Stats(lidar_stats) => self.gui_variables.lidar.stats = Some(lidar_stats),
             Variable::SingleCopcPath(path) => {
                 self.gui_variables.project.single_copc_path = Some(path)
@@ -317,8 +329,11 @@ impl OmapMaker {
             TaskDone::ConvertCopc => {
                 self.next_state();
             }
-            TaskDone::RegenerateMap => {
-                self.gui_variables.preview.generating_map_tile = false;
+            TaskDone::RegenerateMap(job_id) => {
+                if self.is_current_preview_job(job_id) {
+                    self.gui_variables.preview.generating_map_tile = false;
+                    self.active_preview_job_id = None;
+                }
             }
             TaskDone::MakeMap => self.next_state(),
             TaskDone::Reset => (),
@@ -584,11 +599,19 @@ impl OmapMaker {
     }
 
     fn regenerate_map(&mut self, scope: RegenerationScope) {
+        self.next_preview_job_id = self.next_preview_job_id.wrapping_add(1);
+        let job_id = self.next_preview_job_id;
+        self.active_preview_job_id = Some(job_id);
         self.gui_variables.preview.generating_map_tile = true;
         let _ = self.comms.send(BackendTask::RegenerateMap(
+            job_id,
             Box::new(self.gui_variables.generation.params.clone()),
             scope,
         ));
+    }
+
+    fn is_current_preview_job(&self, job_id: JobId) -> bool {
+        self.active_preview_job_id == Some(job_id)
     }
 
     fn regenerate_current_adjustment_section(&mut self) {
@@ -606,6 +629,8 @@ impl OmapMaker {
     fn reset(&mut self) {
         self.home = walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
+        self.active_preview_job_id = None;
+        self.next_preview_job_id = 0;
         self.open_modal = OmapModal::None;
         self.home_zoom = 16.;
         let _ = self.map_memory.set_zoom(self.home_zoom);
