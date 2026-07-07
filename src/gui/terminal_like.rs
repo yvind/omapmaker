@@ -1,4 +1,4 @@
-use eframe::egui::TextBuffer;
+use eframe::egui::{TextBuffer, text::CharIndex};
 
 // must be used with a monospace font for the progress bar to look ok
 #[derive(Clone)]
@@ -9,7 +9,7 @@ pub struct TerminalLike {
 
 impl Default for TerminalLike {
     fn default() -> Self {
-        let str = "PROGRESS LOG\n\n";
+        let str = "\nPROGRESS LOG\n\n";
 
         Self {
             progress_bar: Default::default(),
@@ -22,7 +22,8 @@ impl<'a> TerminalLike {
     pub fn println(&mut self, s: impl Into<&'a str>) {
         if let Some(pb) = &self.progress_bar {
             let len = self.string.len();
-            self.string.delete_char_range(pb.start_char_pos..len);
+            self.string
+                .delete_char_range(CharIndex::from(pb.start_char_pos)..CharIndex::from(len));
             self.string.push_str(s.into());
             pb.draw_to_string(&mut self.string);
         } else {
@@ -33,8 +34,9 @@ impl<'a> TerminalLike {
 
     pub fn inc_progress_bar(&mut self, delta: f32) {
         if let Some(pb) = &mut self.progress_bar {
-            self.string
-                .delete_char_range(pb.start_char_pos..self.string.len());
+            self.string.delete_char_range(
+                CharIndex::from(pb.start_char_pos)..CharIndex::from(self.string.len()),
+            );
             pb.inc(delta);
             pb.draw_to_string(&mut self.string);
             self.string.push('\n');
@@ -43,8 +45,9 @@ impl<'a> TerminalLike {
 
     pub fn finish_progress_bar(&mut self) {
         if let Some(pb) = &mut self.progress_bar {
-            self.string
-                .delete_char_range(pb.start_char_pos..self.string.len());
+            self.string.delete_char_range(
+                CharIndex::from(pb.start_char_pos)..CharIndex::from(self.string.len()),
+            );
             pb.inc(1.);
             pb.draw_to_string(&mut self.string);
             self.progress_bar = None;
@@ -72,11 +75,11 @@ impl TextBuffer for TerminalLike {
         self.string.as_str()
     }
 
-    fn insert_text(&mut self, text: &str, char_index: usize) -> usize {
+    fn insert_text(&mut self, text: &str, char_index: CharIndex) -> usize {
         self.string.insert_text(text, char_index)
     }
 
-    fn delete_char_range(&mut self, char_range: std::ops::Range<usize>) {
+    fn delete_char_range(&mut self, char_range: std::ops::Range<CharIndex>) {
         self.string.delete_char_range(char_range);
     }
 

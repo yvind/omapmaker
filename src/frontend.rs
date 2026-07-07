@@ -58,7 +58,7 @@ impl eframe::App for OmapMaker {
         // render correct side panel
         egui::Panel::left("Guide Panel")
             .exact_size(400.)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 ui.style_mut().spacing.scroll = egui::style::ScrollStyle::solid();
                 match self.state {
                     ProcessStage::Welcome => self.render_welcome_panel(ui),
@@ -82,7 +82,7 @@ impl eframe::App for OmapMaker {
         // render correct main panel
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(ui.style().visuals.panel_fill))
-            .show_inside(ui, |ui| match self.state {
+            .show(ui, |ui| match self.state {
                 ProcessStage::AdjustContours
                 | ProcessStage::AdjustOpenness
                 | ProcessStage::AdjustVegetation

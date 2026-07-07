@@ -6,9 +6,9 @@ use crate::OmapMaker;
 
 const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
 
-enum MapType<'a, 'b, 'c> {
-    Global(Map<'a, 'b, 'c, MercatorProjection>),
-    Local(Map<'a, 'b, 'c, ProjectedProjection>),
+enum MapType<'memory, 'layer, 'plugin> {
+    Global(Map<'memory, 'layer, 'plugin, MercatorProjection>),
+    Local(Map<'memory, 'layer, 'plugin, ProjectedProjection>),
 }
 
 impl<'c> MapType<'_, '_, 'c> {
@@ -279,14 +279,18 @@ impl OmapMaker {
     }
 
     pub fn render_console(&mut self, ui: &mut egui::Ui) {
+        let available_size = ui.available_size();
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace);
+        let desired_rows = (available_size.y / row_height).ceil().max(1.) as usize;
+
         egui::ScrollArea::both()
             .stick_to_bottom(true)
             .auto_shrink(false)
-            .max_height(f32::INFINITY)
             .show(ui, |ui| {
                 egui::TextEdit::multiline(&mut self.gui_variables.log_terminal)
                     .font(egui::FontSelection::Style(egui::TextStyle::Monospace))
                     .desired_width(f32::INFINITY)
+                    .desired_rows(desired_rows)
                     .interactive(false)
                     .show(ui);
             });

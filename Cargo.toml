@@ -12,13 +12,16 @@ path = "src/main.rs"
 
 [dependencies]
 # gui
-eframe = "0.34"
+eframe = "0.35"
 egui_autocomplete = { git = "https://github.com/yvind/egui_autocomplete" }
-egui_double_slider = "2.0.0"
+egui_double_slider = "3.0.0"
+
 # choose files
 rfd = "0.17.2"
+
 # slippy map tiles
 walkers = { git = "https://github.com/yvind/walkers" }
+
 # projections
 proj-wkt = "0.8.0"
 proj-core = "0.8.0"
@@ -38,11 +41,13 @@ rstar = "0.13.0"
 las = { version = "0.9", features = ["laz-parallel"] }
 copc_converter = "0.11.0"
 copc-rs = { git = "https://github.com/pka/copc-rs" }
+
+# write omap files
 omap = { version = "0.8.0", features = ["geo_ref"] }
 
-# better error enums
+# better errors
 thiserror = "2"
-anyhow = "1.0"
+anyhow = "1"
 
 # logging warnings and non-panic errors
 log = "0.4"
