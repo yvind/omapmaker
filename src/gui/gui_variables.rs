@@ -63,7 +63,10 @@ impl Default for ProjectFiles {
             crs_epsg: Default::default(),
             write_single_copc: Default::default(),
             single_copc_path: Default::default(),
-            worker_threads: default_worker_threads(),
+            worker_threads: std::thread::available_parallelism()
+                .map(|threads| threads.get())
+                .unwrap_or(8)
+                .max(1),
         }
     }
 }
@@ -111,13 +114,6 @@ impl ProjectFiles {
             crs_epsg: self.crs_epsg.clone(),
         }
     }
-}
-
-fn default_worker_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|threads| threads.get())
-        .unwrap_or(8)
-        .max(1)
 }
 
 pub struct ReadyForCrsCheck {
@@ -332,7 +328,7 @@ impl GuiVariables {
         }
 
         if !self.area.polygon_filter.0.is_empty() {
-            if !polygon_is_closed(&self.area.polygon_filter) {
+            if !self.area.polygon_filter.is_closed() {
                 return Err(StageValidationError::UnfinishedPolygonFilter);
             }
 
@@ -356,17 +352,13 @@ impl GuiVariables {
         })
     }
 
-    pub fn lidar_bounds_area(&self) -> f64 {
-        self.lidar.boundary_areas.iter().sum()
-    }
-
     pub fn polygon_area(&self) -> Option<f64> {
         if self.area.polygon_filter.0.len() < 3 {
             return None;
         }
 
         let mut line = self.area.polygon_filter.clone();
-        if !polygon_is_closed(&line) {
+        if !line.is_closed() {
             line.close();
         }
 
@@ -415,10 +407,6 @@ impl GuiVariables {
             stats,
         })
     }
-}
-
-fn polygon_is_closed(line: &LineString) -> bool {
-    line.0.len() >= 4 && line.0.first() == line.0.last()
 }
 
 #[cfg(test)]

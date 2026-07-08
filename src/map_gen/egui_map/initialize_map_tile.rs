@@ -10,8 +10,7 @@ use crate::{
     Result,
     comms::{FrontendSender, messages::*},
     geometry::{MapRect, PointCloud, PointLaz},
-    map_gen,
-    map_gen::pipeline::PreparedTile,
+    map_gen::{self, pipeline::PreparedTile},
     neighbors::Neighborhood,
     statistics::LidarStats,
 };

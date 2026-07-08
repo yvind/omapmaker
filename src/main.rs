@@ -26,11 +26,8 @@ use eframe::egui;
 use std::sync::Arc;
 
 fn main() -> anyhow::Result<()> {
-    let icon_bytes = include_bytes!("./assets/icon.raw");
-    let rgba = icon_bytes.to_vec();
-
     let icon = eframe::egui::IconData {
-        rgba,
+        rgba: include_bytes!("./assets/icon.raw").to_vec(),
         width: 64,
         height: 64,
     };

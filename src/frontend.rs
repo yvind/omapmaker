@@ -83,18 +83,16 @@ impl eframe::App for OmapMaker {
         egui::CentralPanel::default()
             .frame(egui::Frame::default().fill(ui.style().visuals.panel_fill))
             .show(ui, |ui| match self.state {
-                ProcessStage::AdjustContours
-                | ProcessStage::AdjustOpenness
-                | ProcessStage::AdjustVegetation
-                | ProcessStage::AdjustCliffs
-                | ProcessStage::AdjustIntensity => {
-                    self.render_map(ui);
-                }
                 ProcessStage::Welcome
                 | ProcessStage::ChooseSquare
                 | ProcessStage::ChooseSubTile
                 | ProcessStage::ExportDone
                 | ProcessStage::DrawPolygon
+                | ProcessStage::AdjustContours
+                | ProcessStage::AdjustOpenness
+                | ProcessStage::AdjustVegetation
+                | ProcessStage::AdjustCliffs
+                | ProcessStage::AdjustIntensity
                 | ProcessStage::ShowComponents => {
                     self.render_map(ui);
                 }
@@ -151,10 +149,10 @@ impl walkers::sources::TileSource for ArcGisSource {
 // public functions
 impl OmapMaker {
     pub fn new(ctx: egui::Context) -> Self {
-        let (frontend_comms, backend_comms) = OmapComms::new();
+        let (frontend_comms, backend_comms) = OmapComms::new(&ctx);
 
         // starts the computation thread
-        Backend::boot(backend_comms, ctx.clone());
+        Backend::boot(backend_comms).expect("Could not boot the worker threads");
 
         let http_tiles = (
             HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
@@ -197,9 +195,11 @@ impl OmapMaker {
                 }
                 self.open_modal = OmapModal::ErrorModal(s.clone());
             }
-            FrontendTask::ProgressBar(p) => {
-                self.update_progress_bar(p);
-            }
+            FrontendTask::ProgressBar(p) => match p {
+                ProgressBar::Start => self.gui_variables.log_terminal.start_progress_bar(40),
+                ProgressBar::Inc(delta) => self.gui_variables.log_terminal.inc_progress_bar(delta),
+                ProgressBar::Finish => self.gui_variables.log_terminal.finish_progress_bar(),
+            },
         }
     }
 }
@@ -226,14 +226,14 @@ impl OmapMaker {
                 self.gui_variables.lidar.connected_components = vec
             }
             Variable::MapTile(job_id, drawable_omap) => {
-                if self.is_current_preview_job(job_id) {
+                if self.active_preview_job_id == Some(job_id) {
                     self.gui_variables.update_map(*drawable_omap);
                 }
             }
             Variable::TileBounds(tb) => self.gui_variables.tile.subtile_boundaries = tb,
             Variable::TileNeighbors(tn) => self.gui_variables.tile.subtile_neighbors = tn,
             Variable::ContourScore(job_id, score) => {
-                if self.is_current_preview_job(job_id) {
+                if self.active_preview_job_id == Some(job_id) {
                     self.gui_variables.preview.contour_score = score;
                 }
             }
@@ -330,7 +330,7 @@ impl OmapMaker {
                 self.next_state();
             }
             TaskDone::RegenerateMap(job_id) => {
-                if self.is_current_preview_job(job_id) {
+                if self.active_preview_job_id == Some(job_id) {
                     self.gui_variables.preview.generating_map_tile = false;
                     self.active_preview_job_id = None;
                 }
@@ -478,14 +478,6 @@ impl OmapMaker {
         self.state.prev();
     }
 
-    fn update_progress_bar(&mut self, p: ProgressBar) {
-        match p {
-            ProgressBar::Start => self.gui_variables.log_terminal.start_progress_bar(40),
-            ProgressBar::Inc(delta) => self.gui_variables.log_terminal.inc_progress_bar(delta),
-            ProgressBar::Finish => self.gui_variables.log_terminal.finish_progress_bar(),
-        }
-    }
-
     fn update_crs(&mut self, message: SetCrs) {
         match message {
             SetCrs::SetAllEpsg => {
@@ -610,10 +602,6 @@ impl OmapMaker {
         ));
     }
 
-    fn is_current_preview_job(&self, job_id: JobId) -> bool {
-        self.active_preview_job_id == Some(job_id)
-    }
-
     fn regenerate_current_adjustment_section(&mut self) {
         let section = match self.state {
             ProcessStage::AdjustOpenness => MapPreviewSection::Openness,
@@ -646,10 +634,10 @@ impl OmapMaker {
 
     fn restart_backend(&mut self) {
         // start backend thread
-        let (frontend_comms, backend_comms) = OmapComms::new();
+        let (frontend_comms, backend_comms) = OmapComms::new(&self.ctx);
 
         // starts the backend on its own thread
-        Backend::boot(backend_comms, self.ctx.clone());
+        Backend::boot(backend_comms).expect("Could not restart the background threads");
         self.comms = frontend_comms;
     }
 }

@@ -4,20 +4,6 @@ use eframe::egui;
 
 use super::messages::{BackendTask, FrontendTask};
 
-#[derive(Clone)]
-pub struct FrontendSender {
-    sender: mpsc::Sender<FrontendTask>,
-    ctx: egui::Context,
-}
-
-impl FrontendSender {
-    pub fn send(&self, task: FrontendTask) -> Result<(), mpsc::SendError<FrontendTask>> {
-        let result = self.sender.send(task);
-        self.ctx.request_repaint();
-        result
-    }
-}
-
 // Multiple Producer Single Consumer, i.e. a sender is cloneable but the receiver not
 // A dual message passing channel for the frontend and backend
 // OmapComms are created in pairs, one for the backend and one for the frontend
@@ -25,34 +11,42 @@ impl FrontendSender {
 pub struct OmapComms<T, S> {
     sender: mpsc::Sender<T>,
     receiver: mpsc::Receiver<S>,
+    ctx: egui::Context,
 }
 
-impl<T, S> OmapComms<T, S> {
-    pub fn send(&self, t: T) -> Result<(), mpsc::SendError<T>> {
+impl OmapComms<BackendTask, FrontendTask> {
+    pub fn send(&self, t: BackendTask) -> Result<(), mpsc::SendError<BackendTask>> {
         self.sender.send(t)
     }
 
-    pub fn try_recv(&self) -> Result<S, mpsc::TryRecvError> {
+    pub fn try_recv(&self) -> Result<FrontendTask, mpsc::TryRecvError> {
         self.receiver.try_recv()
     }
+}
 
-    pub fn recv(&self) -> Result<S, mpsc::RecvError> {
+impl OmapComms<FrontendTask, BackendTask> {
+    pub fn sender(&self) -> FrontendSender {
+        FrontendSender {
+            sender: self.sender.clone(),
+            ctx: self.ctx.clone(),
+        }
+    }
+
+    pub fn send(&self, t: FrontendTask) -> Result<(), mpsc::SendError<FrontendTask>> {
+        let result = self.sender.send(t);
+        self.ctx.request_repaint();
+        result
+    }
+
+    pub fn recv(&self) -> Result<BackendTask, mpsc::RecvError> {
         self.receiver.recv()
     }
 }
 
 impl OmapComms<FrontendTask, BackendTask> {
-    pub fn frontend_sender(&self, ctx: &egui::Context) -> FrontendSender {
-        FrontendSender {
-            sender: self.sender.clone(),
-            ctx: ctx.clone(),
-        }
-    }
-}
-
-// the generics does not really matter here
-impl OmapComms<FrontendTask, BackendTask> {
-    pub fn new() -> (
+    pub fn new(
+        ctx: &egui::Context,
+    ) -> (
         OmapComms<BackendTask, FrontendTask>,
         OmapComms<FrontendTask, BackendTask>,
     ) {
@@ -62,12 +56,28 @@ impl OmapComms<FrontendTask, BackendTask> {
         let backend_comms = OmapComms {
             sender: to_frontend,
             receiver: from_frontend,
+            ctx: ctx.clone(),
         };
         let frontend_comms = OmapComms {
             sender: to_backend,
             receiver: from_backend,
+            ctx: ctx.clone(),
         };
 
         (frontend_comms, backend_comms)
+    }
+}
+
+#[derive(Clone)]
+pub struct FrontendSender {
+    sender: mpsc::Sender<FrontendTask>,
+    ctx: egui::Context,
+}
+
+impl FrontendSender {
+    pub fn send(&self, t: FrontendTask) -> Result<(), mpsc::SendError<FrontendTask>> {
+        let result = self.sender.send(t);
+        self.ctx.request_repaint();
+        result
     }
 }

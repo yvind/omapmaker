@@ -4,7 +4,7 @@ use proj_core::CrsDef;
 
 use crate::map_gen::egui_map::{AreaSymbol, LineSymbol, Symbol};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct MapParameters {
     pub output: OutputParameters,
     pub scale: Scale,
@@ -12,6 +12,7 @@ pub struct MapParameters {
     pub vegetation: VegetationParameters,
     pub geometry: GeometryParameters,
     pub intensity: IntensityParameters,
+    pub cliff: CliffParameters,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -35,7 +36,6 @@ pub struct ContourParameters {
 pub struct VegetationParameters {
     pub green: (f64, f64, f64),
     pub yellow: f64,
-    pub cliff: f64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -43,26 +43,24 @@ pub struct GeometryParameters {
     pub contours: BezierParameters,
     pub openness: BufferedGeometryParameters,
     pub vegetation: BufferedGeometryParameters,
-    pub cliffs: BezierParameters,
+    pub cliffs: BufferedGeometryParameters,
     pub intensity: BufferedGeometryParameters,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliffParameters {
+    pub cliff: f64,
+}
+
+impl Default for CliffParameters {
+    fn default() -> Self {
+        Self { cliff: 2.5 }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IntensityParameters {
     pub filters: Vec<IntensityFilter>,
-}
-
-impl Default for MapParameters {
-    fn default() -> Self {
-        Self {
-            scale: Scale::S15_000,
-            output: Default::default(),
-            contour: Default::default(),
-            vegetation: Default::default(),
-            geometry: Default::default(),
-            intensity: Default::default(),
-        }
-    }
 }
 
 impl Default for ContourParameters {
@@ -85,7 +83,6 @@ impl Default for VegetationParameters {
         Self {
             green: (0.4, 0.6, 0.8),
             yellow: 0.01,
-            cliff: 0.75,
         }
     }
 }
@@ -100,7 +97,7 @@ impl GeometryParameters {
             Symbol::Area(AreaSymbol::LightGreen)
             | Symbol::Area(AreaSymbol::MediumGreen)
             | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
-            Symbol::Area(AreaSymbol::GiganticBoulder) => &self.cliffs,
+            Symbol::Area(AreaSymbol::GiganticBoulder) => &self.cliffs.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,
         };
@@ -118,7 +115,7 @@ pub struct BezierParameters {
 impl Default for BezierParameters {
     fn default() -> Self {
         Self {
-            error: 0.5,
+            error: 2.0,
             enabled: true,
         }
     }
@@ -195,9 +192,10 @@ pub enum BufferDirection {
     Shrink,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Scale {
     S10_000,
+    #[default]
     S15_000,
 }
 

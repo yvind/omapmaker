@@ -50,7 +50,7 @@ impl PreparedTile {
     ) -> Self {
         Self {
             rasters: TileRasters {
-                slope: dem.slope(3),
+                slope: dem.slope(),
                 dem,
                 return_number,
                 intensity,
@@ -174,6 +174,7 @@ pub fn compute_tile(
             &tile.hull,
             &tile.cut_overlay,
             params,
+            &params.geometry.cliffs.buffer_rules,
         ));
     }
 

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::{AreaSymbol, MapObject},
-    parameters::MapParameters,
+    parameters::{BufferRule, MapParameters},
     raster::Dfm,
 };
 
@@ -14,13 +14,18 @@ pub fn compute_cliffs(
     convex_hull: &Polygon,
     cut_overlay: &Polygon,
     params: &MapParameters,
+    buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
     let symbol = AreaSymbol::GiganticBoulder;
-    let cliff_contours = slope.marching_squares(params.vegetation.cliff);
+    let cliff_contours = slope.marching_squares(params.cliff.cliff);
 
     let mut cliff_polygons = MultiPolygon::from_contours(cliff_contours, convex_hull, false);
 
     cliff_polygons = cliff_polygons.simplify(crate::SIMPLIFICATION_DIST);
+
+    for buffer in buffer_rules.iter() {
+        cliff_polygons = cliff_polygons.apply_buffer_rule(buffer);
+    }
 
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 

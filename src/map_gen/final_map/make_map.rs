@@ -1,8 +1,7 @@
 use crate::{
     Result,
     comms::{FrontendSender, messages::*},
-    map_gen,
-    map_gen::egui_map::TempMap,
+    map_gen::{self, egui_map::TempMap},
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,

@@ -12,6 +12,17 @@ use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
 use std::path::PathBuf;
 
+// Arbitrary (but often used) sine-hash multiplier used to derive stable fractional-mm jitter from coordinates
+const JITTER_HASH_MULTIPLIER: f64 = 43_758.545_312_3;
+
+// Add a deterministic sub-millimeter XY jitter before shifting points into the local coordinate frame.
+// This breaks exact duplicate/collinear grid-aligned inputs that can make the hull and Delaunay triangulation degenerate.
+fn jitter_point(point: &mut las::Point, ref_point: Coord) {
+    let jitter = |value: f64| (value.sin() * JITTER_HASH_MULTIPLIER).rem_euclid(1.0) / 1_000.;
+    point.x += jitter(point.x) - 0.0005 - ref_point.x;
+    point.y += jitter(point.y) - 0.0005 - ref_point.y;
+}
+
 pub fn read_laz(
     las_paths: &[PathBuf],
     neighbor_map: &Neighborhood,
@@ -178,10 +189,4 @@ pub fn read_laz(
     ]);
 
     Ok((point_cloud, convex_hull))
-}
-
-fn jitter_point(point: &mut las::Point, ref_point: Coord) {
-    let jitter = |value: f64| (value.sin() * 43_758.545_312_3).rem_euclid(1.0) / 1_000.;
-    point.x += jitter(point.x) - 0.0005 - ref_point.x;
-    point.y += jitter(point.y) - 0.0005 - ref_point.y;
 }

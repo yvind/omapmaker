@@ -131,26 +131,32 @@ impl Dfm {
         }
     }
 
-    pub fn slope(&self, filter_half_size: usize) -> Dfm {
+    /// Sobel filter gradient estimation
+    pub fn slope(&self) -> Dfm {
         let mut slope = Dfm::new(self.tl_coord);
 
         for yi in 0..SIDE_LENGTH {
-            let top_i = yi.saturating_sub(filter_half_size);
-            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
+            let top_i = yi.saturating_sub(1);
+            let bottom_i = (yi + 1).min(SIDE_LENGTH - 1);
             for xi in 0..SIDE_LENGTH {
-                let left_i = xi.saturating_sub(filter_half_size);
-                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
+                let left_i = xi.saturating_sub(1);
+                let right_i = (xi + 1).min(SIDE_LENGTH - 1);
 
-                slope[(yi, xi)] = (((self[(top_i, xi)] - self[(bottom_i, xi)])
-                    / ((bottom_i - top_i + 1) as f64 * CELL_SIZE))
-                    .powi(2)
-                    + ((self[(yi, left_i)] - self[(yi, right_i)])
-                        / ((right_i - left_i + 1) as f64 * CELL_SIZE))
-                        .powi(2))
-                .sqrt();
+                let v = (self[(top_i, left_i)] - self[(top_i, right_i)] + 2. * self[(yi, left_i)]
+                    - 2. * self[(yi, right_i)]
+                    + self[(bottom_i, left_i)]
+                    - self[(bottom_i, right_i)])
+                    / (2. * crate::CELL_SIZE);
+
+                let h = (self[(top_i, left_i)] - self[(bottom_i, left_i)] + 2. * self[(top_i, xi)]
+                    - 2. * self[(bottom_i, xi)]
+                    + self[(top_i, right_i)]
+                    - self[(bottom_i, right_i)])
+                    / (2. * crate::CELL_SIZE);
+
+                slope[(yi, xi)] = (v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt();
             }
         }
-
         slope
     }
 

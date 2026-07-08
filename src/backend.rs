@@ -1,8 +1,7 @@
 use anyhow::Context;
-use eframe::egui;
 use las::Reader;
 
-use crate::comms::{FrontendSender, OmapComms, messages::*};
+use crate::comms::{OmapComms, messages::*};
 use crate::geometry::MapRect;
 use crate::map_gen;
 use crate::map_gen::pipeline::PreparedTile;
@@ -14,7 +13,6 @@ use rayon::{ThreadPool, ThreadPoolBuilder};
 
 pub struct Backend {
     comms: OmapComms<FrontendTask, BackendTask>,
-    ctx: egui::Context,
     // store the params used for generating a map tile
     // so the next call only generates the
     // objects corresponding to the changed parameters
@@ -29,35 +27,31 @@ pub struct Backend {
 }
 
 impl Backend {
-    pub fn boot(comms: OmapComms<FrontendTask, BackendTask>, ctx: egui::Context) {
-        if let Err(e) = std::thread::Builder::new()
-            .stack_size(crate::STACK_SIZE * 1024 * 1024)
-            .spawn(move || {
-                let worker_threads = default_worker_threads();
-                let thread_pool = match build_thread_pool(worker_threads) {
-                    Ok(pool) => pool,
-                    Err(e) => {
-                        eprintln!("Failed to create backend Rayon thread pool: {e}");
-                        return;
-                    }
-                };
+    pub fn boot(comms: OmapComms<FrontendTask, BackendTask>) -> crate::Result<()> {
+        std::thread::Builder::new().spawn(move || -> crate::Result<()> {
+            let worker_threads = std::thread::available_parallelism()
+                .map(|threads| threads.get())
+                .unwrap_or(8)
+                .max(1);
+            let thread_pool = ThreadPoolBuilder::new()
+                .num_threads(worker_threads.max(1))
+                .build()
+                .map_err(|e| anyhow::anyhow!("Failed to create backend Rayon thread pool: {e}"))?;
 
-                let mut backend = Backend {
-                    comms,
-                    ctx,
-                    map_params: None,
-                    map_tiles: Vec::with_capacity(9),
-                    hull: geo::Polygon::new(geo::LineString::new(vec![]), vec![]),
-                    ref_point: geo::Coord { x: 0., y: 0. },
-                    thread_pool,
-                    worker_threads,
-                };
+            let mut backend = Backend {
+                comms,
+                map_params: None,
+                map_tiles: Vec::with_capacity(9),
+                hull: geo::Polygon::new(geo::LineString::new(vec![]), vec![]),
+                ref_point: geo::Coord { x: 0., y: 0. },
+                thread_pool,
+                worker_threads,
+            };
 
-                backend.run();
-            })
-        {
-            eprintln!("Failed to spawn backend thread: {e}");
-        }
+            backend.run();
+            Ok(())
+        })?;
+        Ok(())
     }
 
     fn run(&mut self) {
@@ -68,14 +62,14 @@ impl Backend {
                 }
                 BackendTask::SetWorkerThreads(worker_threads) => {
                     if let Err(e) = self.set_worker_threads(worker_threads) {
-                        self.send_event(FrontendTask::Error(e.to_string(), false));
+                        let _ = self.comms.send(FrontendTask::Error(e.to_string(), false));
                     }
                 }
                 BackendTask::ParseCrs(paths) => {
-                    crate::parse_crs::parse_crs(self.events(), paths);
+                    crate::parse_crs::parse_crs(self.comms.sender(), paths);
                 }
                 BackendTask::MapSpatialLidarRelations(paths, crs) => {
-                    map_gen::egui_map::map_laz(self.events(), paths, crs);
+                    map_gen::egui_map::map_laz(self.comms.sender(), paths, crs);
                 }
                 BackendTask::ConvertCopc(
                     paths,
@@ -87,7 +81,7 @@ impl Backend {
                     write_single_copc,
                 ) => {
                     crate::convert_copc::convert_copc(
-                        self.events(),
+                        self.comms.sender(),
                         paths,
                         in_epsg,
                         out_epsg,
@@ -99,16 +93,22 @@ impl Backend {
                 }
 
                 BackendTask::InitializeMapTile(path, tiles, stats) => {
-                    match map_gen::egui_map::initialize_map_tile(self.events(), path, tiles, stats)
-                    {
+                    match map_gen::egui_map::initialize_map_tile(
+                        self.comms.sender(),
+                        path,
+                        tiles,
+                        stats,
+                    ) {
                         Ok(initialized) => {
                             self.map_tiles = initialized.tiles;
                             self.hull = initialized.hull;
                             self.ref_point = initialized.ref_point;
                         }
                         Err(e) => {
-                            self.send_event(FrontendTask::ProgressBar(ProgressBar::Finish));
-                            self.send_event(FrontendTask::Error(e.to_string(), true));
+                            let _ = self
+                                .comms
+                                .send(FrontendTask::ProgressBar(ProgressBar::Finish));
+                            let _ = self.comms.send(FrontendTask::Error(e.to_string(), true));
                         }
                     }
                 }
@@ -116,7 +116,7 @@ impl Backend {
                 BackendTask::RegenerateMap(job_id, params, scope) => {
                     assert!(!self.map_tiles.is_empty());
                     map_gen::egui_map::regenerate_map_tile(
-                        self.events(),
+                        &self.comms,
                         job_id,
                         &self.thread_pool,
                         &self.map_tiles,
@@ -138,7 +138,7 @@ impl Backend {
                     ) {
                         Ok(polygon) => polygon,
                         Err(e) => {
-                            self.send_event(FrontendTask::Error(e.to_string(), true));
+                            let _ = self.comms.send(FrontendTask::Error(e.to_string(), true));
                             continue;
                         }
                     };
@@ -147,7 +147,7 @@ impl Backend {
                     self.reset();
 
                     let _ = match map_gen::final_map::make_map(
-                        self.events(),
+                        self.comms.sender(),
                         &self.thread_pool,
                         *map_params,
                         *file_params,
@@ -155,18 +155,18 @@ impl Backend {
                         stats,
                     ) {
                         Ok(_) => self
-                            .events()
+                            .comms
                             .send(FrontendTask::TaskComplete(TaskDone::MakeMap)),
-                        Err(e) => self.events().send(FrontendTask::Error(e.to_string(), true)),
+                        Err(e) => self.comms.send(FrontendTask::Error(e.to_string(), true)),
                     };
                 }
                 BackendTask::Reset => {
                     self.reset();
-                    self.send_event(FrontendTask::TaskComplete(TaskDone::Reset));
+                    let _ = self.comms.send(FrontendTask::TaskComplete(TaskDone::Reset));
                 }
                 BackendTask::TileSelectedFile(path, epsg) => {
                     if let Err(e) = self.tile_selected_file(path, epsg) {
-                        self.send_event(FrontendTask::Error(e.to_string(), false));
+                        let _ = self.comms.send(FrontendTask::Error(e.to_string(), false));
                     }
                 }
             }
@@ -189,11 +189,15 @@ impl Backend {
             return Ok(());
         }
 
-        self.thread_pool = build_thread_pool(worker_threads)?;
+        self.thread_pool = ThreadPoolBuilder::new()
+            .num_threads(worker_threads.max(1))
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to create backend Rayon thread pool: {e}"))?;
+
         self.worker_threads = worker_threads;
-        self.send_event(FrontendTask::Log(format!(
+        self.comms.send(FrontendTask::Log(format!(
             "Backend worker pool set to {worker_threads} threads"
-        )));
+        )))?;
         Ok(())
     }
 
@@ -213,35 +217,18 @@ impl Backend {
 
         let cb = project::rectangles::to_walkers_map_points(epsg, &cb)?;
 
-        self.send_event(FrontendTask::UpdateVariable(Variable::TileBounds(cb)));
-        self.send_event(FrontendTask::UpdateVariable(Variable::TileNeighbors(
-            neighbors,
-        )));
-        self.send_event(FrontendTask::TaskComplete(TaskDone::TileSelectedFile));
+        let _ = self
+            .comms
+            .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)));
+        let _ = self
+            .comms
+            .send(FrontendTask::UpdateVariable(Variable::TileNeighbors(
+                neighbors,
+            )));
+        let _ = self
+            .comms
+            .send(FrontendTask::TaskComplete(TaskDone::TileSelectedFile));
 
         Ok(())
     }
-
-    fn events(&self) -> FrontendSender {
-        self.comms.frontend_sender(&self.ctx)
-    }
-
-    fn send_event(&self, event: FrontendTask) {
-        let _ = self.events().send(event);
-    }
-}
-
-fn default_worker_threads() -> usize {
-    std::thread::available_parallelism()
-        .map(|threads| threads.get())
-        .unwrap_or(8)
-        .max(1)
-}
-
-fn build_thread_pool(worker_threads: usize) -> crate::Result<ThreadPool> {
-    ThreadPoolBuilder::new()
-        .num_threads(worker_threads.max(1))
-        .stack_size(crate::STACK_SIZE * 1024 * 1024)
-        .build()
-        .map_err(|e| anyhow::anyhow!("Failed to create backend Rayon thread pool: {e}"))
 }

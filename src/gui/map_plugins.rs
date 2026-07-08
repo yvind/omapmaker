@@ -165,7 +165,7 @@ impl Plugin for PolygonDrawer<'_> {
             area_of_interest,
         } = *self;
         let drawing = drawing_enabled.as_deref().copied().unwrap_or(false);
-        let closed = polygon_is_closed(area_of_interest);
+        let closed = area_of_interest.is_closed() && area_of_interest.0.len() > 3;
 
         // register clicks
         if drawing && !closed && !response.changed() {
@@ -248,10 +248,6 @@ impl Plugin for PolygonDrawer<'_> {
                 .line(outline, egui::Stroke::new(2., egui::Color32::ORANGE));
         }
     }
-}
-
-fn polygon_is_closed(line: &LineString) -> bool {
-    line.0.len() >= 4 && line.0.first() == line.0.last()
 }
 
 pub struct ClickListener<'a> {

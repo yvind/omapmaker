@@ -1,5 +1,5 @@
 use crate::{
-    comms::{FrontendSender, messages::*},
+    comms::{OmapComms, messages::*},
     drawable::DrawableOmap,
     map_gen::{
         egui_map::{AreaSymbol, LineSymbol, PointSymbol, TempMap},
@@ -11,7 +11,7 @@ use crate::{
 use rayon::{ThreadPool, prelude::*};
 
 pub fn regenerate_map_tile(
-    sender: FrontendSender,
+    sender: &OmapComms<FrontendTask, BackendTask>,
     job_id: JobId,
     thread_pool: &ThreadPool,
     tiles: &[PreparedTile],
@@ -22,7 +22,7 @@ pub fn regenerate_map_tile(
     scope: RegenerationScope,
 ) {
     if let Err(e) = try_regenerate_map_tile(
-        sender.clone(),
+        sender,
         job_id,
         thread_pool,
         tiles,
@@ -37,7 +37,7 @@ pub fn regenerate_map_tile(
 }
 
 fn try_regenerate_map_tile(
-    sender: FrontendSender,
+    sender: &OmapComms<FrontendTask, BackendTask>,
     job_id: JobId,
     thread_pool: &ThreadPool,
     tiles: &[PreparedTile],
@@ -171,8 +171,7 @@ fn changed_steps(
         || new.geometry.openness != old.geometry.openness;
     steps.vegetation = new.vegetation.green != old.vegetation.green
         || new.geometry.vegetation != old.geometry.vegetation;
-    steps.cliffs =
-        new.vegetation.cliff != old.vegetation.cliff || new.geometry.cliffs != old.geometry.cliffs;
+    steps.cliffs = new.cliff.cliff != old.cliff.cliff || new.geometry.cliffs != old.geometry.cliffs;
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval
         || new.contour.basemap_contour != old.contour.basemap_contour;

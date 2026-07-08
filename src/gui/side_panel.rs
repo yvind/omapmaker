@@ -302,16 +302,13 @@ impl OmapMaker {
 
         ui.add_space(20.);
         ui.label(format!(
-            "Lidar bounds area: {}",
-            format_area(self.gui_variables.lidar_bounds_area())
+            "Lidar bounds area: {:.2} km²",
+            self.gui_variables.lidar.boundary_areas.iter().sum::<f64>() / 1_000_000.
         ));
         if !self.gui_variables.area.polygon_filter.0.is_empty() {
             ui.label(format!(
-                "Polygon area: {}",
-                self.gui_variables
-                    .polygon_area()
-                    .map(format_area)
-                    .unwrap_or_else(|| format_area(0.0))
+                "Polygon area: {:.2} km²",
+                self.gui_variables.polygon_area().unwrap_or(0.) / 1_000_000.
             ));
         }
 
@@ -333,7 +330,7 @@ impl OmapMaker {
 
         if self.gui_variables.area.drawing_polygon
             && !self.gui_variables.area.polygon_filter.0.is_empty()
-            && !polygon_is_closed(&self.gui_variables.area.polygon_filter)
+            && !self.gui_variables.area.polygon_filter.is_closed()
         {
             ui.add_enabled(false, egui::Button::new("Double click to end polygon"));
         }
@@ -344,8 +341,7 @@ impl OmapMaker {
                 self.open_modal = OmapModal::ConfirmStartOver;
             }
             let polygon_ready = !self.gui_variables.area.drawing_polygon
-                && (self.gui_variables.area.polygon_filter.0.is_empty()
-                    || polygon_is_closed(&self.gui_variables.area.polygon_filter));
+                && self.gui_variables.area.polygon_filter.is_closed();
             if ui
                 .add_enabled(polygon_ready, egui::Button::new("Next step"))
                 .clicked()
@@ -512,8 +508,8 @@ impl OmapMaker {
                     ui.label(egui::RichText::new("Cliff threshold").strong());
                     ui.add(
                         egui::Slider::new(
-                            &mut self.gui_variables.generation.params.vegetation.cliff,
-                            0.2..=2.0,
+                            &mut self.gui_variables.generation.params.cliff.cliff,
+                            0.2..=5.0,
                         )
                         .text("Cliff")
                         .show_value(true),
@@ -522,7 +518,19 @@ impl OmapMaker {
                     ui.label(egui::RichText::new("Cliff Bezier simplification").strong());
                     Self::render_bezier_parameters(
                         ui,
-                        &mut self.gui_variables.generation.params.geometry.cliffs,
+                        &mut self.gui_variables.generation.params.geometry.cliffs.bezier,
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "cliffs_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .cliffs
+                            .buffer_rules,
                     );
                 }
                 ProcessStage::AdjustIntensity => {
@@ -847,7 +855,7 @@ impl OmapMaker {
         ui.add_enabled_ui(bezier.enabled, |ui| {
             ui.label("Permitted error in Bezier simplification:");
             ui.add(
-                egui::Slider::new(&mut bezier.error, 0.01..=2.0)
+                egui::Slider::new(&mut bezier.error, 0.5..=5.0)
                     .fixed_decimals(2)
                     .show_value(true),
             );
@@ -939,12 +947,4 @@ impl OmapMaker {
             }
         });
     }
-}
-
-fn polygon_is_closed(line: &geo::LineString) -> bool {
-    line.0.len() >= 4 && line.0.first() == line.0.last()
-}
-
-fn format_area(area: f64) -> String {
-    format!("{:.2} km^2", area / 1_000_000.0)
 }
