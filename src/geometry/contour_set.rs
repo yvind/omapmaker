@@ -1,6 +1,10 @@
-use crate::{SIDE_LENGTH, geometry::MapLineString, raster::Dfm};
+use crate::{
+    SIDE_LENGTH,
+    geometry::MapLineString,
+    raster::{Dfm, dfm::Elevation},
+};
 
-use geo::{Coord, MultiLineString, Vector2DOps};
+use geo::Vector2DOps;
 use log::{Level, log};
 use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
 
@@ -11,7 +15,11 @@ impl ContourSet {
         ContourSet(Vec::with_capacity(num_levels))
     }
 
-    pub fn interpolate(&self, interpolated_dem: &mut Dfm, adjusted_dem: &Dfm) -> crate::Result<()> {
+    pub fn interpolate(
+        &self,
+        interpolated_dem: &mut Dfm<Elevation>,
+        adjusted_dem: &Dfm<Elevation>,
+    ) -> crate::Result<()> {
         let tri = self.triangulate(adjusted_dem)?;
         let nn = tri.natural_neighbor();
 
@@ -36,7 +44,10 @@ impl ContourSet {
         Ok(())
     }
 
-    fn triangulate(&self, dem: &Dfm) -> crate::Result<DelaunayTriangulation<ContourPoint>> {
+    fn triangulate(
+        &self,
+        dem: &Dfm<Elevation>,
+    ) -> crate::Result<DelaunayTriangulation<ContourPoint>> {
         // coarse estimate of number of nodes in triangulation
         // 3 * number of levels * number of lines in first level * number of points in first line of first level
         let mut points = Vec::with_capacity(
@@ -62,7 +73,7 @@ impl ContourSet {
                         grad: (line.0[i + 1] - line.0[i - 1])
                             .left()
                             .try_normalize()
-                            .unwrap_or(Coord {
+                            .unwrap_or(geo::Coord {
                                 x: points[points.len() - 1].grad[0],
                                 y: points[points.len() - 1].grad[1],
                             })
@@ -78,7 +89,7 @@ impl ContourSet {
                         grad: (line.0[1] - line.0[line.0.len() - 2])
                             .left()
                             .try_normalize()
-                            .unwrap_or(Coord {
+                            .unwrap_or(geo::Coord {
                                 x: points[points.len() - 1].grad[0],
                                 y: points[points.len() - 1].grad[1],
                             })
@@ -92,7 +103,7 @@ impl ContourSet {
                         grad: (line.0[1] - line.0[0])
                             .left()
                             .try_normalize()
-                            .unwrap_or(Coord {
+                            .unwrap_or(geo::Coord {
                                 x: points[points.len() - 1].grad[0],
                                 y: points[points.len() - 1].grad[1],
                             })
@@ -106,7 +117,7 @@ impl ContourSet {
                         grad: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
                             .left()
                             .try_normalize()
-                            .unwrap_or(Coord {
+                            .unwrap_or(geo::Coord {
                                 x: points[points.len() - 1].grad[0],
                                 y: points[points.len() - 1].grad[1],
                             })
@@ -180,12 +191,12 @@ impl ContourSet {
 
 #[derive(Debug, Clone)]
 pub struct ContourLevel {
-    pub lines: MultiLineString,
+    pub lines: geo::MultiLineString,
     pub z: f64,
 }
 
 impl ContourLevel {
-    pub fn new(lines: MultiLineString, z: f64) -> ContourLevel {
+    pub fn new(lines: geo::MultiLineString, z: f64) -> ContourLevel {
         ContourLevel { lines, z }
     }
 }

@@ -1,25 +1,30 @@
 use crate::{
     geometry::PointCloud,
-    map_gen,
-    map_gen::egui_map::{AreaSymbol, MapObject},
+    map_gen::{
+        self,
+        egui_map::{AreaSymbol, MapObject},
+    },
     parameters::{ContourAlgo, MapParameters},
-    raster::{Dfm, Threshold},
+    raster::{
+        Dfm, Threshold,
+        dfm::{Elevation, Intensity, Returns, Slope},
+    },
     statistics::LidarStats,
 };
-use geo::{Area, BooleanOps, Polygon, Rect};
+use geo::{Area, BooleanOps};
 use std::cmp::Ordering;
 
 pub struct TileRasters {
-    pub dem: Dfm,
-    pub slope: Dfm,
-    pub return_number: Dfm,
-    pub intensity: Dfm,
+    pub dem: Dfm<Elevation>,
+    pub slope: Dfm<Slope>,
+    pub return_number: Dfm<Returns>,
+    pub intensity: Dfm<Intensity>,
 }
 
 pub struct PreparedTile {
     pub rasters: TileRasters,
-    pub hull: Polygon,
-    pub cut_overlay: Polygon,
+    pub hull: geo::Polygon,
+    pub cut_overlay: geo::Polygon,
     pub z_range: (f64, f64),
 }
 
@@ -41,11 +46,11 @@ pub struct PipelineSteps {
 
 impl PreparedTile {
     pub fn new(
-        dem: Dfm,
-        return_number: Dfm,
-        intensity: Dfm,
-        hull: Polygon,
-        cut_overlay: Polygon,
+        dem: Dfm<Elevation>,
+        return_number: Dfm<Returns>,
+        intensity: Dfm<Intensity>,
+        hull: geo::Polygon,
+        cut_overlay: geo::Polygon,
         z_range: (f64, f64),
     ) -> Self {
         Self {
@@ -64,8 +69,8 @@ impl PreparedTile {
     pub fn from_cloud(
         ground_cloud: PointCloud,
         stats: &LidarStats,
-        convex_hull: Polygon,
-        cut_bounds: Rect,
+        convex_hull: geo::Polygon,
+        cut_bounds: geo::Rect,
     ) -> crate::Result<Option<Self>> {
         let mut mp = cut_bounds.to_polygon().intersection(&convex_hull);
         if mp.0.is_empty() {

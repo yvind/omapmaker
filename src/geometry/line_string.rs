@@ -1,4 +1,3 @@
-use geo::LineString;
 use geo::Vector2DOps;
 
 pub trait MapLineString {
@@ -6,7 +5,7 @@ pub trait MapLineString {
     fn adjusted_bending_force(&self, length_exp: i32) -> f64;
 }
 
-impl MapLineString for LineString {
+impl MapLineString for geo::LineString {
     fn line_string_signed_area(&self) -> Option<f64> {
         if self.0.len() < 3 || !self.is_closed() {
             return None;
@@ -76,16 +75,16 @@ impl MapLineString for LineString {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use geo::{Area, Coord, LineString, Polygon};
+    use geo::Area;
 
     #[test]
     fn test_signed_area_linestring() {
-        let line = LineString::new(vec![
-            Coord { x: 0., y: 100. },
-            Coord { x: 0., y: 0. },
-            Coord { x: 100., y: 0. },
-            Coord { x: 100., y: 100. },
-            Coord { x: 0., y: 100. },
+        let line = geo::LineString::new(vec![
+            geo::Coord { x: 0., y: 100. },
+            geo::Coord { x: 0., y: 0. },
+            geo::Coord { x: 100., y: 0. },
+            geo::Coord { x: 100., y: 100. },
+            geo::Coord { x: 0., y: 100. },
         ]);
 
         assert_eq!(Some(10_000.), line.line_string_signed_area());
@@ -93,19 +92,19 @@ mod tests {
 
     #[test]
     fn test_geo_agreed_signed_area_linestring() -> Result<(), &'static str> {
-        let line = LineString::new(vec![
-            Coord { x: 0., y: 100. },
-            Coord { x: 0., y: 0. },
-            Coord { x: 100., y: 0. },
-            Coord { x: 100., y: 100. },
-            Coord { x: 0., y: 100. },
+        let line = geo::LineString::new(vec![
+            geo::Coord { x: 0., y: 100. },
+            geo::Coord { x: 0., y: 0. },
+            geo::Coord { x: 100., y: 0. },
+            geo::Coord { x: 100., y: 100. },
+            geo::Coord { x: 0., y: 100. },
         ]);
 
         let own_area = line
             .line_string_signed_area()
             .ok_or("test line should be closed and contain enough points")?;
 
-        let polygon = Polygon::new(line, vec![]);
+        let polygon = geo::Polygon::new(line, vec![]);
 
         assert_eq!(own_area, polygon.signed_area());
         Ok(())

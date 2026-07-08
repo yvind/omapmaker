@@ -3,7 +3,7 @@ use super::PointLaz;
 use crate::{CELL_SIZE, TILE_SIZE};
 use anyhow::{Context, bail};
 
-use geo::{LineString, Polygon, Simplify};
+use geo::Simplify;
 use las::{Bounds, Vector, point::Classification};
 use std::{cmp::Ordering, ops::Index};
 
@@ -66,9 +66,9 @@ impl PointCloud {
         &mut self,
         dfm_bounds: &Bounds,
         epsilon: f64,
-    ) -> crate::Result<Polygon> {
+    ) -> crate::Result<geo::Polygon> {
         let convex_hull = self.convex_hull()?;
-        let mut hull_contour: LineString = LineString::new(vec![]);
+        let mut hull_contour = geo::LineString::new(vec![]);
 
         for mut point in convex_hull {
             if (dfm_bounds.min.x - point.x()).abs() <= epsilon {
@@ -86,7 +86,7 @@ impl PointCloud {
         }
         hull_contour.close();
 
-        Ok(Polygon::new(hull_contour.simplify(epsilon), vec![]))
+        Ok(geo::Polygon::new(hull_contour.simplify(epsilon), vec![]))
     }
 
     fn convex_hull(&mut self) -> crate::Result<Vec<PointLaz>> {

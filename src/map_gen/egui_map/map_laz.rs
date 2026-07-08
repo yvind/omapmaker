@@ -2,7 +2,6 @@
 #![allow(clippy::type_complexity)]
 
 use anyhow::Context;
-use geo::Rect;
 use las::Reader;
 use proj_core::{CrsDef, Transform};
 
@@ -107,7 +106,7 @@ fn read_boundaries(
     Ok((walkers_boundaries, boundary_areas, mid_point, components))
 }
 
-fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<Rect>, Vec<Vec<usize>>) {
+fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<geo::Rect>, Vec<Vec<usize>>) {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut tile_bounds = Vec::with_capacity(paths.len());
 
@@ -115,7 +114,7 @@ fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<Rect>, Vec<Vec<usize>>) {
         if let Ok(las_reader) = Reader::from_path(las_path) {
             let b = las_reader.header().bounds();
             tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
-            tile_bounds.push(Rect::from_bounds(b));
+            tile_bounds.push(geo::Rect::from_bounds(b));
         }
     }
 

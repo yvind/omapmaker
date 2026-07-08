@@ -3,16 +3,17 @@ use crate::geometry::{ContourLevel, ContourSet};
 use crate::map_gen::egui_map::{LineSymbol, MapObject};
 use crate::parameters::{ContourAlgo, MapParameters};
 use crate::raster::Dfm;
+use crate::raster::dfm::Elevation;
 
-use geo::{BooleanOps, LineString, Polygon, Simplify};
+use geo::{BooleanOps, Simplify};
 
 use std::collections::HashMap;
 
 // used for the naive iterative interpolation error correction contour algorithm
 pub fn compute_naive_contours(
-    true_dem: &Dfm,
+    true_dem: &Dfm<Elevation>,
     z_range: (f64, f64),
-    cut_overlay: &Polygon,
+    cut_overlay: &geo::Polygon,
     thresholds: (f64, f64),
     params: &MapParameters,
 ) -> crate::Result<(Vec<MapObject>, f64, f64)> {
@@ -30,8 +31,8 @@ pub fn compute_naive_contours(
     let mut adjusted_dem = true_dem.smoothen(15., 15, 10);
     let mut interpolated_dem = adjusted_dem.clone();
 
-    let clip_poly = Polygon::new(
-        LineString::new(vec![
+    let clip_poly = geo::Polygon::new(
+        geo::LineString::new(vec![
             true_dem.index2coord(0, 0),
             true_dem.index2coord(SIDE_LENGTH - 1, 0),
             true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
@@ -137,9 +138,9 @@ pub fn compute_naive_contours(
 // used for raw and smoothed contour extraction, with scoring which complicates it a bit
 // smoothing happens on the DEM level
 pub fn extract_contours(
-    true_dem: &Dfm,
+    true_dem: &Dfm<Elevation>,
     z_range: (f64, f64),
-    cut_overlay: &Polygon,
+    cut_overlay: &geo::Polygon,
     params: &MapParameters,
     compute_energy: bool,
 ) -> crate::Result<(Vec<MapObject>, f64, f64)> {
@@ -158,8 +159,8 @@ pub fn extract_contours(
     let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
     let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
 
-    let clip_poly = Polygon::new(
-        LineString::new(vec![
+    let clip_poly = geo::Polygon::new(
+        geo::LineString::new(vec![
             true_dem.index2coord(0, 0),
             true_dem.index2coord(SIDE_LENGTH - 1, 0),
             true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),

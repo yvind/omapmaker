@@ -1,5 +1,5 @@
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
-use geo::{BooleanOps, ConvexHull, Coord, Polygon, Rect};
+use geo::{BooleanOps, ConvexHull};
 use las::point::Classification;
 
 use std::path::PathBuf;
@@ -17,8 +17,8 @@ use crate::{
 
 pub struct InitializedMapTile {
     pub tiles: Vec<PreparedTile>,
-    pub hull: Polygon,
-    pub ref_point: Coord,
+    pub hull: geo::Polygon,
+    pub ref_point: geo::Coord,
 }
 
 pub fn initialize_map_tile(
@@ -39,20 +39,22 @@ pub fn initialize_map_tile(
     let mut reader = CopcReader::from_path(&path)?;
     let header_bounds = reader.header().bounds();
 
-    let ref_point = Coord {
+    let ref_point = geo::Coord {
         x: ((header_bounds.min.x + header_bounds.max.x) / 20.).round() * 10.,
         y: ((header_bounds.min.y + header_bounds.max.y) / 20.).round() * 10.,
     };
 
-    let (all_tile_bounds, all_cut_bounds, _, _) =
-        map_gen::common::retile_bounds(&Rect::from_bounds(header_bounds), &Neighborhood::new(0));
+    let (all_tile_bounds, all_cut_bounds, _, _) = map_gen::common::retile_bounds(
+        &geo::Rect::from_bounds(header_bounds),
+        &Neighborhood::new(0),
+    );
 
     let mut z_range = (f64::MAX, f64::MIN);
     let mut all_hulls = Vec::with_capacity(9);
     let mut tiles = Vec::with_capacity(9);
     for ti in tile_indecies.iter() {
         let tile_bounds = all_tile_bounds[*ti];
-        let cut_overlay = Rect::new(
+        let cut_overlay = geo::Rect::new(
             all_cut_bounds[*ti].max() - ref_point,
             all_cut_bounds[*ti].min() - ref_point,
         )

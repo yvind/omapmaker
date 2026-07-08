@@ -3,7 +3,7 @@ use eframe::{
     egui::{self, Color32, Stroke},
     epaint::CubicBezierShape,
 };
-use geo::{Coord, LineString, TriangulateEarcut};
+use geo::TriangulateEarcut;
 use linestring2bezier::BezierString;
 use proj_core::{CrsDef, Transform};
 
@@ -52,7 +52,7 @@ impl DrawablePolygonObject {
 
     pub(crate) fn from_geo(
         poly: geo::Polygon,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
         _bezier_error: Option<f64>,
     ) -> Result<Self> {
@@ -178,7 +178,7 @@ impl DrawableLineObject {
 
     pub(crate) fn from_geo(
         line: geo::LineString,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
         mut bezier_error: Option<f64>,
     ) -> Result<Self> {
@@ -199,7 +199,7 @@ impl DrawableLineObject {
                             }
                         }
                     }
-                    LineString::new(vec)
+                    geo::LineString::new(vec)
                 }
                 Err(_) => {
                     bezier_error = None;
@@ -269,7 +269,7 @@ impl DrawablePointObject {
     pub(crate) fn from_geo(
         point: geo::Point,
         rot: f64,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
     ) -> Result<Self> {
         let pos = if let Some(crs) = crs {

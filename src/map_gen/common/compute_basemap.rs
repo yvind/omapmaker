@@ -2,15 +2,15 @@ use std::collections::HashMap;
 
 use crate::{
     map_gen::egui_map::{LineSymbol, MapObject},
-    raster::Dfm,
+    raster::{Dfm, dfm::Elevation},
 };
 
-use geo::{BooleanOps, Polygon, Simplify};
+use geo::{BooleanOps, Simplify};
 
 pub fn compute_basemap(
-    dem: &Dfm,
+    dem: &Dfm<Elevation>,
     z_range: (f64, f64),
-    cut_overlay: &Polygon,
+    cut_overlay: &geo::Polygon,
     basemap_interval: f64,
 ) -> Vec<MapObject> {
     let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize + 1;

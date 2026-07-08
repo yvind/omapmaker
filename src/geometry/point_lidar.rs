@@ -1,4 +1,3 @@
-use geo::Point;
 use spade::{HasPosition, Point2};
 
 #[derive(Debug, Clone)]
@@ -38,8 +37,8 @@ impl PointLaz {
     }
 
     #[inline]
-    pub fn flatten(self) -> Point {
-        Point::new(self.0.x, self.0.y)
+    pub fn flatten(self) -> geo::Point {
+        geo::Point::new(self.0.x, self.0.y)
     }
 
     #[inline]

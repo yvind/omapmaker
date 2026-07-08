@@ -1,11 +1,9 @@
 use crate::{MIN_NEIGHBOR_MARGIN, TILE_SIZE, TILE_SIZE_USIZE, neighbors::Neighborhood};
 
-use geo::{Coord, Rect};
-
 pub fn retile_bounds(
-    bounds: &Rect,
+    bounds: &geo::Rect,
     lidar_neighbors: &Neighborhood,
-) -> (Vec<Rect>, Vec<Rect>, usize, usize) {
+) -> (Vec<geo::Rect>, Vec<geo::Rect>, usize, usize) {
     let mut neighbor_file_margin = [(0., 0.), (0., 0.)];
     if lidar_neighbors.has_neighbor_above() {
         neighbor_file_margin[1].1 = MIN_NEIGHBOR_MARGIN;
@@ -19,7 +17,7 @@ pub fn retile_bounds(
     if lidar_neighbors.has_neighbor_left() {
         neighbor_file_margin[0].0 = -MIN_NEIGHBOR_MARGIN;
     }
-    let neighbor_file_margin = Rect::new(neighbor_file_margin[0], neighbor_file_margin[1]);
+    let neighbor_file_margin = geo::Rect::new(neighbor_file_margin[0], neighbor_file_margin[1]);
 
     let x_range = bounds.max().x - bounds.min().x - neighbor_file_margin.min().x
         + neighbor_file_margin.max().x;
@@ -38,16 +36,16 @@ pub fn retile_bounds(
     let neighbor_margin_y =
         ((num_y_tiles * TILE_SIZE_USIZE) as f64 - y_range) / (num_y_tiles - 1) as f64;
 
-    let mut bb: Vec<Rect> = Vec::with_capacity(num_x_tiles * num_y_tiles);
-    let mut cut_bounds: Vec<Rect> = Vec::with_capacity(num_x_tiles * num_y_tiles);
+    let mut bb: Vec<geo::Rect> = Vec::with_capacity(num_x_tiles * num_y_tiles);
+    let mut cut_bounds: Vec<geo::Rect> = Vec::with_capacity(num_x_tiles * num_y_tiles);
 
     for yi in 0..num_y_tiles {
         for xi in 0..num_x_tiles {
-            let mut tile_min = Coord::zero();
-            let mut tile_max = Coord::zero();
+            let mut tile_min = geo::Coord::zero();
+            let mut tile_max = geo::Coord::zero();
 
-            let mut inner_min = Coord::zero();
-            let mut inner_max = Coord::zero();
+            let mut inner_min = geo::Coord::zero();
+            let mut inner_max = geo::Coord::zero();
 
             if yi == 0 {
                 tile_max.y = bounds.max().y + neighbor_file_margin.max().y;
@@ -91,8 +89,8 @@ pub fn retile_bounds(
                 inner_max.x = tile_max.x - neighbor_margin_x / 2.;
             }
 
-            bb.push(Rect::new(tile_min, tile_max));
-            cut_bounds.push(Rect::new(inner_min, inner_max));
+            bb.push(geo::Rect::new(tile_min, tile_max));
+            cut_bounds.push(geo::Rect::new(inner_min, inner_max));
         }
     }
     (bb, cut_bounds, num_x_tiles, num_y_tiles)

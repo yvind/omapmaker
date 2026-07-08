@@ -1,4 +1,5 @@
 pub mod dfm;
+pub mod geotiff;
 
 pub use self::dfm::Dfm;
 

@@ -1,18 +1,18 @@
 use std::collections::HashMap;
 
-use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
+use geo::{BooleanOps, Simplify};
 
 use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::MapObject,
     parameters::{BufferRule, MapParameters},
-    raster::Dfm,
+    raster::{Dfm, dfm::Intensity},
 };
 
 pub fn compute_intensity(
-    dim: &Dfm,
-    convex_hull: &Polygon,
-    cut_overlay: &Polygon,
+    dim: &Dfm<Intensity>,
+    convex_hull: &geo::Polygon,
+    cut_overlay: &geo::Polygon,
     params: &MapParameters,
     buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
@@ -21,8 +21,8 @@ pub fn compute_intensity(
         let lower_contours = dim.marching_squares(filter.low);
         let upper_contours = dim.marching_squares(filter.high);
 
-        let lower_polygons = MultiPolygon::from_contours(lower_contours, convex_hull, false);
-        let upper_polygons = MultiPolygon::from_contours(upper_contours, convex_hull, true);
+        let lower_polygons = geo::MultiPolygon::from_contours(lower_contours, convex_hull, false);
+        let upper_polygons = geo::MultiPolygon::from_contours(upper_contours, convex_hull, true);
 
         let mut polygons = lower_polygons.intersection(&upper_polygons);
 

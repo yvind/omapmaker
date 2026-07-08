@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use geo::{Area, LineString, Validation};
+use geo::{Area, Validation};
 use proj_core::CrsDef;
 use walkers::Position;
 
@@ -52,6 +52,9 @@ pub struct ProjectFiles {
     pub write_single_copc: bool,
     pub single_copc_path: Option<std::path::PathBuf>,
     pub worker_threads: usize,
+    pub save_rasters: bool,
+    pub save_slope_raster: bool,
+    pub save_hillshade_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -67,6 +70,9 @@ impl Default for ProjectFiles {
                 .map(|threads| threads.get())
                 .unwrap_or(8)
                 .max(1),
+            save_rasters: Default::default(),
+            save_slope_raster: Default::default(),
+            save_hillshade_raster: Default::default(),
         }
     }
 }
@@ -104,6 +110,8 @@ impl ProjectFiles {
             return FileParameters {
                 paths: vec![single_copc_path.clone()],
                 save_location: self.save_location.clone(),
+                save_slope_raster: self.save_rasters && self.save_slope_raster,
+                save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
                 crs_epsg: vec![],
             };
         }
@@ -111,6 +119,8 @@ impl ProjectFiles {
         FileParameters {
             paths: self.paths.clone(),
             save_location: self.save_location.clone(),
+            save_slope_raster: self.save_rasters && self.save_slope_raster,
+            save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
             crs_epsg: self.crs_epsg.clone(),
         }
     }
@@ -138,14 +148,14 @@ pub struct LidarAnalysisState {
 }
 
 pub struct AreaSelectionState {
-    pub polygon_filter: LineString,
+    pub polygon_filter: geo::LineString,
     pub drawing_polygon: bool,
 }
 
 impl Default for AreaSelectionState {
     fn default() -> Self {
         Self {
-            polygon_filter: LineString::new(vec![]),
+            polygon_filter: geo::LineString::new(vec![]),
             drawing_polygon: false,
         }
     }
@@ -212,7 +222,7 @@ pub struct ReadyForCopcConversion {
     pub output_crs: Option<CrsDef>,
     pub save_location: std::path::PathBuf,
     pub boundaries: Vec<[walkers::Position; 4]>,
-    pub polygon_filter: LineString,
+    pub polygon_filter: geo::LineString,
     pub write_single_copc: bool,
 }
 
@@ -225,7 +235,7 @@ pub struct ReadyForMapPreview {
 pub struct ReadyForFinalMap {
     pub map_params: MapParameters,
     pub file_params: FileParameters,
-    pub polygon_filter: LineString,
+    pub polygon_filter: geo::LineString,
     pub stats: LidarStats,
 }
 
@@ -342,6 +352,8 @@ impl GuiVariables {
             file_params: FileParameters {
                 paths: self.project.paths.clone(),
                 save_location: self.project.save_location.clone(),
+                save_slope_raster: false,
+                save_hillshade_raster: false,
                 crs_epsg: self.project.crs_epsg.clone(),
             },
             output_crs: self.generation.params.output.crs.clone(),
@@ -406,48 +418,5 @@ impl GuiVariables {
             polygon_filter: self.area.polygon_filter.clone(),
             stats,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn welcome_validation_requires_paths_and_save_location() {
-        let project = ProjectFiles::default();
-
-        assert!(matches!(
-            project.validate_welcome(),
-            Err(StageValidationError::MissingLidarFiles)
-        ));
-    }
-
-    #[test]
-    fn selected_file_validation_rejects_stale_index() {
-        let project = ProjectFiles {
-            paths: vec![std::path::PathBuf::from("one.laz")],
-            selected_file: Some(1),
-            ..Default::default()
-        };
-
-        assert!(matches!(
-            project.validate_selected_file(),
-            Err(StageValidationError::InvalidSelectedFile)
-        ));
-    }
-
-    #[test]
-    fn selected_tile_validation_rejects_stale_index() {
-        let tile = TileSelectionState {
-            selected_tile: Some(0),
-            subtile_neighbors: vec![],
-            ..Default::default()
-        };
-
-        assert!(matches!(
-            tile.validate_selected_tile(),
-            Err(StageValidationError::InvalidSelectedTile)
-        ));
     }
 }

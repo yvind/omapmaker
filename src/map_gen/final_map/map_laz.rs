@@ -1,6 +1,6 @@
 #![allow(clippy::type_complexity)]
 
-use geo::{Coord, Intersects, Polygon, Rect};
+use geo::Intersects;
 use las::Reader;
 
 use std::path::PathBuf;
@@ -11,8 +11,14 @@ use crate::{Error, Result};
 
 pub fn map_laz(
     paths: &Vec<PathBuf>,
-    polygon_filter: &Option<Polygon>,
-) -> Result<(Vec<PathBuf>, Vec<Neighborhood>, Vec<Rect>, Coord, f64)> {
+    polygon_filter: &Option<geo::Polygon>,
+) -> Result<(
+    Vec<PathBuf>,
+    Vec<Neighborhood>,
+    Vec<geo::Rect>,
+    geo::Coord,
+    f64,
+)> {
     let mut tile_centers = Vec::with_capacity(paths.len());
     let mut las_paths = Vec::with_capacity(paths.len());
     let mut avg_elevation = 0.;
@@ -23,7 +29,7 @@ pub fn map_laz(
             let b = las_reader.header().bounds();
 
             if let Some(polygon) = polygon_filter {
-                let rect = Rect::from_bounds(b);
+                let rect = geo::Rect::from_bounds(b);
                 if !polygon.intersects(&rect) {
                     continue;
                 }
@@ -32,7 +38,7 @@ pub fn map_laz(
             las_paths.push(path.clone());
             avg_elevation += (b.min.z + b.max.z) / 2.;
             tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
-            tile_bounds.push(Rect::from_bounds(b));
+            tile_bounds.push(geo::Rect::from_bounds(b));
         }
     }
 
@@ -50,14 +56,14 @@ pub fn map_laz(
             las_paths,
             vec![Default::default()],
             tile_bounds,
-            Coord::from(center_point),
+            geo::Coord::from(center_point),
             avg_elevation,
         ));
     }
 
     let neighbors = Neighborhood::neighboring_tiles(&tile_centers, &tile_bounds);
 
-    let mut ref_point: Coord<f64> = Coord::default();
+    let mut ref_point = geo::Coord::<f64>::default();
     tile_centers.iter().for_each(|tc| {
         ref_point.x += tc[0];
         ref_point.y += tc[1]

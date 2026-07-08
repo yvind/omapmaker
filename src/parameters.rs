@@ -131,6 +131,8 @@ pub struct BufferedGeometryParameters {
 pub struct FileParameters {
     pub paths: Vec<PathBuf>,
     pub save_location: PathBuf,
+    pub save_slope_raster: bool,
+    pub save_hillshade_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

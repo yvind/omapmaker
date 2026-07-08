@@ -5,7 +5,6 @@ use eframe::{
     egui::{self, Color32, Stroke},
     emath,
 };
-use geo::Coord;
 use log::{Level, log};
 use proj_core::{CrsDef, Transform};
 
@@ -20,7 +19,7 @@ trait Drawable {
     /// needs to know what crs to unproject to lat/lon
     fn into_drawable_geometry(
         self,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry>;
@@ -29,7 +28,7 @@ trait Drawable {
 impl Drawable for MapObject {
     fn into_drawable_geometry(
         self,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry> {
@@ -116,7 +115,7 @@ impl DrawableOmap {
 
     fn into_drawable(
         mut omap_objs: HashMap<Symbol, Vec<MapObject>>,
-        ref_point: Coord,
+        ref_point: geo::Coord,
         crs: Option<CrsDef>,
         geometry: &GeometryParameters,
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {

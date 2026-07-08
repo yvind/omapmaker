@@ -1,4 +1,3 @@
-use geo::Rect;
 use rstar::{RTree, primitives::GeomWithData};
 
 use crate::geometry::MapRect;
@@ -89,7 +88,10 @@ impl Neighborhood {
         self.top_left.is_some() || self.left.is_some() || self.bottom_left.is_some()
     }
 
-    pub fn neighboring_tiles(tile_centers: &[[f64; 2]], tile_bounds: &[Rect]) -> Vec<Neighborhood> {
+    pub fn neighboring_tiles(
+        tile_centers: &[[f64; 2]],
+        tile_bounds: &[geo::Rect],
+    ) -> Vec<Neighborhood> {
         let tree = RTree::bulk_load(
             tile_centers
                 .iter()

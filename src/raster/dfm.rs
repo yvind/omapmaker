@@ -1,23 +1,103 @@
 use crate::geometry::contour_set::ContourPoint;
 use crate::{CELL_SIZE, SIDE_LENGTH};
-use geo::{Coord, LineString, MultiLineString};
 
+use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
+#[derive(Clone, Copy, Debug)]
+pub struct Elevation;
+#[derive(Clone, Copy, Debug)]
+pub struct Slope;
+#[derive(Clone, Copy, Debug)]
+pub struct Hillshade;
+#[derive(Clone, Copy, Debug)]
+pub struct Returns;
+#[derive(Clone, Copy, Debug)]
+pub struct Intensity;
+
 #[derive(Clone, Debug)]
-pub struct Dfm {
+pub struct Dfm<T> {
     pub field: Box<[f64]>,
-    pub tl_coord: Coord,
+    pub tl_coord: geo::Coord,
+    _t: PhantomData<T>,
 }
 
-impl Dfm {
-    pub fn new(tl_coord: Coord) -> Dfm {
-        Dfm {
-            field: vec![f64::MIN; SIDE_LENGTH * SIDE_LENGTH].into_boxed_slice(),
-            tl_coord,
+impl<T> Dfm<T> {
+    #[inline]
+    pub fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
+        geo::Coord {
+            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
         }
     }
 
+    #[inline]
+    pub fn index2spade(&self, yi: usize, xi: usize) -> spade::Point2<f64> {
+        spade::Point2 {
+            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
+        }
+    }
+}
+
+impl<T: Clone> Dfm<T> {
+    pub fn new(tl_coord: geo::Coord) -> Dfm<T> {
+        Dfm {
+            field: vec![f64::MIN; SIDE_LENGTH * SIDE_LENGTH].into_boxed_slice(),
+            tl_coord,
+            _t: PhantomData,
+        }
+    }
+    pub fn error(&self, other: &Dfm<T>) -> f64 {
+        let mut square_diff = 0.;
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                square_diff += (self[(y, x)] - other[(y, x)]).powi(2);
+            }
+        }
+        square_diff / (SIDE_LENGTH * SIDE_LENGTH) as f64
+    }
+
+    pub fn difference(&self, other: &Dfm<T>) -> Dfm<T> {
+        let mut diff = self.clone();
+        for y in 0..SIDE_LENGTH {
+            for x in 0..SIDE_LENGTH {
+                diff[(y, x)] -= other[(y, x)];
+            }
+        }
+        diff
+    }
+
+    pub fn adjust(
+        &mut self,
+        truth: &Dfm<T>,
+        interpolated: &Dfm<T>,
+        filter_half_size: usize,
+        amplitude: f64,
+    ) {
+        let diff = truth.difference(interpolated);
+        for yi in 0..SIDE_LENGTH {
+            let top_i = yi.saturating_sub(filter_half_size);
+            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
+            for xi in 0..SIDE_LENGTH {
+                let left_i = xi.saturating_sub(filter_half_size);
+                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
+
+                let mut adjustment = 0.;
+                for yj in top_i..=bottom_i {
+                    for xj in left_i..=right_i {
+                        adjustment += diff[(yj, xj)];
+                    }
+                }
+
+                self[(yi, xi)] += amplitude * adjustment
+                    / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64;
+            }
+        }
+    }
+}
+
+impl Dfm<Elevation> {
     pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
         const GRAD_CELLS: usize = 5;
         const GRAD_LENGTH: f64 = GRAD_CELLS as f64 * CELL_SIZE;
@@ -67,92 +147,13 @@ impl Dfm {
         [top_left, top_right, bottom_left, bottom_right]
     }
 
-    pub fn error(&self, other: &Dfm) -> f64 {
-        let mut square_diff = 0.;
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
-                square_diff += (self[(y, x)] - other[(y, x)]).powi(2);
-            }
-        }
-        square_diff / (SIDE_LENGTH * SIDE_LENGTH) as f64
-    }
-
-    pub fn difference(&self, other: &Dfm) -> Dfm {
-        let mut diff = self.clone();
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
-                diff[(y, x)] -= other[(y, x)];
-            }
-        }
-        diff
-    }
-
-    #[inline]
-    pub fn index2coord(&self, yi: usize, xi: usize) -> Coord {
-        Coord {
-            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
-        }
-    }
-
-    #[inline]
-    pub fn index2spade(&self, yi: usize, xi: usize) -> spade::Point2<f64> {
-        spade::Point2 {
-            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
-        }
-    }
-
-    pub fn adjust(
-        &mut self,
-        truth: &Dfm,
-        interpolated: &Dfm,
-        filter_half_size: usize,
-        amplitude: f64,
-    ) {
-        let diff = truth.difference(interpolated);
-        for yi in 0..SIDE_LENGTH {
-            let top_i = yi.saturating_sub(filter_half_size);
-            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
-            for xi in 0..SIDE_LENGTH {
-                let left_i = xi.saturating_sub(filter_half_size);
-                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
-
-                let mut adjustment = 0.;
-                for yj in top_i..=bottom_i {
-                    for xj in left_i..=right_i {
-                        adjustment += diff[(yj, xj)];
-                    }
-                }
-
-                self[(yi, xi)] += amplitude * adjustment
-                    / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64;
-            }
-        }
-    }
-
     /// Sobel filter gradient estimation
-    pub fn slope(&self) -> Dfm {
+    pub fn slope(&self) -> Dfm<Slope> {
         let mut slope = Dfm::new(self.tl_coord);
 
         for yi in 0..SIDE_LENGTH {
-            let top_i = yi.saturating_sub(1);
-            let bottom_i = (yi + 1).min(SIDE_LENGTH - 1);
             for xi in 0..SIDE_LENGTH {
-                let left_i = xi.saturating_sub(1);
-                let right_i = (xi + 1).min(SIDE_LENGTH - 1);
-
-                let v = (self[(top_i, left_i)] - self[(top_i, right_i)] + 2. * self[(yi, left_i)]
-                    - 2. * self[(yi, right_i)]
-                    + self[(bottom_i, left_i)]
-                    - self[(bottom_i, right_i)])
-                    / (2. * crate::CELL_SIZE);
-
-                let h = (self[(top_i, left_i)] - self[(bottom_i, left_i)] + 2. * self[(top_i, xi)]
-                    - 2. * self[(bottom_i, xi)]
-                    + self[(top_i, right_i)]
-                    - self[(bottom_i, right_i)])
-                    / (2. * crate::CELL_SIZE);
+                let (v, h) = self.sobel_gradient(yi, xi);
 
                 slope[(yi, xi)] = (v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt();
             }
@@ -160,10 +161,65 @@ impl Dfm {
         slope
     }
 
+    /// Hill shade from a Sobel-estimated surface normal.
+    ///
+    /// `sun_angle` is an azimuth in radians, measured counter-clockwise from
+    /// the positive x-axis. The sun elevation is fixed at 45 degrees.
+    pub fn hillshade(&self, sun_angle: f64) -> Dfm<Hillshade> {
+        let mut hillshade = Dfm::new(self.tl_coord);
+
+        let sun_elevation = std::f64::consts::FRAC_PI_4;
+        let light_x = sun_angle.cos() * sun_elevation.cos();
+        let light_y = sun_angle.sin() * sun_elevation.cos();
+        let light_z = sun_elevation.sin();
+
+        for yi in 0..SIDE_LENGTH {
+            for xi in 0..SIDE_LENGTH {
+                let (v, h) = self.sobel_gradient(yi, xi);
+                let normal_x = v;
+                let normal_y = -h;
+                let normal_z = 1.;
+                let normal_length =
+                    (normal_x.powi(2) + normal_y.powi(2) + normal_z * normal_z).sqrt();
+
+                hillshade[(yi, xi)] =
+                    ((normal_x * light_x + normal_y * light_y + normal_z * light_z)
+                        / normal_length)
+                        .max(0.);
+            }
+        }
+
+        hillshade
+    }
+}
+
+impl<T: Clone> Dfm<T> {
+    #[inline]
+    fn sobel_gradient(&self, yi: usize, xi: usize) -> (f64, f64) {
+        let top_i = yi.saturating_sub(1);
+        let bottom_i = (yi + 1).min(SIDE_LENGTH - 1);
+        let left_i = xi.saturating_sub(1);
+        let right_i = (xi + 1).min(SIDE_LENGTH - 1);
+
+        let v = (self[(top_i, left_i)] - self[(top_i, right_i)] + 2. * self[(yi, left_i)]
+            - 2. * self[(yi, right_i)]
+            + self[(bottom_i, left_i)]
+            - self[(bottom_i, right_i)])
+            / (2. * CELL_SIZE);
+
+        let h = (self[(top_i, left_i)] - self[(bottom_i, left_i)] + 2. * self[(top_i, xi)]
+            - 2. * self[(bottom_i, xi)]
+            + self[(top_i, right_i)]
+            - self[(bottom_i, right_i)])
+            / (2. * CELL_SIZE);
+
+        (v, h)
+    }
+
     // marching squares algorithm for extracting contours
-    pub fn marching_squares(&self, level: f64) -> MultiLineString {
+    pub fn marching_squares(&self, level: f64) -> geo::MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
-        let mut contours: Vec<LineString> = Vec::with_capacity(8);
+        let mut contours: Vec<geo::LineString> = Vec::with_capacity(8);
 
         // maps from cell edges to the contour passing that edge in contours-vec
         // including edges added due to padding
@@ -231,7 +287,7 @@ impl Dfm {
                     0 | 15.. => (),
                     4 | 11 => {
                         // new
-                        let contour = LineString::new(vec![
+                        let contour = geo::LineString::new(vec![
                             padded.vertex_interpolate(edge_indices[0], &xs, &ys, level),
                             padded.vertex_interpolate(edge_indices[1], &xs, &ys, level),
                         ]);
@@ -343,7 +399,7 @@ impl Dfm {
                 }
             }
         }
-        MultiLineString::new(contours)
+        geo::MultiLineString::new(contours)
     }
 
     // feature preserving smoothing of a DEM by normal vector smoothing
@@ -365,7 +421,7 @@ impl Dfm {
         mut max_norm_diff: f64,
         mut filter_size: usize,
         mut num_iter: usize,
-    ) -> Dfm {
+    ) -> Dfm<T> {
         if filter_size.is_multiple_of(2) {
             filter_size += 1;
         }
@@ -518,7 +574,7 @@ fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
         / ((a.0 * a.0 + a.1 * a.1 + 1.) * (b.0 * b.0 + b.1 * b.1 + 1.)).sqrt()
 }
 
-impl Index<(usize, usize)> for Dfm {
+impl<T> Index<(usize, usize)> for Dfm<T> {
     type Output = f64;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
@@ -526,37 +582,43 @@ impl Index<(usize, usize)> for Dfm {
     }
 }
 
-impl IndexMut<(usize, usize)> for Dfm {
+impl<T> IndexMut<(usize, usize)> for Dfm<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
         &mut self.field[index.0 * SIDE_LENGTH + index.1]
     }
 }
 
-struct DfmPaddedProxy<'a> {
-    inner: &'a Dfm,
+struct DfmPaddedProxy<'a, T> {
+    inner: &'a Dfm<T>,
 }
 
-impl<'a> DfmPaddedProxy<'a> {
-    fn new(inner: &'a Dfm) -> DfmPaddedProxy<'a> {
+impl<'a, T> DfmPaddedProxy<'a, T> {
+    fn new(inner: &'a Dfm<T>) -> DfmPaddedProxy<'a, T> {
         DfmPaddedProxy { inner }
     }
 
     #[inline]
-    fn index2coord(&self, yi: usize, xi: usize) -> Coord {
-        Coord {
+    fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
+        geo::Coord {
             x: self.inner.tl_coord.x - CELL_SIZE + (xi as f64) * CELL_SIZE,
             y: self.inner.tl_coord.y + CELL_SIZE - (yi as f64) * CELL_SIZE,
         }
     }
 
     #[inline]
-    fn vertex_interpolate(&self, e: usize, xs: &[usize; 4], ys: &[usize; 4], level: f64) -> Coord {
+    fn vertex_interpolate(
+        &self,
+        e: usize,
+        xs: &[usize; 4],
+        ys: &[usize; 4],
+        level: f64,
+    ) -> geo::Coord {
         let a = self[(ys[e], xs[e])];
         let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
 
         let a_coord = self.index2coord(ys[e], xs[e]);
 
-        Coord {
+        geo::Coord {
             x: a_coord.x
                 + CELL_SIZE * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * (level - a)
                     / (b - a),
@@ -567,7 +629,7 @@ impl<'a> DfmPaddedProxy<'a> {
     }
 }
 
-impl Index<(usize, usize)> for DfmPaddedProxy<'_> {
+impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
     type Output = f64;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {

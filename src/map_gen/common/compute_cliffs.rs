@@ -4,22 +4,22 @@ use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::{AreaSymbol, MapObject},
     parameters::{BufferRule, MapParameters},
-    raster::Dfm,
+    raster::{Dfm, dfm::Slope},
 };
 
-use geo::{BooleanOps, MultiPolygon, Polygon, Simplify};
+use geo::{BooleanOps, Simplify};
 
 pub fn compute_cliffs(
-    slope: &Dfm,
-    convex_hull: &Polygon,
-    cut_overlay: &Polygon,
+    slope: &Dfm<Slope>,
+    convex_hull: &geo::Polygon,
+    cut_overlay: &geo::Polygon,
     params: &MapParameters,
     buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
     let symbol = AreaSymbol::GiganticBoulder;
     let cliff_contours = slope.marching_squares(params.cliff.cliff);
 
-    let mut cliff_polygons = MultiPolygon::from_contours(cliff_contours, convex_hull, false);
+    let mut cliff_polygons = geo::MultiPolygon::from_contours(cliff_contours, convex_hull, false);
 
     cliff_polygons = cliff_polygons.simplify(crate::SIMPLIFICATION_DIST);
 

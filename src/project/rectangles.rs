@@ -1,24 +1,23 @@
-use geo::{Coord, Point, Rect};
 use proj_core::{CrsDef, Transform};
 
 pub fn to_walkers_map_points(
     crs: Option<CrsDef>,
-    rects: &Vec<Rect>,
-) -> crate::Result<Vec<[Point; 4]>> {
+    rects: &Vec<geo::Rect>,
+) -> crate::Result<Vec<[geo::Point; 4]>> {
     let mut out = Vec::with_capacity(rects.len());
     let Some(crs) = crs else {
         for rect in rects {
-            out.push(rect_to_map_coords(rect).map(Point));
+            out.push(rect_to_map_coords(rect).map(geo::Point));
         }
         return Ok(out);
     };
     let transform = Transform::from_epsg(crs.epsg(), 4326)?;
 
     for rect in rects {
-        let mut projected = [Point(Coord::default()); 4];
+        let mut projected = [geo::Point(geo::Coord::default()); 4];
         for (i, point) in rect_to_map_coords(rect).into_iter().enumerate() {
             let transformed = transform.convert((point.x, point.y))?;
-            projected[i] = Point(Coord {
+            projected[i] = geo::Point(geo::Coord {
                 x: transformed.0,
                 y: transformed.1,
             });
@@ -28,14 +27,14 @@ pub fn to_walkers_map_points(
     Ok(out)
 }
 
-fn rect_to_map_coords(rect: &Rect) -> [Coord; 4] {
+fn rect_to_map_coords(rect: &geo::Rect) -> [geo::Coord; 4] {
     [
-        Coord {
+        geo::Coord {
             x: rect.min().x,
             y: rect.max().y,
         },
         rect.min(),
-        Coord {
+        geo::Coord {
             x: rect.max().x,
             y: rect.min().y,
         },

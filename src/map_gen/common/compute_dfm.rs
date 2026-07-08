@@ -1,24 +1,24 @@
 use crate::SIDE_LENGTH;
 use crate::geometry::{PointCloud, PointLaz};
 use crate::raster::Dfm;
+use crate::raster::dfm::{Elevation, Intensity, Returns};
 use crate::statistics::LidarStats;
 
-use geo::Coord;
 use spade::DelaunayTriangulation;
 
 pub fn compute_dfms(
     ground_cloud: PointCloud,
     stats: &LidarStats,
-) -> crate::Result<(Dfm, Dfm, Dfm, (f64, f64))> {
+) -> crate::Result<(Dfm<Elevation>, Dfm<Returns>, Dfm<Intensity>, (f64, f64))> {
     let dem_bounds = ground_cloud.get_dfm_dimensions();
-    let tl = Coord {
+    let tl = geo::Coord {
         x: dem_bounds.min.x,
         y: dem_bounds.max.y,
     };
 
-    let mut dem = Dfm::new(tl);
-    let mut drm = Dfm::new(tl);
-    let mut dim = Dfm::new(tl);
+    let mut dem = Dfm::<Elevation>::new(tl);
+    let mut drm = Dfm::<Returns>::new(tl);
+    let mut dim = Dfm::<Intensity>::new(tl);
 
     // Because the z_bounds in the header gets wrecked by noise points
     let mut z_range = (f64::MAX, f64::MIN);

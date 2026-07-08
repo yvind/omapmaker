@@ -51,3 +51,5 @@ anyhow = "1"
 
 # logging warnings and non-panic errors
 log = "0.4"
+geotiff-writer = "0.7.0"
+ndarray = "0.17.2"

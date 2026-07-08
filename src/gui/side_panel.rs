@@ -114,6 +114,37 @@ impl OmapMaker {
                 .on_hover_text(
                     "The final map generation will read one merged .copc.laz file instead of one COPC file per relevant input tile.",
                 );
+
+                ui.checkbox(
+                    &mut self.gui_variables.project.save_rasters,
+                    "Save rasters",
+                )
+                .on_hover_text(
+                    "Write selected generated rasters as merged GeoTIFF files next to the .omap output.",
+                );
+
+                if !self.gui_variables.project.save_rasters {
+                    self.gui_variables.project.save_slope_raster = false;
+                    self.gui_variables.project.save_hillshade_raster = false;
+                }
+
+                ui.indent("indented raster checkboxes", |ui| {
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_slope_raster,
+                            "Save slope raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_hillshade_raster,
+                            "Save hillshade raster",
+                        ),
+                    );
+                });
             });
 
         ui.add_space(20.);

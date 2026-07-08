@@ -4,8 +4,6 @@ use crate::{
     neighbors::{NeighborSide, Neighborhood},
 };
 
-use geo::{Coord, Polygon, Rect};
-
 use copc_rs::CopcReader;
 use las::point::Classification;
 use rstar::{PointDistance, RTree, primitives::GeomWithData};
@@ -17,7 +15,7 @@ const JITTER_HASH_MULTIPLIER: f64 = 43_758.545_312_3;
 
 // Add a deterministic sub-millimeter XY jitter before shifting points into the local coordinate frame.
 // This breaks exact duplicate/collinear grid-aligned inputs that can make the hull and Delaunay triangulation degenerate.
-fn jitter_point(point: &mut las::Point, ref_point: Coord) {
+fn jitter_point(point: &mut las::Point, ref_point: geo::Coord) {
     let jitter = |value: f64| (value.sin() * JITTER_HASH_MULTIPLIER).rem_euclid(1.0) / 1_000.;
     point.x += jitter(point.x) - 0.0005 - ref_point.x;
     point.y += jitter(point.y) - 0.0005 - ref_point.y;
@@ -26,10 +24,10 @@ fn jitter_point(point: &mut las::Point, ref_point: Coord) {
 pub fn read_laz(
     las_paths: &[PathBuf],
     neighbor_map: &Neighborhood,
-    tile_bounds: Rect,
+    tile_bounds: geo::Rect,
     edge_tile: NeighborSide,
-    ref_point: Coord,
-) -> Result<(PointCloud, Polygon)> {
+    ref_point: geo::Coord,
+) -> Result<(PointCloud, geo::Polygon)> {
     let mut las_reader = CopcReader::from_path(&las_paths[neighbor_map.center])?;
 
     let header = las_reader.header();

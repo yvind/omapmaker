@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, Response, Ui};
-use geo::{LineString, Polygon, TriangulateEarcut, Validation};
+use geo::{TriangulateEarcut, Validation};
 use walkers::{Plugin, Position, ScreenProjector};
 
 use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol, neighbors::Neighborhood};
@@ -139,18 +139,18 @@ impl Plugin for LasBoundaryPainter<'_> {
 
 pub struct PolygonDrawer<'a> {
     drawing_enabled: Option<&'a mut bool>,
-    area_of_interest: &'a mut LineString,
+    area_of_interest: &'a mut geo::LineString,
 }
 
 impl<'a> PolygonDrawer<'a> {
-    pub fn new(area_of_interest: &'a mut LineString, drawing_enabled: &'a mut bool) -> Self {
+    pub fn new(area_of_interest: &'a mut geo::LineString, drawing_enabled: &'a mut bool) -> Self {
         PolygonDrawer {
             drawing_enabled: Some(drawing_enabled),
             area_of_interest,
         }
     }
 
-    pub fn readonly(area_of_interest: &'a mut LineString) -> Self {
+    pub fn readonly(area_of_interest: &'a mut geo::LineString) -> Self {
         PolygonDrawer {
             drawing_enabled: None,
             area_of_interest,
@@ -176,7 +176,7 @@ impl Plugin for PolygonDrawer<'_> {
                     area_of_interest.close();
                 }
 
-                let valid_check = Polygon::new(area_of_interest.clone(), vec![]);
+                let valid_check = geo::Polygon::new(area_of_interest.clone(), vec![]);
                 if !valid_check.is_valid() {
                     area_of_interest.0.clear();
                 }
@@ -207,7 +207,7 @@ impl Plugin for PolygonDrawer<'_> {
             }
             line.close();
 
-            let poly = Polygon::new(line, vec![]);
+            let poly = geo::Polygon::new(line, vec![]);
 
             if poly.exterior().0.len() > 3 {
                 // does the triangulation WGS84 coordinates, but the earth is locally almost flat so it's almost ok
