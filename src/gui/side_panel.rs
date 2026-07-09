@@ -372,7 +372,8 @@ impl OmapMaker {
                 self.open_modal = OmapModal::ConfirmStartOver;
             }
             let polygon_ready = !self.gui_variables.area.drawing_polygon
-                && self.gui_variables.area.polygon_filter.is_closed();
+                && (self.gui_variables.area.polygon_filter.0.is_empty()
+                    || self.gui_variables.area.polygon_filter.is_closed());
             if ui
                 .add_enabled(polygon_ready, egui::Button::new("Next step"))
                 .clicked()
@@ -382,36 +383,12 @@ impl OmapMaker {
         });
     }
 
-    pub fn render_choose_lidar_panel(&mut self, ui: &mut egui::Ui, enabled: bool) {
-        ui.heading("Select test file");
+    pub fn render_choose_test_area_panel(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Select test area");
         ui.add_space(20.);
         ui.label(
-            "Select a Lidar file either on the map or in the list. \
-            This Lidar file will be used for adjusting parameter values.",
+            "Select a square test area on the map. At least half of the square must overlap the available lidar area.",
         );
-        egui::ScrollArea::both()
-            .auto_shrink(false)
-            .max_width(f32::INFINITY)
-            .max_height(ui.available_height() / 2.)
-            .show(ui, |ui| {
-                for (index, p) in self.gui_variables.project.paths.iter().enumerate() {
-                    if ui
-                        .selectable_label(
-                            self.gui_variables.project.selected_file == Some(index),
-                            p.file_name()
-                                .and_then(|name| name.to_str())
-                                .unwrap_or_else(|| p.to_str().unwrap_or("<invalid path>")),
-                        )
-                        .clicked()
-                    {
-                        if Some(index) == self.gui_variables.project.selected_file {
-                            self.gui_variables.project.selected_file = None;
-                        } else {
-                            self.gui_variables.project.selected_file = Some(index);
-                        }
-                    }
-                }
-            });
 
         ui.add_space(20.);
         ui.horizontal(|ui| {
@@ -420,7 +397,7 @@ impl OmapMaker {
             }
             if ui
                 .add_enabled(
-                    self.gui_variables.project.selected_file.is_some() && enabled,
+                    self.gui_variables.tile.selected_square.is_some(),
                     egui::Button::new("Next step"),
                 )
                 .clicked()
@@ -952,30 +929,5 @@ impl OmapMaker {
         if ui.button("Start a new map").clicked() {
             self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
         }
-    }
-
-    pub fn render_choose_tile_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Select a sub-tile");
-        ui.add_space(20.);
-        ui.label("The chosen Lidar file is too large to use the entire file for adjusting parameters.\
-        Select a sub-tile to use for parameter adjusting. Both the selected tile and all its neighbors will be used.\
-        Select by clicking on the tile in the map.");
-
-        ui.add_space(20.);
-
-        ui.horizontal(|ui| {
-            if ui.button("Prev step").clicked() {
-                self.on_frontend_task(FrontendTask::PrevState);
-            }
-            if ui
-                .add_enabled(
-                    self.gui_variables.tile.selected_tile.is_some(),
-                    egui::Button::new("Next step"),
-                )
-                .clicked()
-            {
-                self.on_frontend_task(FrontendTask::NextState);
-            }
-        });
     }
 }

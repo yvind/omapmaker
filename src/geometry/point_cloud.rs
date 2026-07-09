@@ -1,6 +1,6 @@
 use super::PointLaz;
 
-use crate::{CELL_SIZE, TILE_SIZE};
+use crate::{CELL_SIZE_METERS, TILE_SIZE_METERS};
 use anyhow::{Context, bail};
 
 use geo::Simplify;
@@ -36,8 +36,8 @@ impl PointCloud {
         // small but non-zero for some odd reason
         // stretch or shrink the bounds to fit
         // to TILE_SIZE exactly
-        let stretch_x = (TILE_SIZE - dx) / 2.;
-        let stretch_y = (TILE_SIZE - dy) / 2.;
+        let stretch_x = (TILE_SIZE_METERS - dx) / 2.;
+        let stretch_y = (TILE_SIZE_METERS - dy) / 2.;
 
         // because the top-left corner of every cell is queried
         // shift the dem over so top left corner of the first and last
@@ -45,8 +45,8 @@ impl PointCloud {
         // i.e shift by half the cell size
         // positive in x as left is min_x -> need to increase to shift
         // negative in y as top is max_y -> need to decrease to shift
-        let offset_x = CELL_SIZE / 2.;
-        let offset_y = -CELL_SIZE / 2.;
+        let offset_x = CELL_SIZE_METERS / 2.;
+        let offset_y = -CELL_SIZE_METERS / 2.;
 
         Bounds {
             min: Vector {
@@ -177,8 +177,8 @@ mod tests {
                 z: 0.,
             },
             max: Vector {
-                x: TILE_SIZE - 0.01,
-                y: TILE_SIZE + 0.01,
+                x: TILE_SIZE_METERS - 0.01,
+                y: TILE_SIZE_METERS + 0.01,
                 z: 0.,
             },
         };
@@ -189,13 +189,13 @@ mod tests {
 
         let expected = Bounds {
             min: Vector {
-                x: CELL_SIZE / 2.,
-                y: -CELL_SIZE / 2.,
+                x: CELL_SIZE_METERS / 2.,
+                y: -CELL_SIZE_METERS / 2.,
                 z: 0.,
             },
             max: Vector {
-                x: TILE_SIZE + CELL_SIZE / 2.,
-                y: TILE_SIZE - CELL_SIZE / 2.,
+                x: TILE_SIZE_METERS + CELL_SIZE_METERS / 2.,
+                y: TILE_SIZE_METERS - CELL_SIZE_METERS / 2.,
                 z: 0.,
             },
         };

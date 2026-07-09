@@ -1,11 +1,6 @@
-use anyhow::Context;
-use las::Reader;
-
 use crate::comms::{OmapComms, messages::*};
-use crate::geometry::MapRect;
 use crate::map_gen;
 use crate::map_gen::pipeline::PreparedTile;
-use crate::neighbors::{self, Neighborhood};
 use crate::parameters::MapParameters;
 use crate::project;
 
@@ -92,11 +87,11 @@ impl Backend {
                     );
                 }
 
-                BackendTask::InitializeMapTile(path, tiles, stats) => {
+                BackendTask::InitializeMapTile(paths, test_area, stats) => {
                     match map_gen::egui_map::initialize_map_tile(
                         self.comms.sender(),
-                        path,
-                        tiles,
+                        paths,
+                        test_area,
                         stats,
                     ) {
                         Ok(initialized) => {
@@ -164,11 +159,6 @@ impl Backend {
                     self.reset();
                     let _ = self.comms.send(FrontendTask::TaskComplete(TaskDone::Reset));
                 }
-                BackendTask::TileSelectedFile(path, epsg) => {
-                    if let Err(e) = self.tile_selected_file(path, epsg) {
-                        let _ = self.comms.send(FrontendTask::Error(e.to_string(), false));
-                    }
-                }
             }
         }
     }
@@ -198,37 +188,6 @@ impl Backend {
         self.comms.send(FrontendTask::Log(format!(
             "Backend worker pool set to {worker_threads} threads"
         )))?;
-        Ok(())
-    }
-
-    fn tile_selected_file(
-        &self,
-        path: std::path::PathBuf,
-        epsg: Option<proj_core::CrsDef>,
-    ) -> crate::Result<()> {
-        let bounds = Reader::from_path(&path)
-            .with_context(|| format!("Failed to read selected lidar file {path:?}"))?
-            .header()
-            .bounds();
-        let rect = geo::Rect::from_bounds(bounds);
-
-        let (_, cb, n_x, n_y) = map_gen::common::retile_bounds(&rect, &Neighborhood::new(0));
-        let neighbors = neighbors::neighbors_on_grid(n_x, n_y);
-
-        let cb = project::rectangles::to_walkers_map_points(epsg, &cb)?;
-
-        let _ = self
-            .comms
-            .send(FrontendTask::UpdateVariable(Variable::TileBounds(cb)));
-        let _ = self
-            .comms
-            .send(FrontendTask::UpdateVariable(Variable::TileNeighbors(
-                neighbors,
-            )));
-        let _ = self
-            .comms
-            .send(FrontendTask::TaskComplete(TaskDone::TileSelectedFile));
-
         Ok(())
     }
 }

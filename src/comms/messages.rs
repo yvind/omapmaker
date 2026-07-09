@@ -3,7 +3,6 @@ use proj_core::CrsDef;
 use crate::{
     drawable::DrawableOmap,
     gui::modals::OmapModal,
-    neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
 };
@@ -26,8 +25,7 @@ pub enum FrontendTask {
 pub enum BackendTask {
     ClearParams,
     SetWorkerThreads(usize),
-    TileSelectedFile(PathBuf, Option<CrsDef>),
-    InitializeMapTile(PathBuf, Neighborhood, LidarStats),
+    InitializeMapTile(Vec<PathBuf>, geo::Rect, LidarStats),
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<Option<CrsDef>>>),
     ConvertCopc(
@@ -79,7 +77,6 @@ pub enum MapPreviewSection {
 }
 
 pub enum TaskDone {
-    TileSelectedFile,
     InitializeMapTile,
     ParseCrs(SetCrs),
     MapSpatialLidarRelations,
@@ -102,8 +99,6 @@ pub enum SetCrs {
 
 pub enum Variable {
     MapTile(JobId, Box<DrawableOmap>),
-    TileBounds(Vec<[walkers::Position; 4]>),
-    TileNeighbors(Vec<Neighborhood>),
     Paths(Vec<PathBuf>),
     Boundaries(Vec<[walkers::Position; 4]>),
     BoundaryAreas(Vec<f64>),

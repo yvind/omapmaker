@@ -65,8 +65,7 @@ impl eframe::App for OmapMaker {
                     ProcessStage::CheckLidar => self.render_checking_lidar_panel(ui),
                     ProcessStage::ShowComponents => self.render_show_components_panel(ui),
                     ProcessStage::ConvertingCOPC => self.render_copc_panel(ui),
-                    ProcessStage::ChooseSquare => self.render_choose_lidar_panel(ui, true),
-                    ProcessStage::ChooseSubTile => self.render_choose_tile_panel(ui),
+                    ProcessStage::ChooseSquare => self.render_choose_test_area_panel(ui),
                     ProcessStage::DrawPolygon => self.render_draw_polygon_panel(ui),
                     ProcessStage::PrepareMapPreview => self.render_prepare_map_preview_panel(ui),
                     ProcessStage::AdjustContours
@@ -85,7 +84,6 @@ impl eframe::App for OmapMaker {
             .show(ui, |ui| match self.state {
                 ProcessStage::Welcome
                 | ProcessStage::ChooseSquare
-                | ProcessStage::ChooseSubTile
                 | ProcessStage::ExportDone
                 | ProcessStage::DrawPolygon
                 | ProcessStage::AdjustContours
@@ -230,8 +228,6 @@ impl OmapMaker {
                     self.gui_variables.update_map(*drawable_omap);
                 }
             }
-            Variable::TileBounds(tb) => self.gui_variables.tile.subtile_boundaries = tb,
-            Variable::TileNeighbors(tn) => self.gui_variables.tile.subtile_neighbors = tn,
             Variable::ContourScore(job_id, score) => {
                 if self.active_preview_job_id == Some(job_id) {
                     self.gui_variables.preview.contour_score = score;
@@ -293,13 +289,6 @@ impl OmapMaker {
 
     fn on_task_complete(&mut self, task: TaskDone) {
         match task {
-            TaskDone::TileSelectedFile => {
-                if self.gui_variables.tile.subtile_boundaries.len() <= 9 {
-                    self.gui_variables.tile.selected_tile =
-                        Some(self.gui_variables.tile.subtile_boundaries.len() / 2);
-                    self.next_state();
-                }
-            }
             TaskDone::ParseCrs(m) => {
                 if let SetCrs::Local = m {
                     self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
@@ -377,6 +366,10 @@ impl OmapMaker {
                         return;
                     }
                 };
+                if let Err(error) = self.gui_variables.prepare_test_area() {
+                    self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
+                    return;
+                }
                 self.state.next();
                 self.gui_variables.project.single_copc_path = None;
                 let _ = self.comms.send(BackendTask::ConvertCopc(
@@ -394,23 +387,6 @@ impl OmapMaker {
                 self.map_memory.follow_my_position();
             }
             ProcessStage::ChooseSquare => {
-                let ready = match self.gui_variables.project.validate_selected_file() {
-                    Ok(ready) => ready,
-                    Err(error) => {
-                        self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
-                        return;
-                    }
-                };
-                self.state.next();
-                let _ = self
-                    .comms
-                    .send(BackendTask::TileSelectedFile(ready.path, ready.crs));
-            }
-            ProcessStage::ChooseSubTile => {
-                if let Err(error) = self.gui_variables.tile.validate_selected_tile() {
-                    self.on_frontend_task(FrontendTask::Error(error.to_string(), false));
-                    return;
-                }
                 let ready = match self.gui_variables.validate_map_preview() {
                     Ok(ready) => ready,
                     Err(error) => {
@@ -421,8 +397,8 @@ impl OmapMaker {
                 self.gui_variables.preview.generating_map_tile = true;
                 self.state.next();
                 let _ = self.comms.send(BackendTask::InitializeMapTile(
-                    ready.path,
-                    ready.tile,
+                    ready.paths,
+                    ready.test_area,
                     ready.stats,
                 ));
             }
@@ -461,16 +437,14 @@ impl OmapMaker {
         match self.state {
             ProcessStage::AdjustContours => {
                 self.gui_variables.preview.map_tile = None;
-                self.gui_variables.tile.selected_tile = None;
+                self.gui_variables.tile.selected_square = None;
+                self.gui_variables.tile.selected_square_boundary = None;
                 let _ = self.comms.send(BackendTask::ClearParams);
             }
             state if state.is_adjustment() => (),
             ProcessStage::ShowComponents => {
                 self.gui_variables.project.selected_file = None;
                 self.open_modal = OmapModal::MultipleGraphComponents;
-            }
-            ProcessStage::ChooseSubTile => {
-                self.gui_variables.tile.selected_tile = None;
             }
             _ => return,
         }

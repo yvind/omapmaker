@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use eframe::egui::{self, Color32, Response, Ui};
-use geo::{TriangulateEarcut, Validation};
+use geo::{Area, BooleanOps, Contains, TriangulateEarcut, Validation};
+use proj_core::{CrsDef, Transform};
 use walkers::{Plugin, Position, ScreenProjector};
 
-use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol, neighbors::Neighborhood};
+use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol};
 
 const COLOR_LIST: [egui::Color32; 9] = [
     egui::Color32::ORANGE,
@@ -59,43 +60,17 @@ impl Plugin for LasComponentPainter<'_> {
 
 pub struct LasBoundaryPainter<'a> {
     boundaries: &'a Vec<[Position; 4]>,
-    selected: Option<usize>,
-    hover: bool,
-    neighbor_map: Option<&'a Vec<Neighborhood>>,
 }
 
 impl<'a> LasBoundaryPainter<'a> {
-    pub fn new(
-        b: &'a Vec<[Position; 4]>,
-        si: Option<usize>,
-        hover: bool,
-        neighbor_map: Option<&'a Vec<Neighborhood>>,
-    ) -> LasBoundaryPainter<'a> {
-        LasBoundaryPainter {
-            boundaries: b,
-            selected: si,
-            hover,
-            neighbor_map,
-        }
+    pub fn new(b: &'a Vec<[Position; 4]>) -> LasBoundaryPainter<'a> {
+        LasBoundaryPainter { boundaries: b }
     }
 }
 
 impl Plugin for LasBoundaryPainter<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
-        let hover = if self.hover {
-            response.hover_pos()
-        } else {
-            None
-        };
-
-        let mut ni: Option<Vec<usize>> = None;
-        if let Some(neighbor_map) = self.neighbor_map
-            && let Some(i) = self.selected
-        {
-            ni = Some(neighbor_map[i].neighbor_indices().collect());
-        }
-
-        for (i, bound) in self.boundaries.iter().enumerate() {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
+        for bound in self.boundaries.iter() {
             // painting is most performant in clockwise order
             let screen_coords = [
                 projector.project(bound[0]),
@@ -104,30 +79,7 @@ impl Plugin for LasBoundaryPainter<'_> {
                 projector.project(bound[1]),
             ];
 
-            let fill = if let Some(index) = self.selected {
-                if i == index {
-                    Color32::RED.gamma_multiply(0.5)
-                } else if let Some(neighbors) = &ni {
-                    let mut c = Color32::RED.gamma_multiply(0.2);
-                    for j in neighbors {
-                        if i == *j {
-                            c = Color32::RED.gamma_multiply(0.35);
-                            break;
-                        }
-                    }
-                    c
-                } else {
-                    Color32::RED.gamma_multiply(0.2)
-                }
-            } else if let Some(pos) = hover {
-                if screen_rectangle_contains(&screen_coords, &pos) {
-                    Color32::RED.gamma_multiply(0.5)
-                } else {
-                    Color32::RED.gamma_multiply(0.2)
-                }
-            } else {
-                Color32::RED.gamma_multiply(0.2)
-            };
+            let fill = Color32::RED.gamma_multiply(0.2);
             ui.painter().add(egui::Shape::convex_polygon(
                 screen_coords.to_vec(),
                 fill,
@@ -250,49 +202,219 @@ impl Plugin for PolygonDrawer<'_> {
     }
 }
 
-pub struct ClickListener<'a> {
-    pub boundaries: &'a Vec<[Position; 4]>,
-    pub selected_file: &'a mut Option<usize>,
+pub struct TestAreaSelector<'a> {
+    test_area_display: &'a geo::MultiPolygon,
+    test_area_projected: &'a geo::MultiPolygon,
+    selected_square: &'a mut Option<geo::Rect>,
+    selected_square_boundary: &'a mut Option<[Position; 4]>,
+    crs: Option<&'a CrsDef>,
 }
 
-impl<'a> ClickListener<'a> {
-    pub fn new(boundaries: &'a Vec<[Position; 4]>, selected_file: &'a mut Option<usize>) -> Self {
-        ClickListener {
-            boundaries,
-            selected_file,
+impl<'a> TestAreaSelector<'a> {
+    pub fn new(
+        test_area_display: &'a geo::MultiPolygon,
+        test_area_projected: &'a geo::MultiPolygon,
+        selected_square: &'a mut Option<geo::Rect>,
+        selected_square_boundary: &'a mut Option<[Position; 4]>,
+        crs: Option<&'a CrsDef>,
+    ) -> Self {
+        Self {
+            test_area_display,
+            test_area_projected,
+            selected_square,
+            selected_square_boundary,
+            crs,
         }
     }
 }
 
-impl Plugin for ClickListener<'_> {
-    fn run(self: Box<Self>, _ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
-        if !response.changed() && response.clicked_by(egui::PointerButton::Primary) {
-            let clicked_pos = response
-                .interact_pointer_pos()
-                .map(|p| projector.unproject(p));
+impl Plugin for TestAreaSelector<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
+        if !response.changed()
+            && response.clicked_by(egui::PointerButton::Primary)
+            && let Some(clicked_pos) = response.interact_pointer_pos()
+        {
+            let clicked_coord = projector.unproject(clicked_pos).0;
+            match display_to_projected_coord(self.crs, clicked_coord)
+                .and_then(|center| selected_test_square(center, self.test_area_projected))
+                .and_then(|rect| Ok((rect, rect_to_display_boundary(self.crs, &rect)?)))
+            {
+                Ok((rect, boundary)) => {
+                    *self.selected_square = Some(rect);
+                    *self.selected_square_boundary = Some(boundary);
+                }
+                Err(_) => {
+                    *self.selected_square = None;
+                    *self.selected_square_boundary = None;
+                }
+            }
+        }
 
-            if let Some(cp) = clicked_pos {
-                for (i, bound) in self.boundaries.iter().enumerate() {
-                    if rectangle_contains(bound, &cp) {
-                        if *self.selected_file == Some(i) {
-                            *self.selected_file = None;
-                        } else {
-                            *self.selected_file = Some(i);
-                        }
-                        break;
-                    }
+        for polygon in &self.test_area_display.0 {
+            draw_polygon(
+                ui,
+                projector,
+                polygon,
+                Color32::RED.gamma_multiply(0.25),
+                egui::Stroke::new(2., Color32::RED),
+            );
+        }
+
+        if let Some(boundary) = self.selected_square_boundary {
+            let points = [
+                projector.project(boundary[0]),
+                projector.project(boundary[1]),
+                projector.project(boundary[2]),
+                projector.project(boundary[3]),
+                projector.project(boundary[0]),
+            ];
+            ui.painter()
+                .line(points.to_vec(), egui::Stroke::new(3., Color32::ORANGE));
+        } else if let Some(hover) = response.hover_pos() {
+            let hover_pos = projector.unproject(hover);
+            if self.test_area_display.contains(&hover_pos.0) {
+                let hover_rect = display_to_projected_coord(self.crs, hover_pos.0)
+                    .map(|c| {
+                        geo::Rect::new(
+                            c - geo::Coord {
+                                x: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                                y: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                            },
+                            c + geo::Coord {
+                                x: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                                y: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                            },
+                        )
+                    })
+                    .and_then(|rect| rect_to_display_boundary(self.crs, &rect));
+                if let Ok(hover_rect) = hover_rect {
+                    let points = [
+                        projector.project(hover_rect[0]),
+                        projector.project(hover_rect[1]),
+                        projector.project(hover_rect[2]),
+                        projector.project(hover_rect[3]),
+                        projector.project(hover_rect[0]),
+                    ];
+                    ui.painter()
+                        .line(points.to_vec(), egui::Stroke::new(3., Color32::ORANGE));
                 }
             }
         }
     }
 }
 
-fn rectangle_contains(b: &[Position; 4], p: &Position) -> bool {
-    b[0].y() >= p.y() && b[0].x() <= p.x() && b[2].y() <= p.y() && b[2].x() >= p.x()
+fn selected_test_square(
+    center: geo::Coord,
+    test_area_projected: &geo::MultiPolygon,
+) -> crate::Result<geo::Rect> {
+    let rect = geo::Rect::new(
+        center
+            - geo::Coord {
+                x: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                y: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+            },
+        center
+            + geo::Coord {
+                x: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+                y: crate::ADJUSTMENT_TILE_SIZE_METERS / 2.,
+            },
+    );
+
+    let overlap = test_area_projected.intersection(&rect.to_polygon());
+    if overlap.unsigned_area() < rect.unsigned_area() * 0.5 {
+        anyhow::bail!("Selected test square overlaps the lidar area by less than 50%");
+    }
+
+    Ok(rect)
 }
 
-fn screen_rectangle_contains(b: &[egui::Pos2; 4], p: &egui::Pos2) -> bool {
-    b[0].y <= p.y && b[0].x <= p.x && b[2].y >= p.y && b[2].x >= p.x
+fn display_to_projected_coord(
+    crs: Option<&CrsDef>,
+    coord: geo::Coord,
+) -> crate::Result<geo::Coord> {
+    let Some(crs) = crs else {
+        return Ok(coord);
+    };
+
+    let global = proj_wkt::parse_crs("4326")?;
+    let transform = Transform::from_crs_defs(&global, crs)?;
+    transform
+        .convert_geometry(coord)
+        .map_err(|e| anyhow::anyhow!(e))
+}
+
+fn rect_to_display_boundary(
+    crs: Option<&CrsDef>,
+    rect: &geo::Rect,
+) -> crate::Result<[Position; 4]> {
+    let mut corners = [
+        geo::Coord {
+            x: rect.min().x,
+            y: rect.max().y,
+        },
+        rect.min(),
+        geo::Coord {
+            x: rect.max().x,
+            y: rect.min().y,
+        },
+        rect.max(),
+    ];
+
+    if let Some(crs) = crs {
+        let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+        for corner in &mut corners {
+            let transformed = transform.convert((corner.x, corner.y))?;
+            corner.x = transformed.0;
+            corner.y = transformed.1;
+        }
+    }
+
+    Ok(corners.map(geo::Point))
+}
+
+fn draw_polygon(
+    ui: &mut Ui,
+    projector: &ScreenProjector,
+    polygon: &geo::Polygon,
+    fill: Color32,
+    stroke: egui::Stroke,
+) {
+    if polygon.exterior().0.len() > 3 {
+        let tri = polygon.earcut_triangles_raw();
+
+        let points: Vec<egui::epaint::Vertex> = tri
+            .vertices
+            .into_iter()
+            .map(|c| egui::epaint::Vertex {
+                pos: projector.project(geo::Point(geo::Coord { x: c[0], y: c[1] })),
+                uv: egui::epaint::WHITE_UV,
+                color: fill,
+            })
+            .collect();
+
+        let mesh = egui::Mesh {
+            indices: tri.triangle_indices.into_iter().map(|i| i as u32).collect(),
+            vertices: points,
+            texture_id: egui::epaint::TextureId::Managed(0),
+        };
+
+        ui.painter().add(mesh);
+    }
+
+    let outline: Vec<egui::Pos2> = polygon
+        .exterior()
+        .coords()
+        .map(|p| projector.project(geo::Point(*p)))
+        .collect();
+    ui.painter().line(outline, stroke);
+
+    for interior in polygon.interiors() {
+        let outline: Vec<egui::Pos2> = interior
+            .coords()
+            .map(|p| projector.project(geo::Point(*p)))
+            .collect();
+        ui.painter().line(outline, stroke);
+    }
 }
 
 pub struct OmapDrawer<'a> {

@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 
-use geo::{Area, Validation};
-use proj_core::CrsDef;
+use geo::{Area, BooleanOps, Intersects, Validation};
+use proj_core::{CrsDef, Transform};
 use walkers::Position;
 
 use super::terminal_like::TerminalLike;
 use crate::{
     drawable::{DrawOrder, DrawableOmap},
     map_gen::egui_map::{AreaSymbol, Symbol},
-    neighbors::Neighborhood,
     parameters::{FileParameters, MapParameters},
     statistics::LidarStats,
 };
@@ -19,14 +18,10 @@ pub enum StageValidationError {
     MissingLidarFiles,
     #[error("Choose an output .omap save location before continuing")]
     MissingSaveLocation,
-    #[error("Select a lidar file before continuing")]
-    MissingSelectedFile,
-    #[error("The selected lidar file is no longer available")]
-    InvalidSelectedFile,
-    #[error("Select a sub-tile before continuing")]
-    MissingSelectedTile,
-    #[error("The selected sub-tile is no longer available")]
-    InvalidSelectedTile,
+    #[error("Select a test square before continuing")]
+    MissingSelectedSquare,
+    #[error("The selected test square is no longer available")]
+    InvalidSelectedSquare,
     #[error("Lidar statistics are not ready yet")]
     MissingLidarStats,
     #[error("Finish or clear the polygon filter before continuing")]
@@ -91,20 +86,6 @@ impl ProjectFiles {
         })
     }
 
-    pub fn validate_selected_file(&self) -> Result<ReadyForTileSelection, StageValidationError> {
-        let selected_file = self
-            .selected_file
-            .ok_or(StageValidationError::MissingSelectedFile)?;
-        if selected_file >= self.paths.len() || selected_file >= self.crs_epsg.len() {
-            return Err(StageValidationError::InvalidSelectedFile);
-        }
-
-        Ok(ReadyForTileSelection {
-            path: self.paths[selected_file].clone(),
-            crs: self.crs_epsg[selected_file].clone(),
-        })
-    }
-
     pub fn to_file_parameters(&self) -> FileParameters {
         if let Some(single_copc_path) = &self.single_copc_path {
             return FileParameters {
@@ -128,11 +109,6 @@ impl ProjectFiles {
 
 pub struct ReadyForCrsCheck {
     pub paths: Vec<std::path::PathBuf>,
-}
-
-pub struct ReadyForTileSelection {
-    pub path: std::path::PathBuf,
-    pub crs: Option<CrsDef>,
 }
 
 #[derive(Default)]
@@ -161,23 +137,38 @@ impl Default for AreaSelectionState {
     }
 }
 
-#[derive(Default)]
 pub struct TileSelectionState {
-    pub selected_tile: Option<usize>,
-    pub subtile_boundaries: Vec<[walkers::Position; 4]>,
-    pub subtile_neighbors: Vec<Neighborhood>,
+    pub test_area_projected: geo::MultiPolygon,
+    pub test_area_display: geo::MultiPolygon,
+    pub selected_square: Option<geo::Rect>,
+    pub selected_square_boundary: Option<[walkers::Position; 4]>,
+}
+
+impl Default for TileSelectionState {
+    fn default() -> Self {
+        Self {
+            test_area_projected: geo::MultiPolygon(vec![]),
+            test_area_display: geo::MultiPolygon(vec![]),
+            selected_square: None,
+            selected_square_boundary: None,
+        }
+    }
 }
 
 impl TileSelectionState {
-    pub fn validate_selected_tile(&self) -> Result<usize, StageValidationError> {
-        let selected_tile = self
-            .selected_tile
-            .ok_or(StageValidationError::MissingSelectedTile)?;
-        if selected_tile >= self.subtile_neighbors.len() {
-            return Err(StageValidationError::InvalidSelectedTile);
+    pub fn validate_selected_square(&self) -> Result<geo::Rect, StageValidationError> {
+        let selected_square = self
+            .selected_square
+            .ok_or(StageValidationError::MissingSelectedSquare)?;
+
+        let overlap = self
+            .test_area_projected
+            .intersection(&selected_square.to_polygon());
+        if overlap.unsigned_area() < selected_square.unsigned_area() * 0.5 {
+            return Err(StageValidationError::InvalidSelectedSquare);
         }
 
-        Ok(selected_tile)
+        Ok(selected_square)
     }
 }
 
@@ -227,8 +218,8 @@ pub struct ReadyForCopcConversion {
 }
 
 pub struct ReadyForMapPreview {
-    pub path: std::path::PathBuf,
-    pub tile: Neighborhood,
+    pub paths: Vec<std::path::PathBuf>,
+    pub test_area: geo::Rect,
     pub stats: LidarStats,
 }
 
@@ -364,6 +355,50 @@ impl GuiVariables {
         })
     }
 
+    pub fn prepare_test_area(&mut self) -> crate::Result<()> {
+        let polygon_filter = crate::project::polygon::from_walkers_map_coords(
+            self.generation.params.output.crs.clone(),
+            self.area.polygon_filter.clone(),
+        )?;
+
+        let mut test_area = geo::MultiPolygon(vec![]);
+        for boundary in &self.lidar.boundaries {
+            let boundary_polygon = boundary_to_projected_polygon(
+                self.generation.params.output.crs.as_ref(),
+                boundary,
+            )?;
+
+            let clipped = if let Some(polygon_filter) = &polygon_filter {
+                if !boundary_polygon.intersects(polygon_filter) {
+                    continue;
+                }
+                boundary_polygon.intersection(polygon_filter)
+            } else {
+                geo::MultiPolygon(vec![boundary_polygon])
+            };
+
+            test_area = if test_area.0.is_empty() {
+                clipped
+            } else {
+                test_area.union(&clipped)
+            };
+        }
+
+        if test_area.0.is_empty() {
+            anyhow::bail!("The chosen polygon filter does not intersect the lidar files");
+        }
+
+        self.tile.test_area_display = projected_to_display_multipolygon(
+            self.generation.params.output.crs.as_ref(),
+            &test_area,
+        )?;
+        self.tile.test_area_projected = test_area;
+        self.tile.selected_square = None;
+        self.tile.selected_square_boundary = None;
+
+        Ok(())
+    }
+
     pub fn polygon_area(&self) -> Option<f64> {
         if self.area.polygon_filter.0.len() < 3 {
             return None;
@@ -384,14 +419,7 @@ impl GuiVariables {
     }
 
     pub fn validate_map_preview(&self) -> Result<ReadyForMapPreview, StageValidationError> {
-        let selected_file = self
-            .project
-            .selected_file
-            .ok_or(StageValidationError::MissingSelectedFile)?;
-        if selected_file >= self.project.paths.len() {
-            return Err(StageValidationError::InvalidSelectedFile);
-        }
-        let selected_tile = self.tile.validate_selected_tile()?;
+        let test_area = self.tile.validate_selected_square()?;
         let stats = self
             .lidar
             .stats
@@ -399,8 +427,8 @@ impl GuiVariables {
             .ok_or(StageValidationError::MissingLidarStats)?;
 
         Ok(ReadyForMapPreview {
-            path: self.project.paths[selected_file].clone(),
-            tile: self.tile.subtile_neighbors[selected_tile].clone(),
+            paths: self.project.to_file_parameters().paths,
+            test_area,
             stats,
         })
     }
@@ -419,4 +447,47 @@ impl GuiVariables {
             stats,
         })
     }
+}
+
+fn boundary_to_projected_polygon(
+    crs: Option<&CrsDef>,
+    boundary: &[walkers::Position; 4],
+) -> crate::Result<geo::Polygon> {
+    let line = geo::LineString::new(vec![
+        boundary[0].0,
+        boundary[1].0,
+        boundary[2].0,
+        boundary[3].0,
+        boundary[0].0,
+    ]);
+
+    let Some(crs) = crs else {
+        return Ok(geo::Polygon::new(line, vec![]));
+    };
+
+    let transform = Transform::from_epsg(4326, crs.epsg())?;
+    Ok(geo::Polygon::new(transform.convert_geometry(line)?, vec![]))
+}
+
+fn projected_to_display_multipolygon(
+    crs: Option<&CrsDef>,
+    multipolygon: &geo::MultiPolygon,
+) -> crate::Result<geo::MultiPolygon> {
+    let Some(crs) = crs else {
+        return Ok(multipolygon.clone());
+    };
+
+    let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+    let mut out = Vec::with_capacity(multipolygon.0.len());
+    for polygon in &multipolygon.0 {
+        let exterior = transform.convert_geometry(polygon.exterior().clone())?;
+        let interiors = polygon
+            .interiors()
+            .iter()
+            .map(|line| transform.convert_geometry(line.clone()))
+            .collect::<Result<Vec<_>, _>>()?;
+        out.push(geo::Polygon::new(exterior, interiors));
+    }
+
+    Ok(geo::MultiPolygon(out))
 }

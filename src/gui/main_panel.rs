@@ -104,37 +104,16 @@ impl OmapMaker {
 
         // add plugins
         let map = match &self.state {
-            ProcessStage::ChooseSquare => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.lidar.boundaries,
-                    self.gui_variables.project.selected_file,
-                    true,
-                    None,
-                ));
-
-                map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.lidar.boundaries,
-                    &mut self.gui_variables.project.selected_file,
-                ))
-            }
-            ProcessStage::ChooseSubTile => {
-                let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.tile.subtile_boundaries,
-                    self.gui_variables.tile.selected_tile,
-                    true,
-                    Some(&self.gui_variables.tile.subtile_neighbors),
-                ));
-                map.with_plugin(map_plugins::ClickListener::new(
-                    &self.gui_variables.tile.subtile_boundaries,
-                    &mut self.gui_variables.tile.selected_tile,
-                ))
-            }
+            ProcessStage::ChooseSquare => map.with_plugin(map_plugins::TestAreaSelector::new(
+                &self.gui_variables.tile.test_area_display,
+                &self.gui_variables.tile.test_area_projected,
+                &mut self.gui_variables.tile.selected_square,
+                &mut self.gui_variables.tile.selected_square_boundary,
+                self.gui_variables.generation.params.output.crs.as_ref(),
+            )),
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.lidar.boundaries,
-                    None,
-                    false,
-                    None,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
                     &mut self.gui_variables.area.polygon_filter,
@@ -149,9 +128,6 @@ impl OmapMaker {
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
                     &self.gui_variables.lidar.boundaries,
-                    None,
-                    false,
-                    None,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::readonly(
                     &mut self.gui_variables.area.polygon_filter,

@@ -1,4 +1,4 @@
-use crate::SIDE_LENGTH;
+use crate::TILE_SIZE_PIXELS;
 use crate::geometry::{PointCloud, PointLaz};
 use crate::raster::Dfm;
 use crate::raster::dfm::{Elevation, Intensity, Returns};
@@ -33,8 +33,8 @@ pub fn compute_dfms(
     let dt = DelaunayTriangulation::<PointLaz>::bulk_load_stable(ground_cloud.points)?;
     let nn = dt.natural_neighbor();
 
-    for y_index in 0..SIDE_LENGTH {
-        for x_index in 0..SIDE_LENGTH {
+    for y_index in 0..TILE_SIZE_PIXELS {
+        for x_index in 0..TILE_SIZE_PIXELS {
             let coords = dem.index2spade(y_index, x_index);
 
             // all points inside the point cloud's convex hull gets interpolated

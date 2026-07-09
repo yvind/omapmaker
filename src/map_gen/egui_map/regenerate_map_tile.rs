@@ -21,32 +21,6 @@ pub fn regenerate_map_tile(
     old_params: &Option<MapParameters>,
     scope: RegenerationScope,
 ) {
-    if let Err(e) = try_regenerate_map_tile(
-        sender,
-        job_id,
-        thread_pool,
-        tiles,
-        hull,
-        ref_point,
-        params,
-        old_params,
-        scope,
-    ) {
-        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
-    }
-}
-
-fn try_regenerate_map_tile(
-    sender: &OmapComms<FrontendTask, BackendTask>,
-    job_id: JobId,
-    thread_pool: &ThreadPool,
-    tiles: &[PreparedTile],
-    hull: &geo::Polygon,
-    ref_point: geo::Coord,
-    params: &MapParameters,
-    old_params: &Option<MapParameters>,
-    scope: RegenerationScope,
-) -> crate::Result<()> {
     let mut omap = TempMap::new(ref_point, params.scale, params.output.crs.clone());
 
     let steps = changed_steps(params, old_params.as_ref(), scope);
@@ -72,11 +46,18 @@ fn try_regenerate_map_tile(
         tiles
             .par_iter()
             .map(|tile| pipeline::compute_tile(tile, params, steps, steps.contours))
-            .collect::<Vec<_>>()
+            .collect::<anyhow::Result<Vec<_>>>()
     });
 
+    let outputs = match outputs {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+            return;
+        }
+    };
+
     for output in outputs {
-        let output = output?;
         tot_energy += output.contour_energy;
         tot_error += output.contour_error;
         for object in output.objects {
@@ -125,7 +106,13 @@ fn try_regenerate_map_tile(
         );
     }
 
-    let map = DrawableOmap::from_temp_map(omap, hull.exterior().clone(), &params.geometry)?;
+    let map = match DrawableOmap::from_temp_map(omap, hull.exterior().clone(), &params.geometry) {
+        Ok(m) => m,
+        Err(e) => {
+            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+            return;
+        }
+    };
 
     if steps.contours {
         tot_energy /= tiles.len() as f64;
@@ -142,7 +129,6 @@ fn try_regenerate_map_tile(
         Box::new(map),
     )));
     let _ = sender.send(FrontendTask::TaskComplete(TaskDone::RegenerateMap(job_id)));
-    Ok(())
 }
 
 fn changed_steps(

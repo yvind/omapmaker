@@ -8,7 +8,7 @@ use geotiff_writer::GeoTiffBuilder;
 use ndarray::Array2;
 use proj_core::CrsDef;
 
-use crate::{CELL_SIZE, SIDE_LENGTH, raster::Dfm};
+use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS, raster::Dfm};
 
 const NODATA_VALUE: f64 = -9999.;
 const RENDERED_NODATA_VALUE: u8 = 0;
@@ -34,7 +34,7 @@ pub fn write_merged_dfm_geotiff<T>(
 
     let (origin_x, origin_y) = geotiff_origin(top_left, ref_point);
     let mut builder = GeoTiffBuilder::new(width, height)
-        .pixel_scale(CELL_SIZE, CELL_SIZE)
+        .pixel_scale(CELL_SIZE_METERS, CELL_SIZE_METERS)
         .origin(origin_x, origin_y)
         .nodata(RENDERED_NODATA_TEXT);
 
@@ -71,30 +71,30 @@ fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
     let first = tiles.first()?;
 
     let mut min_x = first.tl_coord.x;
-    let mut max_x = first.tl_coord.x + (SIDE_LENGTH - 1) as f64 * CELL_SIZE;
+    let mut max_x = first.tl_coord.x + (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS;
     let mut max_y = first.tl_coord.y;
-    let mut min_y = first.tl_coord.y - (SIDE_LENGTH - 1) as f64 * CELL_SIZE;
+    let mut min_y = first.tl_coord.y - (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS;
 
     for tile in tiles.iter().skip(1) {
         min_x = min_x.min(tile.tl_coord.x);
-        max_x = max_x.max(tile.tl_coord.x + (SIDE_LENGTH - 1) as f64 * CELL_SIZE);
+        max_x = max_x.max(tile.tl_coord.x + (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS);
         max_y = max_y.max(tile.tl_coord.y);
-        min_y = min_y.min(tile.tl_coord.y - (SIDE_LENGTH - 1) as f64 * CELL_SIZE);
+        min_y = min_y.min(tile.tl_coord.y - (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS);
     }
 
-    let width = ((max_x - min_x) / CELL_SIZE).round() as usize + 1;
-    let height = ((max_y - min_y) / CELL_SIZE).round() as usize + 1;
+    let width = ((max_x - min_x) / CELL_SIZE_METERS).round() as usize + 1;
+    let height = ((max_y - min_y) / CELL_SIZE_METERS).round() as usize + 1;
 
     let mut sums = Array2::zeros((height, width));
     let mut counts = vec![0_u16; width * height];
 
     for tile in tiles {
-        let x_offset = ((tile.tl_coord.x - min_x) / CELL_SIZE).round() as usize;
-        let y_offset = ((max_y - tile.tl_coord.y) / CELL_SIZE).round() as usize;
+        let x_offset = ((tile.tl_coord.x - min_x) / CELL_SIZE_METERS).round() as usize;
+        let y_offset = ((max_y - tile.tl_coord.y) / CELL_SIZE_METERS).round() as usize;
 
-        for y in 0..SIDE_LENGTH {
+        for y in 0..TILE_SIZE_PIXELS {
             let target_y = y_offset + y;
-            for x in 0..SIDE_LENGTH {
+            for x in 0..TILE_SIZE_PIXELS {
                 let value = tile[(y, x)];
                 if value == f64::MIN || !value.is_finite() {
                     continue;
@@ -161,15 +161,15 @@ fn is_renderable(value: f64) -> bool {
 
 fn geotiff_origin(top_left: geo::Coord, ref_point: geo::Coord) -> (f64, f64) {
     (
-        top_left.x + ref_point.x - CELL_SIZE / 2.,
-        top_left.y + ref_point.y + CELL_SIZE / 2.,
+        top_left.x + ref_point.x - CELL_SIZE_METERS / 2.,
+        top_left.y + ref_point.y + CELL_SIZE_METERS / 2.,
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::geotiff_origin;
-    use crate::CELL_SIZE;
+    use crate::CELL_SIZE_METERS;
 
     #[test]
     fn geotiff_origin_restores_absolute_coordinates() {
@@ -181,7 +181,7 @@ mod tests {
 
         let (origin_x, origin_y) = geotiff_origin(top_left, ref_point);
 
-        assert_eq!(origin_x, 500_010. - CELL_SIZE / 2.);
-        assert_eq!(origin_y, 6_600_020. + CELL_SIZE / 2.);
+        assert_eq!(origin_x, 500_010. - CELL_SIZE_METERS / 2.);
+        assert_eq!(origin_y, 6_600_020. + CELL_SIZE_METERS / 2.);
     }
 }

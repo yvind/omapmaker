@@ -1,5 +1,5 @@
 use crate::{
-    SIDE_LENGTH,
+    TILE_SIZE_PIXELS,
     geometry::MapLineString,
     raster::{Dfm, dfm::Elevation},
 };
@@ -24,8 +24,8 @@ impl ContourSet {
         let nn = tri.natural_neighbor();
 
         // interpolate triangulation
-        for y_index in 0..SIDE_LENGTH {
-            for x_index in 0..SIDE_LENGTH {
+        for y_index in 0..TILE_SIZE_PIXELS {
+            for x_index in 0..TILE_SIZE_PIXELS {
                 let coords = interpolated_dem.index2spade(y_index, x_index);
 
                 if let Some(elev) =

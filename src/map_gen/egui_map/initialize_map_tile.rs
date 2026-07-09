@@ -1,5 +1,5 @@
 use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
-use geo::{BooleanOps, ConvexHull};
+use geo::{Area, BooleanOps, ConvexHull, Intersects};
 use las::point::Classification;
 
 use std::path::PathBuf;
@@ -10,8 +10,7 @@ use crate::{
     Result,
     comms::{FrontendSender, messages::*},
     geometry::{MapRect, PointCloud, PointLaz},
-    map_gen::{self, pipeline::PreparedTile},
-    neighbors::Neighborhood,
+    map_gen::{self, common, pipeline::PreparedTile},
     statistics::LidarStats,
 };
 
@@ -23,8 +22,8 @@ pub struct InitializedMapTile {
 
 pub fn initialize_map_tile(
     sender: FrontendSender,
-    path: PathBuf,
-    tile_indecies: Neighborhood,
+    paths: Vec<PathBuf>,
+    test_area: geo::Rect,
     stats: LidarStats,
 ) -> Result<InitializedMapTile> {
     let _ = sender.send(FrontendTask::Log(
@@ -32,71 +31,87 @@ pub fn initialize_map_tile(
     ));
     let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Start));
 
-    let tile_indecies = tile_indecies.all_indices();
-
-    let inc_size = 1. / tile_indecies.len() as f32;
-
-    let mut reader = CopcReader::from_path(&path)?;
-    let header_bounds = reader.header().bounds();
+    let (tile_bounds, cut_bounds, _nx, _ny) =
+        common::retile_bounds(&test_area, &Default::default());
+    let inc_size = 1. / tile_bounds.len() as f32;
 
     let ref_point = geo::Coord {
-        x: ((header_bounds.min.x + header_bounds.max.x) / 20.).round() * 10.,
-        y: ((header_bounds.min.y + header_bounds.max.y) / 20.).round() * 10.,
+        x: ((test_area.min().x + test_area.max().x) / 20.).round() * 10.,
+        y: ((test_area.min().y + test_area.max().y) / 20.).round() * 10.,
     };
 
-    let (all_tile_bounds, all_cut_bounds, _, _) = map_gen::common::retile_bounds(
-        &geo::Rect::from_bounds(header_bounds),
-        &Neighborhood::new(0),
-    );
-
     let mut z_range = (f64::MAX, f64::MIN);
-    let mut all_hulls = Vec::with_capacity(9);
-    let mut tiles = Vec::with_capacity(9);
-    for ti in tile_indecies.iter() {
-        let tile_bounds = all_tile_bounds[*ti];
-        let cut_overlay = geo::Rect::new(
-            all_cut_bounds[*ti].max() - ref_point,
-            all_cut_bounds[*ti].min() - ref_point,
-        )
-        .into();
+    let mut all_hulls = Vec::with_capacity(4);
+    let mut tiles = Vec::with_capacity(4);
+    for (tile_bounds, cut_bounds) in tile_bounds.iter().zip(cut_bounds.iter()) {
+        let cut_overlay =
+            geo::Rect::new(cut_bounds.min() - ref_point, cut_bounds.max() - ref_point);
 
-        let bounds = Bounds {
+        let mut shifted_bounds = Bounds {
             min: Vector {
                 x: tile_bounds.min().x,
                 y: tile_bounds.min().y,
-                z: header_bounds.min.z,
+                z: f64::MAX,
             },
             max: Vector {
                 x: tile_bounds.max().x,
                 y: tile_bounds.max().y,
-                z: header_bounds.max.z,
+                z: f64::MIN,
             },
         };
-
-        let mut shifted_bounds = bounds;
         shifted_bounds.max.x -= ref_point.x;
         shifted_bounds.min.x -= ref_point.x;
         shifted_bounds.max.y -= ref_point.y;
         shifted_bounds.min.y -= ref_point.y;
 
-        let mut ground_point_cloud = PointCloud::new(
-            reader
-                .points(LodSelection::All, BoundsSelection::Within(bounds))?
-                .filter_map(|mut p| {
-                    if !p.is_withheld
-                        && (p.classification == Classification::Ground
-                            || p.classification == Classification::Water)
-                    {
-                        p.x -= ref_point.x;
-                        p.y -= ref_point.y;
-                        Some(PointLaz(p))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            shifted_bounds,
-        );
+        let mut points = Vec::new();
+        for path in &paths {
+            let mut reader = CopcReader::from_path(path)?;
+            let header_bounds = reader.header().bounds();
+            if !geo::Rect::from_bounds(header_bounds).intersects(tile_bounds) {
+                continue;
+            }
+
+            shifted_bounds.min.z = shifted_bounds.min.z.min(header_bounds.min.z);
+            shifted_bounds.max.z = shifted_bounds.max.z.max(header_bounds.max.z);
+
+            let bounds = Bounds {
+                min: Vector {
+                    x: tile_bounds.min().x,
+                    y: tile_bounds.min().y,
+                    z: header_bounds.min.z,
+                },
+                max: Vector {
+                    x: tile_bounds.max().x,
+                    y: tile_bounds.max().y,
+                    z: header_bounds.max.z,
+                },
+            };
+
+            points.extend(
+                reader
+                    .points(LodSelection::All, BoundsSelection::Within(bounds))?
+                    .filter_map(|mut p| {
+                        if !p.is_withheld
+                            && (p.classification == Classification::Ground
+                                || p.classification == Classification::Water)
+                        {
+                            p.x -= ref_point.x;
+                            p.y -= ref_point.y;
+                            Some(PointLaz(p))
+                        } else {
+                            None
+                        }
+                    }),
+            );
+        }
+
+        if points.is_empty() {
+            // anyhow::bail!("A selected test tile did not contain any ground or water points");
+            continue;
+        }
+
+        let mut ground_point_cloud = PointCloud::new(points, shifted_bounds);
 
         // add ghost points at the corners of the bounds to make the entire dem interpolate-able
         // IDW interpolating the ghost points from the 8 closest real points
@@ -137,7 +152,17 @@ pub fn initialize_map_tile(
 
         let dfm_bounds = ground_point_cloud.get_dfm_dimensions();
 
-        let hull = ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE * 2.)?;
+        let hull =
+            ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE_METERS * 2.)?;
+
+        let cut_overlay = hull
+            .intersection(&cut_overlay.to_polygon())
+            .into_iter()
+            .max_by_key(|p| (p.signed_area() * 1000.) as u64);
+
+        let Some(cut_overlay) = cut_overlay else {
+            anyhow::bail!("The cut overlay does not overlap with the pointcloud convex hull")
+        };
 
         let (dem, return_number, intensity, tile_z_range) =
             map_gen::common::compute_dfms(ground_point_cloud, &stats)?;
@@ -162,14 +187,10 @@ pub fn initialize_map_tile(
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));
     }
 
-    let Some(initial) = all_hulls.first().cloned() else {
+    if all_hulls.is_empty() {
         anyhow::bail!("No tile hulls were initialized");
-    };
-    let super_hull = all_hulls
-        .into_iter()
-        .skip(1)
-        .fold(initial, |acc, p| acc.union(&p).0[0].clone());
-    let super_hull = super_hull.convex_hull();
+    }
+    let super_hull = geo::MultiPolygon(all_hulls).convex_hull();
     for tile in tiles.iter_mut() {
         tile.hull = super_hull.clone();
         tile.z_range = z_range;

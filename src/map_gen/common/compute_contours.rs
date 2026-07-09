@@ -1,4 +1,4 @@
-use crate::SIDE_LENGTH;
+use crate::TILE_SIZE_PIXELS;
 use crate::geometry::{ContourLevel, ContourSet};
 use crate::map_gen::egui_map::{LineSymbol, MapObject};
 use crate::parameters::{ContourAlgo, MapParameters};
@@ -34,9 +34,9 @@ pub fn compute_naive_contours(
     let clip_poly = geo::Polygon::new(
         geo::LineString::new(vec![
             true_dem.index2coord(0, 0),
-            true_dem.index2coord(SIDE_LENGTH - 1, 0),
-            true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
-            true_dem.index2coord(0, SIDE_LENGTH - 1),
+            true_dem.index2coord(TILE_SIZE_PIXELS - 1, 0),
+            true_dem.index2coord(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1),
+            true_dem.index2coord(0, TILE_SIZE_PIXELS - 1),
             true_dem.index2coord(0, 0),
         ]),
         vec![],
@@ -162,9 +162,9 @@ pub fn extract_contours(
     let clip_poly = geo::Polygon::new(
         geo::LineString::new(vec![
             true_dem.index2coord(0, 0),
-            true_dem.index2coord(SIDE_LENGTH - 1, 0),
-            true_dem.index2coord(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
-            true_dem.index2coord(0, SIDE_LENGTH - 1),
+            true_dem.index2coord(TILE_SIZE_PIXELS - 1, 0),
+            true_dem.index2coord(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1),
+            true_dem.index2coord(0, TILE_SIZE_PIXELS - 1),
             true_dem.index2coord(0, 0),
         ]),
         vec![],

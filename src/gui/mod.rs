@@ -18,7 +18,6 @@ pub enum ProcessStage {
     CheckLidar,
     ShowComponents,
     ChooseSquare,
-    ChooseSubTile,
     ConvertingCOPC,
     DrawPolygon,
     ExportDone,
@@ -34,8 +33,7 @@ impl ProcessStage {
             ProcessStage::CheckLidar => *self = ProcessStage::DrawPolygon,
             ProcessStage::DrawPolygon => *self = ProcessStage::ConvertingCOPC,
             ProcessStage::ConvertingCOPC => *self = ProcessStage::ChooseSquare,
-            ProcessStage::ChooseSquare => *self = ProcessStage::ChooseSubTile,
-            ProcessStage::ChooseSubTile => *self = ProcessStage::PrepareMapPreview,
+            ProcessStage::ChooseSquare => *self = ProcessStage::PrepareMapPreview,
             ProcessStage::PrepareMapPreview => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustContours => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustVegetation,
@@ -49,12 +47,11 @@ impl ProcessStage {
 
     pub fn prev(&mut self) {
         match self {
-            ProcessStage::AdjustContours => *self = ProcessStage::ChooseSubTile,
+            ProcessStage::AdjustContours => *self = ProcessStage::ChooseSquare,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustVegetation,
             ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustCliffs,
-            ProcessStage::ChooseSubTile => *self = ProcessStage::ChooseSquare,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
             _ => unreachable!("Should not call prev on state for {:?} variant.", self),
         }

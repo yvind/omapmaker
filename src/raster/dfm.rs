@@ -1,5 +1,5 @@
 use crate::geometry::contour_set::ContourPoint;
-use crate::{CELL_SIZE, SIDE_LENGTH};
+use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
@@ -26,16 +26,16 @@ impl<T> Dfm<T> {
     #[inline]
     pub fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
         geo::Coord {
-            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
+            x: (xi as f64) * CELL_SIZE_METERS + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE_METERS,
         }
     }
 
     #[inline]
     pub fn index2spade(&self, yi: usize, xi: usize) -> spade::Point2<f64> {
         spade::Point2 {
-            x: (xi as f64) * CELL_SIZE + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE,
+            x: (xi as f64) * CELL_SIZE_METERS + self.tl_coord.x,
+            y: self.tl_coord.y - (yi as f64) * CELL_SIZE_METERS,
         }
     }
 }
@@ -43,25 +43,25 @@ impl<T> Dfm<T> {
 impl<T: Clone> Dfm<T> {
     pub fn new(tl_coord: geo::Coord) -> Dfm<T> {
         Dfm {
-            field: vec![f64::MIN; SIDE_LENGTH * SIDE_LENGTH].into_boxed_slice(),
+            field: vec![f64::MIN; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS].into_boxed_slice(),
             tl_coord,
             _t: PhantomData,
         }
     }
     pub fn error(&self, other: &Dfm<T>) -> f64 {
         let mut square_diff = 0.;
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
+        for y in 0..TILE_SIZE_PIXELS {
+            for x in 0..TILE_SIZE_PIXELS {
                 square_diff += (self[(y, x)] - other[(y, x)]).powi(2);
             }
         }
-        square_diff / (SIDE_LENGTH * SIDE_LENGTH) as f64
+        square_diff / (TILE_SIZE_PIXELS * TILE_SIZE_PIXELS) as f64
     }
 
     pub fn difference(&self, other: &Dfm<T>) -> Dfm<T> {
         let mut diff = self.clone();
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
+        for y in 0..TILE_SIZE_PIXELS {
+            for x in 0..TILE_SIZE_PIXELS {
                 diff[(y, x)] -= other[(y, x)];
             }
         }
@@ -76,12 +76,12 @@ impl<T: Clone> Dfm<T> {
         amplitude: f64,
     ) {
         let diff = truth.difference(interpolated);
-        for yi in 0..SIDE_LENGTH {
+        for yi in 0..TILE_SIZE_PIXELS {
             let top_i = yi.saturating_sub(filter_half_size);
-            let bottom_i = (yi + filter_half_size).min(SIDE_LENGTH - 1);
-            for xi in 0..SIDE_LENGTH {
+            let bottom_i = (yi + filter_half_size).min(TILE_SIZE_PIXELS - 1);
+            for xi in 0..TILE_SIZE_PIXELS {
                 let left_i = xi.saturating_sub(filter_half_size);
-                let right_i = (xi + filter_half_size).min(SIDE_LENGTH - 1);
+                let right_i = (xi + filter_half_size).min(TILE_SIZE_PIXELS - 1);
 
                 let mut adjustment = 0.;
                 for yj in top_i..=bottom_i {
@@ -100,7 +100,7 @@ impl<T: Clone> Dfm<T> {
 impl Dfm<Elevation> {
     pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
         const GRAD_CELLS: usize = 5;
-        const GRAD_LENGTH: f64 = GRAD_CELLS as f64 * CELL_SIZE;
+        const GRAD_LENGTH: f64 = GRAD_CELLS as f64 * CELL_SIZE_METERS;
 
         let top_left = ContourPoint {
             pos: self.index2spade(0, 0),
@@ -112,34 +112,36 @@ impl Dfm<Elevation> {
         };
 
         let top_right = ContourPoint {
-            pos: self.index2spade(0, SIDE_LENGTH - 1),
-            z: self[(0, SIDE_LENGTH - 1)],
+            pos: self.index2spade(0, TILE_SIZE_PIXELS - 1),
+            z: self[(0, TILE_SIZE_PIXELS - 1)],
             grad: [
-                (self[(0, SIDE_LENGTH - 1)] - self[(0, SIDE_LENGTH - 1 - GRAD_CELLS)])
+                (self[(0, TILE_SIZE_PIXELS - 1)] - self[(0, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)])
                     / GRAD_LENGTH,
-                (self[(0, SIDE_LENGTH - 1)] - self[(GRAD_CELLS, SIDE_LENGTH - 1)]) / GRAD_LENGTH,
+                (self[(0, TILE_SIZE_PIXELS - 1)] - self[(GRAD_CELLS, TILE_SIZE_PIXELS - 1)])
+                    / GRAD_LENGTH,
             ],
         };
 
         let bottom_right = ContourPoint {
-            pos: self.index2spade(SIDE_LENGTH - 1, SIDE_LENGTH - 1),
-            z: self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)],
+            pos: self.index2spade(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1),
+            z: self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)],
             grad: [
-                (self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)]
-                    - self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1 - GRAD_CELLS)])
+                (self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)]
+                    - self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)])
                     / GRAD_LENGTH,
-                (self[(SIDE_LENGTH - 1 - GRAD_CELLS, SIDE_LENGTH - 1)]
-                    - self[(SIDE_LENGTH - 1, SIDE_LENGTH - 1)])
+                (self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, TILE_SIZE_PIXELS - 1)]
+                    - self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)])
                     / GRAD_LENGTH,
             ],
         };
 
         let bottom_left = ContourPoint {
-            pos: self.index2spade(SIDE_LENGTH - 1, 0),
-            z: self[(SIDE_LENGTH - 1, 0)],
+            pos: self.index2spade(TILE_SIZE_PIXELS - 1, 0),
+            z: self[(TILE_SIZE_PIXELS - 1, 0)],
             grad: [
-                (self[(SIDE_LENGTH - 1, GRAD_CELLS)] - self[(SIDE_LENGTH - 1, 0)]) / GRAD_LENGTH,
-                (self[(SIDE_LENGTH - 1 - GRAD_CELLS, 0)] - self[(SIDE_LENGTH - 1, 0)])
+                (self[(TILE_SIZE_PIXELS - 1, GRAD_CELLS)] - self[(TILE_SIZE_PIXELS - 1, 0)])
+                    / GRAD_LENGTH,
+                (self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, 0)] - self[(TILE_SIZE_PIXELS - 1, 0)])
                     / GRAD_LENGTH,
             ],
         };
@@ -151,8 +153,8 @@ impl Dfm<Elevation> {
     pub fn slope(&self) -> Dfm<Slope> {
         let mut slope = Dfm::new(self.tl_coord);
 
-        for yi in 0..SIDE_LENGTH {
-            for xi in 0..SIDE_LENGTH {
+        for yi in 0..TILE_SIZE_PIXELS {
+            for xi in 0..TILE_SIZE_PIXELS {
                 let (v, h) = self.sobel_gradient(yi, xi);
 
                 slope[(yi, xi)] = (v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt();
@@ -173,8 +175,8 @@ impl Dfm<Elevation> {
         let light_y = sun_angle.sin() * sun_elevation.cos();
         let light_z = sun_elevation.sin();
 
-        for yi in 0..SIDE_LENGTH {
-            for xi in 0..SIDE_LENGTH {
+        for yi in 0..TILE_SIZE_PIXELS {
+            for xi in 0..TILE_SIZE_PIXELS {
                 let (v, h) = self.sobel_gradient(yi, xi);
                 let normal_x = v;
                 let normal_y = -h;
@@ -197,21 +199,21 @@ impl<T: Clone> Dfm<T> {
     #[inline]
     fn sobel_gradient(&self, yi: usize, xi: usize) -> (f64, f64) {
         let top_i = yi.saturating_sub(1);
-        let bottom_i = (yi + 1).min(SIDE_LENGTH - 1);
+        let bottom_i = (yi + 1).min(TILE_SIZE_PIXELS - 1);
         let left_i = xi.saturating_sub(1);
-        let right_i = (xi + 1).min(SIDE_LENGTH - 1);
+        let right_i = (xi + 1).min(TILE_SIZE_PIXELS - 1);
 
         let v = (self[(top_i, left_i)] - self[(top_i, right_i)] + 2. * self[(yi, left_i)]
             - 2. * self[(yi, right_i)]
             + self[(bottom_i, left_i)]
             - self[(bottom_i, right_i)])
-            / (2. * CELL_SIZE);
+            / (2. * CELL_SIZE_METERS);
 
         let h = (self[(top_i, left_i)] - self[(bottom_i, left_i)] + 2. * self[(top_i, xi)]
             - 2. * self[(bottom_i, xi)]
             + self[(top_i, right_i)]
             - self[(bottom_i, right_i)])
-            / (2. * CELL_SIZE);
+            / (2. * CELL_SIZE_METERS);
 
         (v, h)
     }
@@ -238,7 +240,7 @@ impl<T: Clone> Dfm<T> {
         // (SIDE_LENGTH-1 horizontal inner segments + 2 paddding + 1 vertical)
         // horizontal segments have indecies 0..=SIDE_LENGTH
         // and the vertical segment has index SIDE_LENGTH+1
-        let mut contour_map = [usize::MAX; SIDE_LENGTH + 2];
+        let mut contour_map = [usize::MAX; TILE_SIZE_PIXELS + 2];
 
         //   0       1
         //   *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
@@ -270,11 +272,11 @@ impl<T: Clone> Dfm<T> {
         // make a f64::MIN-padded proxy of self to avoid edge problems and close all contours
         let padded = DfmPaddedProxy::new(self);
 
-        for yi in 0..SIDE_LENGTH + 1 {
+        for yi in 0..TILE_SIZE_PIXELS + 1 {
             let ys = [yi, yi, yi + 1, yi + 1];
-            for xi in 0..SIDE_LENGTH + 1 {
+            for xi in 0..TILE_SIZE_PIXELS + 1 {
                 let xs = [xi, xi + 1, xi + 1, xi];
-                let map_address_lut = [xi, SIDE_LENGTH + 1, xi, SIDE_LENGTH + 1];
+                let map_address_lut = [xi, TILE_SIZE_PIXELS + 1, xi, TILE_SIZE_PIXELS + 1];
 
                 let index = (padded[(ys[0], xs[0])] >= level) as usize
                     + 2 * (padded[(ys[1], xs[1])] >= level) as usize
@@ -434,19 +436,19 @@ impl<T: Clone> Dfm<T> {
         let threshold = max_norm_diff.to_radians().cos();
 
         // calculate normal vectors
-        let mut normal_vecs = vec![(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
-        for y in 0..SIDE_LENGTH {
+        let mut normal_vecs = vec![(0., 0.); TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        for y in 0..TILE_SIZE_PIXELS {
             let y_min_1 = y.saturating_sub(1);
-            let y_plus_1 = (y + 1).min(SIDE_LENGTH - 1);
+            let y_plus_1 = (y + 1).min(TILE_SIZE_PIXELS - 1);
 
             let ys = [
                 y_min_1, y, y_plus_1, y_plus_1, y_plus_1, y, y_min_1, y_min_1,
             ];
 
             let mut z_vals = [0.; 8];
-            for x in 0..SIDE_LENGTH {
+            for x in 0..TILE_SIZE_PIXELS {
                 let x_min_1 = x.saturating_sub(1);
-                let x_plus_1 = (x + 1).min(SIDE_LENGTH - 1);
+                let x_plus_1 = (x + 1).min(TILE_SIZE_PIXELS - 1);
 
                 let xs = [
                     x_plus_1, x_plus_1, x_plus_1, x, x_min_1, x_min_1, x_min_1, x,
@@ -458,17 +460,17 @@ impl<T: Clone> Dfm<T> {
 
                 let dzdx = -(z_vals[2] - z_vals[4] + 2. * (z_vals[1] - z_vals[5]) + z_vals[0]
                     - z_vals[6])
-                    / (CELL_SIZE * 8.);
+                    / (CELL_SIZE_METERS * 8.);
                 let dzdy = -(z_vals[6] - z_vals[4] + 2. * (z_vals[7] - z_vals[3]) + z_vals[0]
                     - z_vals[2])
-                    / (CELL_SIZE * 8.);
+                    / (CELL_SIZE_METERS * 8.);
 
-                normal_vecs[y * SIDE_LENGTH + x] = (dzdx, dzdy);
+                normal_vecs[y * TILE_SIZE_PIXELS + x] = (dzdx, dzdy);
             }
         }
 
         // Smooth normal vectors
-        let mut smooth_normal_vecs = vec![(0., 0.); SIDE_LENGTH * SIDE_LENGTH];
+        let mut smooth_normal_vecs = vec![(0., 0.); TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
 
         let mut dx = vec![0; filter_size * filter_size];
         let mut dy = vec![0; filter_size * filter_size];
@@ -484,18 +486,19 @@ impl<T: Clone> Dfm<T> {
             }
         }
 
-        for y in 0..SIDE_LENGTH {
-            for x in 0..SIDE_LENGTH {
+        for y in 0..TILE_SIZE_PIXELS {
+            for x in 0..TILE_SIZE_PIXELS {
                 let mut sum_weights = 0.;
                 let mut a = 0.;
                 let mut b = 0.;
                 for n in 0..filter_size * filter_size {
                     let x_neighbor =
-                        (x as isize + dx[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
+                        (x as isize + dx[n]).clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
                     let y_neighbor =
-                        (y as isize + dy[n]).clamp(0, SIDE_LENGTH as isize - 1) as usize;
-                    let neighbor_normal = normal_vecs[y_neighbor * SIDE_LENGTH + x_neighbor];
-                    let diff = cos_angle_between(normal_vecs[y * SIDE_LENGTH + x], neighbor_normal);
+                        (y as isize + dy[n]).clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
+                    let neighbor_normal = normal_vecs[y_neighbor * TILE_SIZE_PIXELS + x_neighbor];
+                    let diff =
+                        cos_angle_between(normal_vecs[y * TILE_SIZE_PIXELS + x], neighbor_normal);
                     if diff > threshold {
                         let weight = (diff - threshold).powi(2);
                         sum_weights += weight;
@@ -507,31 +510,45 @@ impl<T: Clone> Dfm<T> {
                 a /= sum_weights;
                 b /= sum_weights;
 
-                smooth_normal_vecs[y * SIDE_LENGTH + x] = (a, b);
+                smooth_normal_vecs[y * TILE_SIZE_PIXELS + x] = (a, b);
             }
         }
 
         // Update the DEM based on the smoothed normal vectors
         let x = [
-            -CELL_SIZE, -CELL_SIZE, -CELL_SIZE, 0., CELL_SIZE, CELL_SIZE, CELL_SIZE, 0.,
+            -CELL_SIZE_METERS,
+            -CELL_SIZE_METERS,
+            -CELL_SIZE_METERS,
+            0.,
+            CELL_SIZE_METERS,
+            CELL_SIZE_METERS,
+            CELL_SIZE_METERS,
+            0.,
         ];
         let y = [
-            -CELL_SIZE, 0., CELL_SIZE, CELL_SIZE, CELL_SIZE, 0., -CELL_SIZE, -CELL_SIZE,
+            -CELL_SIZE_METERS,
+            0.,
+            CELL_SIZE_METERS,
+            CELL_SIZE_METERS,
+            CELL_SIZE_METERS,
+            0.,
+            -CELL_SIZE_METERS,
+            -CELL_SIZE_METERS,
         ];
 
         let mut output = self.clone();
 
         for _ in 0..num_iter {
-            for yi in 0..SIDE_LENGTH {
+            for yi in 0..TILE_SIZE_PIXELS {
                 let y_min_1 = yi.saturating_sub(1);
-                let y_plus_1 = (yi + 1).min(SIDE_LENGTH - 1);
+                let y_plus_1 = (yi + 1).min(TILE_SIZE_PIXELS - 1);
 
                 let ys = [
                     y_min_1, yi, y_plus_1, y_plus_1, y_plus_1, yi, y_min_1, y_min_1,
                 ];
-                for xi in 0..SIDE_LENGTH {
+                for xi in 0..TILE_SIZE_PIXELS {
                     let x_min_1 = xi.saturating_sub(1);
-                    let x_plus_1 = (xi + 1).min(SIDE_LENGTH - 1);
+                    let x_plus_1 = (xi + 1).min(TILE_SIZE_PIXELS - 1);
 
                     let xs = [
                         x_plus_1, x_plus_1, x_plus_1, xi, x_min_1, x_min_1, x_min_1, xi,
@@ -544,9 +561,9 @@ impl<T: Clone> Dfm<T> {
                         let y_neighbor = ys[n];
 
                         let smooth_neighbor_normal =
-                            smooth_normal_vecs[y_neighbor * SIDE_LENGTH + x_neighbor];
+                            smooth_normal_vecs[y_neighbor * TILE_SIZE_PIXELS + x_neighbor];
                         let diff = cos_angle_between(
-                            smooth_normal_vecs[yi * SIDE_LENGTH + xi],
+                            smooth_normal_vecs[yi * TILE_SIZE_PIXELS + xi],
                             smooth_neighbor_normal,
                         );
                         if diff > threshold {
@@ -578,13 +595,13 @@ impl<T> Index<(usize, usize)> for Dfm<T> {
     type Output = f64;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
-        &self.field[index.0 * SIDE_LENGTH + index.1]
+        &self.field[index.0 * TILE_SIZE_PIXELS + index.1]
     }
 }
 
 impl<T> IndexMut<(usize, usize)> for Dfm<T> {
     fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-        &mut self.field[index.0 * SIDE_LENGTH + index.1]
+        &mut self.field[index.0 * TILE_SIZE_PIXELS + index.1]
     }
 }
 
@@ -600,8 +617,8 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
     #[inline]
     fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
         geo::Coord {
-            x: self.inner.tl_coord.x - CELL_SIZE + (xi as f64) * CELL_SIZE,
-            y: self.inner.tl_coord.y + CELL_SIZE - (yi as f64) * CELL_SIZE,
+            x: self.inner.tl_coord.x - CELL_SIZE_METERS + (xi as f64) * CELL_SIZE_METERS,
+            y: self.inner.tl_coord.y + CELL_SIZE_METERS - (yi as f64) * CELL_SIZE_METERS,
         }
     }
 
@@ -620,10 +637,10 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
 
         geo::Coord {
             x: a_coord.x
-                + CELL_SIZE * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * (level - a)
+                + CELL_SIZE_METERS * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * (level - a)
                     / (b - a),
             y: a_coord.y
-                + CELL_SIZE * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * (level - a)
+                + CELL_SIZE_METERS * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * (level - a)
                     / (b - a),
         }
     }
@@ -633,7 +650,10 @@ impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
     type Output = f64;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
-        if index.0 == 0 || index.0 == SIDE_LENGTH + 1 || index.1 == 0 || index.1 == SIDE_LENGTH + 1
+        if index.0 == 0
+            || index.0 == TILE_SIZE_PIXELS + 1
+            || index.1 == 0
+            || index.1 == TILE_SIZE_PIXELS + 1
         {
             &Self::Output::MIN
         } else {

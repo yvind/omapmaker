@@ -114,7 +114,7 @@ pub fn read_laz(
 
     let map_bounds = point_cloud.get_dfm_dimensions();
 
-    let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE)?;
+    let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE_METERS)?;
 
     // add the water points to the ground cloud
     let water_points = las_reader
