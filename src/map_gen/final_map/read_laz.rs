@@ -27,7 +27,7 @@ pub fn read_laz(
     tile_bounds: geo::Rect,
     edge_tile: NeighborSide,
     ref_point: geo::Coord,
-) -> Result<(PointCloud, geo::Polygon)> {
+) -> Result<(PointCloud, PointCloud, geo::Polygon)> {
     let mut las_reader = CopcReader::from_path(&las_paths[neighbor_map.center])?;
 
     let header = las_reader.header();
@@ -39,21 +39,28 @@ pub fn read_laz(
     rel_bounds.max.y -= ref_point.y;
     rel_bounds.min.y -= ref_point.y;
 
-    let mut point_cloud = PointCloud::new(
-        las_reader
-            .points(
-                copc_rs::LodSelection::All,
-                copc_rs::BoundsSelection::Within(query_bounds),
-            )?
-            .filter_map(|mut p| {
-                (p.classification == Classification::Ground && !p.is_withheld).then(|| {
-                    jitter_point(&mut p, ref_point);
-                    PointLaz(p)
-                })
+    let center_points = las_reader
+        .points(
+            copc_rs::LodSelection::All,
+            copc_rs::BoundsSelection::Within(query_bounds),
+        )?
+        .filter_map(|mut p| {
+            (!p.is_withheld).then(|| {
+                jitter_point(&mut p, ref_point);
+                PointLaz(p)
             })
+        })
+        .collect::<Vec<_>>();
+
+    let mut point_cloud = PointCloud::new(
+        center_points
+            .iter()
+            .filter(|p| p.0.classification == Classification::Ground)
+            .cloned()
             .collect(),
         rel_bounds,
     );
+    let mut all_points = center_points;
 
     // skip this tile if there is almost no ground points
     if point_cloud.points.len() < 4 {
@@ -96,20 +103,27 @@ pub fn read_laz(
     for ei in edge_paths_index.iter() {
         let mut edge_reader = CopcReader::from_path(&las_paths[*ei])?;
 
-        point_cloud.add(
-            edge_reader
-                .points(
-                    copc_rs::LodSelection::All,
-                    copc_rs::BoundsSelection::Within(query_bounds),
-                )?
-                .filter_map(|mut p| {
-                    (p.classification == Classification::Ground && !p.is_withheld).then(|| {
-                        jitter_point(&mut p, ref_point);
-                        PointLaz(p)
-                    })
+        let edge_points = edge_reader
+            .points(
+                copc_rs::LodSelection::All,
+                copc_rs::BoundsSelection::Within(query_bounds),
+            )?
+            .filter_map(|mut p| {
+                (!p.is_withheld).then(|| {
+                    jitter_point(&mut p, ref_point);
+                    PointLaz(p)
                 })
+            })
+            .collect::<Vec<_>>();
+
+        point_cloud.add(
+            edge_points
+                .iter()
+                .filter(|p| p.0.classification == Classification::Ground)
+                .cloned()
                 .collect(),
         );
+        all_points.extend(edge_points);
     }
 
     let map_bounds = point_cloud.get_dfm_dimensions();
@@ -117,38 +131,13 @@ pub fn read_laz(
     let convex_hull = point_cloud.bounded_convex_hull(&map_bounds, 2. * crate::CELL_SIZE_METERS)?;
 
     // add the water points to the ground cloud
-    let water_points = las_reader
-        .points(
-            copc_rs::LodSelection::All,
-            copc_rs::BoundsSelection::Within(query_bounds),
-        )?
-        .filter_map(|mut p| {
-            (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                jitter_point(&mut p, ref_point);
-                PointLaz(p)
-            })
-        })
-        .collect();
-    point_cloud.add(water_points);
-
-    for ei in edge_paths_index.iter() {
-        let mut edge_reader = CopcReader::from_path(&las_paths[*ei])?;
-
-        point_cloud.add(
-            edge_reader
-                .points(
-                    copc_rs::LodSelection::All,
-                    copc_rs::BoundsSelection::Within(query_bounds),
-                )?
-                .filter_map(|mut p| {
-                    (p.classification == Classification::Water && !p.is_withheld).then(|| {
-                        jitter_point(&mut p, ref_point);
-                        PointLaz(p)
-                    })
-                })
-                .collect(),
-        );
-    }
+    point_cloud.add(
+        all_points
+            .iter()
+            .filter(|p| p.0.classification == Classification::Water)
+            .cloned()
+            .collect(),
+    );
 
     // add ghost points at the corners of the bounds to make the entire dem interpolate-able
     // IDW interpolating the ghost points from the 4 closest real points
@@ -186,5 +175,7 @@ pub fn read_laz(
         PointLaz::new(query_points[3][0], query_points[3][1], zs[3]),
     ]);
 
-    Ok((point_cloud, convex_hull))
+    let all_point_cloud = PointCloud::new(all_points, rel_bounds);
+
+    Ok((point_cloud, all_point_cloud, convex_hull))
 }

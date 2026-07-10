@@ -5,13 +5,12 @@ use std::collections::HashMap;
 use crate::geometry::MapMultiPolygon;
 use crate::map_gen::egui_map::{AreaSymbol, MapObject};
 use crate::parameters::{BufferRule, MapParameters};
-use crate::raster::dfm::Returns;
 use crate::raster::{Dfm, Threshold};
 
 use geo::{BooleanOps, Simplify};
 
-pub fn compute_vegetation(
-    dfm: &Dfm<Returns>,
+pub fn compute_vegetation<T: Clone>(
+    dfm: &Dfm<T>,
     threshold: Threshold,
     convex_hull: &geo::Polygon,
     cut_overlay: &geo::Polygon,

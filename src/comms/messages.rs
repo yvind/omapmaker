@@ -25,26 +25,36 @@ pub enum FrontendTask {
 pub enum BackendTask {
     ClearParams,
     SetWorkerThreads(usize),
-    InitializeMapTile(Vec<PathBuf>, geo::Rect, LidarStats),
+    InitializeMapTile(Box<InitializeMapTileTask>),
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<Option<CrsDef>>>),
-    ConvertCopc(
-        Vec<PathBuf>,
-        Vec<Option<CrsDef>>,
-        Option<CrsDef>,
-        PathBuf,
-        Vec<[walkers::Position; 4]>,
-        geo::LineString,
-        bool,
-    ),
-    RegenerateMap(JobId, Box<MapParameters>, RegenerationScope), // boxed to keep the enum variant small
+    ConvertCopc(Box<ConvertCopcTask>),
+    RegenerateMap(JobId, Box<MapParameters>, RegenerationScope),
     Reset,
-    MakeMap(
-        Box<MapParameters>,
-        Box<FileParameters>,
-        geo::LineString,
-        LidarStats,
-    ),
+    MakeMap(Box<MakeMapTask>),
+}
+
+pub struct InitializeMapTileTask {
+    pub paths: Vec<PathBuf>,
+    pub test_area: geo::Rect,
+    pub stats: LidarStats,
+}
+
+pub struct ConvertCopcTask {
+    pub paths: Vec<PathBuf>,
+    pub in_epsg: Vec<Option<CrsDef>>,
+    pub out_epsg: Option<CrsDef>,
+    pub save_location: PathBuf,
+    pub bounds: Vec<[walkers::Position; 4]>,
+    pub polygon: geo::LineString,
+    pub write_single_copc: bool,
+}
+
+pub struct MakeMapTask {
+    pub map_params: MapParameters,
+    pub file_params: FileParameters,
+    pub polygon_filter: geo::LineString,
+    pub stats: LidarStats,
 }
 
 pub enum Task {
@@ -108,6 +118,6 @@ pub enum Variable {
     CrsLessCheckBox(usize),
     ConnectedComponents(Vec<Vec<usize>>),
     ContourScore(JobId, (f32, f32)),
-    Stats(LidarStats),
+    Stats(Box<LidarStats>),
     SingleCopcPath(PathBuf),
 }

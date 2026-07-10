@@ -50,6 +50,10 @@ pub struct ProjectFiles {
     pub save_rasters: bool,
     pub save_slope_raster: bool,
     pub save_hillshade_raster: bool,
+    pub save_last_return_raster: bool,
+    pub save_canopy_height_raster: bool,
+    pub save_surface_objects_raster: bool,
+    pub save_ndvd_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -68,6 +72,10 @@ impl Default for ProjectFiles {
             save_rasters: Default::default(),
             save_slope_raster: Default::default(),
             save_hillshade_raster: Default::default(),
+            save_last_return_raster: Default::default(),
+            save_canopy_height_raster: Default::default(),
+            save_surface_objects_raster: Default::default(),
+            save_ndvd_raster: Default::default(),
         }
     }
 }
@@ -93,7 +101,11 @@ impl ProjectFiles {
                 save_location: self.save_location.clone(),
                 save_slope_raster: self.save_rasters && self.save_slope_raster,
                 save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
+                save_last_return_raster: self.save_rasters && self.save_last_return_raster,
+                save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
+                save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
                 crs_epsg: vec![],
+                save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
             };
         }
 
@@ -102,7 +114,11 @@ impl ProjectFiles {
             save_location: self.save_location.clone(),
             save_slope_raster: self.save_rasters && self.save_slope_raster,
             save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
+            save_last_return_raster: self.save_rasters && self.save_last_return_raster,
+            save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
+            save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
             crs_epsg: self.crs_epsg.clone(),
+            save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
         }
     }
 }
@@ -345,7 +361,11 @@ impl GuiVariables {
                 save_location: self.project.save_location.clone(),
                 save_slope_raster: false,
                 save_hillshade_raster: false,
+                save_last_return_raster: false,
+                save_surface_objects_raster: false,
+                save_ndvd_raster: false,
                 crs_epsg: self.project.crs_epsg.clone(),
+                save_canopy_height_raster: false,
             },
             output_crs: self.generation.params.output.crs.clone(),
             save_location: self.project.save_location.clone(),

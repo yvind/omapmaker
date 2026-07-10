@@ -9,7 +9,7 @@ mod retile_laz;
 pub use compute_basemap::compute_basemap;
 pub use compute_cliffs::compute_cliffs;
 pub use compute_contours::*;
-pub use compute_dfm::compute_dfms;
+pub use compute_dfm::{ComputedDfms, compute_dfms, compute_ndvd};
 pub use compute_intensity::compute_intensity;
 pub use compute_vegetation::compute_vegetation;
 pub use retile_laz::retile_bounds;

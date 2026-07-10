@@ -5,6 +5,7 @@ pub use self::dfm::Dfm;
 
 pub enum Threshold {
     Upper(f64),
+    #[allow(dead_code)]
     Lower(f64),
 }
 

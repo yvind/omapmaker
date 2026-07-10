@@ -233,7 +233,7 @@ impl OmapMaker {
                     self.gui_variables.preview.contour_score = score;
                 }
             }
-            Variable::Stats(lidar_stats) => self.gui_variables.lidar.stats = Some(lidar_stats),
+            Variable::Stats(lidar_stats) => self.gui_variables.lidar.stats = Some(*lidar_stats),
             Variable::SingleCopcPath(path) => {
                 self.gui_variables.project.single_copc_path = Some(path)
             }
@@ -372,15 +372,17 @@ impl OmapMaker {
                 }
                 self.state.next();
                 self.gui_variables.project.single_copc_path = None;
-                let _ = self.comms.send(BackendTask::ConvertCopc(
-                    ready.file_params.paths,
-                    ready.file_params.crs_epsg,
-                    ready.output_crs,
-                    ready.save_location,
-                    ready.boundaries,
-                    ready.polygon_filter,
-                    ready.write_single_copc,
-                ));
+                let _ = self
+                    .comms
+                    .send(BackendTask::ConvertCopc(Box::new(ConvertCopcTask {
+                        paths: ready.file_params.paths,
+                        in_epsg: ready.file_params.crs_epsg,
+                        out_epsg: ready.output_crs,
+                        save_location: ready.save_location,
+                        bounds: ready.boundaries,
+                        polygon: ready.polygon_filter,
+                        write_single_copc: ready.write_single_copc,
+                    })));
             }
             ProcessStage::ConvertingCOPC => {
                 self.state.next();
@@ -396,11 +398,13 @@ impl OmapMaker {
                 };
                 self.gui_variables.preview.generating_map_tile = true;
                 self.state.next();
-                let _ = self.comms.send(BackendTask::InitializeMapTile(
-                    ready.paths,
-                    ready.test_area,
-                    ready.stats,
-                ));
+                let _ = self.comms.send(BackendTask::InitializeMapTile(Box::new(
+                    InitializeMapTileTask {
+                        paths: ready.paths,
+                        test_area: ready.test_area,
+                        stats: ready.stats,
+                    },
+                )));
             }
             state if state.is_adjustment() && state != ProcessStage::AdjustIntensity => {
                 self.state.next();
@@ -415,12 +419,12 @@ impl OmapMaker {
                     }
                 };
                 self.state.next();
-                let _ = self.comms.send(BackendTask::MakeMap(
-                    Box::new(ready.map_params),
-                    Box::new(ready.file_params),
-                    ready.polygon_filter,
-                    ready.stats,
-                ));
+                let _ = self.comms.send(BackendTask::MakeMap(Box::new(MakeMapTask {
+                    map_params: ready.map_params,
+                    file_params: ready.file_params,
+                    polygon_filter: ready.polygon_filter,
+                    stats: ready.stats,
+                })));
             }
             ProcessStage::MakeMap => {
                 self.state.next();

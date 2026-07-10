@@ -20,6 +20,46 @@ pub struct OutputParameters {
     pub crs: Option<CrsDef>,
 }
 
+impl MapParameters {
+    pub fn min_size_filter_symbols(
+        &self,
+        openness: bool,
+        vegetation: bool,
+        cliffs: bool,
+        intensity: bool,
+    ) -> Vec<AreaSymbol> {
+        let mut symbols = Vec::new();
+
+        if openness && self.geometry.openness.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::RoughOpenLand);
+        }
+
+        if vegetation && self.geometry.vegetation.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::LightGreen);
+            push_unique_area_symbol(&mut symbols, AreaSymbol::MediumGreen);
+            push_unique_area_symbol(&mut symbols, AreaSymbol::DarkGreen);
+        }
+
+        if cliffs && self.geometry.cliffs.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::GiganticBoulder);
+        }
+
+        if intensity && self.geometry.intensity.min_size_filter {
+            for filter in &self.intensity.filters {
+                push_unique_area_symbol(&mut symbols, filter.symbol);
+            }
+        }
+
+        symbols
+    }
+}
+
+fn push_unique_area_symbol(symbols: &mut Vec<AreaSymbol>, symbol: AreaSymbol) {
+    if !symbols.contains(&symbol) {
+        symbols.push(symbol);
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ContourParameters {
     pub algorithm: ContourAlgo,
@@ -35,7 +75,15 @@ pub struct ContourParameters {
 #[derive(Clone, Debug)]
 pub struct VegetationParameters {
     pub green: (f64, f64, f64),
+    pub weights: VegetationWeights,
     pub yellow: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VegetationWeights {
+    pub low: f64,
+    pub medium: f64,
+    pub high: f64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -82,7 +130,18 @@ impl Default for VegetationParameters {
     fn default() -> Self {
         Self {
             green: (0.4, 0.6, 0.8),
+            weights: Default::default(),
             yellow: 0.01,
+        }
+    }
+}
+
+impl Default for VegetationWeights {
+    fn default() -> Self {
+        Self {
+            low: 0.5,
+            medium: 0.35,
+            high: 0.15,
         }
     }
 }
@@ -125,6 +184,7 @@ impl Default for BezierParameters {
 pub struct BufferedGeometryParameters {
     pub bezier: BezierParameters,
     pub buffer_rules: Vec<BufferRule>,
+    pub min_size_filter: bool,
 }
 
 #[derive(Default, Clone)]
@@ -133,6 +193,10 @@ pub struct FileParameters {
     pub save_location: PathBuf,
     pub save_slope_raster: bool,
     pub save_hillshade_raster: bool,
+    pub save_last_return_raster: bool,
+    pub save_canopy_height_raster: bool,
+    pub save_surface_objects_raster: bool,
+    pub save_ndvd_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

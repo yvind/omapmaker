@@ -8,7 +8,7 @@ use geotiff_writer::GeoTiffBuilder;
 use ndarray::Array2;
 use proj_core::CrsDef;
 
-use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS, raster::Dfm};
+use crate::{CELL_SIZE_METERS, raster::Dfm};
 
 const NODATA_VALUE: f64 = -9999.;
 const RENDERED_NODATA_VALUE: u8 = 0;
@@ -68,18 +68,23 @@ fn raster_output_path(save_location: &Path, suffix: &str) -> PathBuf {
 }
 
 fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
-    let first = tiles.first()?;
+    let mut inner_tiles = tiles.iter().filter(|tile| !tile.inner.is_empty());
+    let first = inner_tiles.next()?;
+    let first_top_left = first.index2coord(first.inner.top, first.inner.left);
+    let first_bottom_right = first.index2coord(first.inner.bottom - 1, first.inner.right - 1);
 
-    let mut min_x = first.tl_coord.x;
-    let mut max_x = first.tl_coord.x + (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS;
-    let mut max_y = first.tl_coord.y;
-    let mut min_y = first.tl_coord.y - (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS;
+    let mut min_x = first_top_left.x;
+    let mut max_x = first_bottom_right.x;
+    let mut max_y = first_top_left.y;
+    let mut min_y = first_bottom_right.y;
 
-    for tile in tiles.iter().skip(1) {
-        min_x = min_x.min(tile.tl_coord.x);
-        max_x = max_x.max(tile.tl_coord.x + (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS);
-        max_y = max_y.max(tile.tl_coord.y);
-        min_y = min_y.min(tile.tl_coord.y - (TILE_SIZE_PIXELS - 1) as f64 * CELL_SIZE_METERS);
+    for tile in inner_tiles {
+        let top_left = tile.index2coord(tile.inner.top, tile.inner.left);
+        let bottom_right = tile.index2coord(tile.inner.bottom - 1, tile.inner.right - 1);
+        min_x = min_x.min(top_left.x);
+        max_x = max_x.max(bottom_right.x);
+        max_y = max_y.max(top_left.y);
+        min_y = min_y.min(bottom_right.y);
     }
 
     let width = ((max_x - min_x) / CELL_SIZE_METERS).round() as usize + 1;
@@ -89,18 +94,22 @@ fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
     let mut counts = vec![0_u16; width * height];
 
     for tile in tiles {
-        let x_offset = ((tile.tl_coord.x - min_x) / CELL_SIZE_METERS).round() as usize;
-        let y_offset = ((max_y - tile.tl_coord.y) / CELL_SIZE_METERS).round() as usize;
+        if tile.inner.is_empty() {
+            continue;
+        }
+        let inner_top_left = tile.index2coord(tile.inner.top, tile.inner.left);
+        let x_offset = ((inner_top_left.x - min_x) / CELL_SIZE_METERS).round() as usize;
+        let y_offset = ((max_y - inner_top_left.y) / CELL_SIZE_METERS).round() as usize;
 
-        for y in 0..TILE_SIZE_PIXELS {
-            let target_y = y_offset + y;
-            for x in 0..TILE_SIZE_PIXELS {
+        for y in tile.inner.top..tile.inner.bottom {
+            let target_y = y_offset + y - tile.inner.top;
+            for x in tile.inner.left..tile.inner.right {
                 let value = tile[(y, x)];
                 if value == f64::MIN || !value.is_finite() {
                     continue;
                 }
 
-                let target_x = x_offset + x;
+                let target_x = x_offset + x - tile.inner.left;
                 sums[[target_y, target_x]] += value;
                 counts[target_y * width + target_x] =
                     counts[target_y * width + target_x].saturating_add(1);
@@ -168,8 +177,8 @@ fn geotiff_origin(top_left: geo::Coord, ref_point: geo::Coord) -> (f64, f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::geotiff_origin;
-    use crate::CELL_SIZE_METERS;
+    use super::{geotiff_origin, merge_dfms};
+    use crate::{CELL_SIZE_METERS, raster::Dfm, raster::dfm::Slope};
 
     #[test]
     fn geotiff_origin_restores_absolute_coordinates() {
@@ -183,5 +192,38 @@ mod tests {
 
         assert_eq!(origin_x, 500_010. - CELL_SIZE_METERS / 2.);
         assert_eq!(origin_y, 6_600_020. + CELL_SIZE_METERS / 2.);
+    }
+
+    #[test]
+    fn merge_uses_only_pixels_inside_each_tiles_cut_bounds() {
+        let mut left = Dfm::<Slope>::with_cut_bounds(
+            geo::Coord { x: 0., y: 10. },
+            geo::Rect::new((0., 9.), (1., 10.)),
+        );
+        left.field.fill(99.);
+        for y in left.inner.top..left.inner.bottom {
+            for x in left.inner.left..left.inner.right {
+                left[(y, x)] = 1.;
+            }
+        }
+
+        let mut right = Dfm::<Slope>::with_cut_bounds(
+            geo::Coord { x: 1., y: 10. },
+            geo::Rect::new((1.5, 9.), (2., 10.)),
+        );
+        right.field.fill(99.);
+        for y in right.inner.top..right.inner.bottom {
+            for x in right.inner.left..right.inner.right {
+                right[(y, x)] = 2.;
+            }
+        }
+
+        let (merged, top_left) = merge_dfms(&[left, right]).unwrap();
+
+        assert_eq!(top_left, geo::Coord { x: 0., y: 10. });
+        assert_eq!(merged.dim(), (3, 5));
+        for row in merged.rows() {
+            assert_eq!(row.to_vec(), vec![1., 1., 1., 2., 2.]);
+        }
     }
 }

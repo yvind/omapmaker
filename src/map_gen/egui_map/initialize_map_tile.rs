@@ -44,8 +44,7 @@ pub fn initialize_map_tile(
     let mut all_hulls = Vec::with_capacity(4);
     let mut tiles = Vec::with_capacity(4);
     for (tile_bounds, cut_bounds) in tile_bounds.iter().zip(cut_bounds.iter()) {
-        let cut_overlay =
-            geo::Rect::new(cut_bounds.min() - ref_point, cut_bounds.max() - ref_point);
+        let cut_bounds = geo::Rect::new(cut_bounds.min() - ref_point, cut_bounds.max() - ref_point);
 
         let mut shifted_bounds = Bounds {
             min: Vector {
@@ -65,6 +64,7 @@ pub fn initialize_map_tile(
         shifted_bounds.min.y -= ref_point.y;
 
         let mut points = Vec::new();
+        let mut all_points = Vec::new();
         for path in &paths {
             let mut reader = CopcReader::from_path(path)?;
             let header_bounds = reader.header().bounds();
@@ -88,22 +88,22 @@ pub fn initialize_map_tile(
                 },
             };
 
-            points.extend(
-                reader
-                    .points(LodSelection::All, BoundsSelection::Within(bounds))?
-                    .filter_map(|mut p| {
-                        if !p.is_withheld
-                            && (p.classification == Classification::Ground
-                                || p.classification == Classification::Water)
-                        {
-                            p.x -= ref_point.x;
-                            p.y -= ref_point.y;
-                            Some(PointLaz(p))
-                        } else {
-                            None
-                        }
-                    }),
-            );
+            for mut p in reader.points(LodSelection::All, BoundsSelection::Within(bounds))? {
+                if p.is_withheld {
+                    continue;
+                }
+
+                p.x -= ref_point.x;
+                p.y -= ref_point.y;
+                let point = PointLaz(p);
+
+                if point.0.classification == Classification::Ground
+                    || point.0.classification == Classification::Water
+                {
+                    points.push(point.clone());
+                }
+                all_points.push(point);
+            }
         }
 
         if points.is_empty() {
@@ -111,6 +111,7 @@ pub fn initialize_map_tile(
             continue;
         }
 
+        let all_point_cloud = PointCloud::new(all_points, shifted_bounds);
         let mut ground_point_cloud = PointCloud::new(points, shifted_bounds);
 
         // add ghost points at the corners of the bounds to make the entire dem interpolate-able
@@ -156,7 +157,7 @@ pub fn initialize_map_tile(
             ground_point_cloud.bounded_convex_hull(&dfm_bounds, crate::CELL_SIZE_METERS * 2.)?;
 
         let cut_overlay = hull
-            .intersection(&cut_overlay.to_polygon())
+            .intersection(&cut_bounds.to_polygon())
             .into_iter()
             .max_by_key(|p| (p.signed_area() * 1000.) as u64);
 
@@ -164,24 +165,21 @@ pub fn initialize_map_tile(
             anyhow::bail!("The cut overlay does not overlap with the pointcloud convex hull")
         };
 
-        let (dem, return_number, intensity, tile_z_range) =
-            map_gen::common::compute_dfms(ground_point_cloud, &stats)?;
+        let dfms = map_gen::common::compute_dfms(
+            ground_point_cloud,
+            &stats,
+            &all_point_cloud,
+            cut_bounds,
+        )?;
 
-        if z_range.0 > tile_z_range.0 {
-            z_range.0 = tile_z_range.0;
+        if z_range.0 > dfms.z_range.0 {
+            z_range.0 = dfms.z_range.0;
         }
-        if z_range.1 < tile_z_range.1 {
-            z_range.1 = tile_z_range.1;
+        if z_range.1 < dfms.z_range.1 {
+            z_range.1 = dfms.z_range.1;
         }
 
-        tiles.push(PreparedTile::new(
-            dem,
-            return_number,
-            intensity,
-            hull.clone(),
-            cut_overlay,
-            tile_z_range,
-        ));
+        tiles.push(PreparedTile::new(dfms, hull.clone(), cut_overlay));
         all_hulls.push(hull);
 
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));

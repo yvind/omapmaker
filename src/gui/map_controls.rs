@@ -9,6 +9,11 @@ use crate::{
     map_gen::egui_map::{AreaSymbol, Symbol},
 };
 
+struct ScaleBar {
+    width: f32,
+    label: String,
+}
+
 pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
     egui::Window::new("Zoom")
         .collapsible(false)
@@ -75,38 +80,123 @@ pub fn render_scale_pos_label(
         .resizable(false)
         .title_bar(false)
         .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -10.])
+        .max_width(250.)
         .show(ui.ctx(), |ui| {
-            const POINT_SIZE: f64 = 0.0001622; // for my monitor
+            let scale_bar =
+                scale_bar(projection.scale_pixel_per_meter(position, map_memory.zoom()) as f64);
 
-            // how many meters a single point covers on the map
-            let m_per_point = ui.pixels_per_point()
-                / projection.scale_pixel_per_meter(position, map_memory.zoom());
+            ui.vertical_centered(|ui| {
+                if let Some(scale_bar) = scale_bar {
+                    render_scale_bar(ui, scale_bar)
+                        .on_hover_text("Scale bar based on the current map position and zoom")
+                        .on_hover_cursor(egui::CursorIcon::Alias);
+                }
 
-            let scale = m_per_point as f64 / POINT_SIZE;
-
-            ui.horizontal(|ui| {
-                    ui.label(format!("Scale*: 1:{:.0}", scale))
-                    .on_hover_text("*The scale is an approximation based on the UI's scale factor.\nMight be inaccurate for some devices")
+                if projection.is_mercator() {
+                    ui.label(format!(
+                        "Map position: {}{:.4}, {}{:.4}",
+                        if position.y() >= 0. { 'N' } else { 'S' },
+                        position.y().abs(),
+                        if position.x() >= 0. { 'E' } else { 'W' },
+                        position.x().abs()
+                    ))
                     .on_hover_cursor(egui::CursorIcon::Alias);
-                    if projection.is_mercator() {
-                        ui.label(format!(
-                            "Map position: {}{:.4}, {}{:.4}",
-                            if position.y() >= 0. { 'N' } else { 'S' },
-                            position.y().abs(),
-                            if position.x() >= 0. { 'E' } else { 'W' },
-                            position.x().abs()
-                        ))
-                        .on_hover_cursor(egui::CursorIcon::Alias);
-                    } else {
-                        ui.label(format!(
-                            "Map position: {:.4}, {:.4}",
-                            position.x(),
-                            position.y()
-                        ))
-                        .on_hover_cursor(egui::CursorIcon::Alias);
-                    }
-                });
+                } else {
+                    ui.label(format!(
+                        "Map position: {:.4}, {:.4}",
+                        position.x(),
+                        position.y()
+                    ))
+                    .on_hover_cursor(egui::CursorIcon::Alias);
+                }
             });
+        });
+}
+
+fn scale_bar(pixels_per_meter: f64) -> Option<ScaleBar> {
+    const MAX_WIDTH: f64 = 160.0;
+
+    if !pixels_per_meter.is_finite() || pixels_per_meter <= 0.0 {
+        return None;
+    }
+
+    let distance_meters = nice_distance(MAX_WIDTH / pixels_per_meter)?;
+    Some(ScaleBar {
+        width: (distance_meters * pixels_per_meter) as f32,
+        label: format_distance(distance_meters),
+    })
+}
+
+fn nice_distance(max_distance_meters: f64) -> Option<f64> {
+    if !max_distance_meters.is_finite() || max_distance_meters <= 0.0 {
+        return None;
+    }
+
+    let base = 10f64.powf(max_distance_meters.log10().floor());
+    let normalized = max_distance_meters / base;
+    let multiplier = if normalized >= 5.0 {
+        5.0
+    } else if normalized >= 2.0 {
+        2.0
+    } else {
+        1.0
+    };
+
+    Some(multiplier * base)
+}
+
+fn format_distance(meters: f64) -> String {
+    if meters >= 1000.0 {
+        let km = meters / 1000.0;
+        format!("{km:.0} km")
+    } else if meters >= 1.0 {
+        format!("{meters:.0} m")
+    } else if meters >= 0.01 {
+        format!("{:.0} cm", meters * 100.0)
+    } else {
+        format!("{:.0} mm", meters * 1000.0)
+    }
+}
+
+fn render_scale_bar(ui: &mut egui::Ui, scale_bar: ScaleBar) -> egui::Response {
+    const HEIGHT: f32 = 22.0;
+    const MIN_WIDTH: f32 = 64.0;
+    const TICK_HEIGHT: f32 = 6.0;
+
+    let desired_size = egui::vec2(scale_bar.width.max(MIN_WIDTH), HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    let color = ui.visuals().text_color();
+    let stroke = egui::Stroke::new(2.0, color);
+    let bar_rect = egui::Rect::from_min_max(
+        egui::pos2(rect.center().x - scale_bar.width / 2.0, rect.bottom() - 6.0),
+        egui::pos2(rect.center().x + scale_bar.width / 2.0, rect.bottom() - 6.0),
+    );
+
+    painter.text(
+        rect.center_top(),
+        egui::Align2::CENTER_TOP,
+        scale_bar.label,
+        egui::TextStyle::Body.resolve(ui.style()),
+        color,
+    );
+    painter.line_segment([bar_rect.left_top(), bar_rect.right_top()], stroke);
+    painter.line_segment(
+        [
+            bar_rect.left_top(),
+            bar_rect.left_top() - egui::vec2(0.0, TICK_HEIGHT),
+        ],
+        stroke,
+    );
+    painter.line_segment(
+        [
+            bar_rect.right_top(),
+            bar_rect.right_top() - egui::vec2(0.0, TICK_HEIGHT),
+        ],
+        stroke,
+    );
+
+    response
 }
 
 pub fn render_symbol_toggles(

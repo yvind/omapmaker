@@ -1,6 +1,12 @@
 use super::PointLaz;
 
-use crate::{CELL_SIZE_METERS, TILE_SIZE_METERS};
+use crate::{
+    CELL_SIZE_METERS, TILE_SIZE_METERS, TILE_SIZE_PIXELS,
+    raster::{
+        Dfm,
+        dfm::{Elevation, HeightAboveGround},
+    },
+};
 use anyhow::{Context, bail};
 
 use geo::Simplify;
@@ -27,6 +33,56 @@ impl PointCloud {
 
     pub fn to_2d_slice(&self) -> Vec<[f64; 2]> {
         self.points.iter().map(|p| [p.x(), p.y()]).collect()
+    }
+
+    /// `spikiness` is the exponent of a power mean. A value of 1.0 gives the
+    /// arithmetic mean height in each cell; larger values move toward the
+    /// maximum return and preserve sharper canopy peaks.
+    pub fn canopy_height_model(
+        &self,
+        dem: &Dfm<Elevation>,
+        spikiness: f64,
+    ) -> Dfm<HeightAboveGround> {
+        let mut chm = Dfm::<HeightAboveGround>::new_like(dem);
+        let mut sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        let mut counts = vec![0_u32; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        let power = if spikiness.is_finite() {
+            spikiness.clamp(1., 64.)
+        } else {
+            1.
+        };
+
+        for point in self.points.iter() {
+            let x_index = ((point.x() - dem.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
+            let y_index = ((dem.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+
+            if x_index < 0
+                || y_index < 0
+                || x_index >= TILE_SIZE_PIXELS as isize
+                || y_index >= TILE_SIZE_PIXELS as isize
+            {
+                continue;
+            }
+
+            let x_index = x_index as usize;
+            let y_index = y_index as usize;
+            let index = y_index * TILE_SIZE_PIXELS + x_index;
+            let height_above_ground = (point.0.z - dem[(y_index, x_index)]).max(0.);
+
+            sums[index] += height_above_ground.powf(power);
+            counts[index] += 1;
+        }
+
+        for (index, value) in chm.field.iter_mut().enumerate() {
+            let count = counts[index];
+            *value = if count == 0 {
+                0.
+            } else {
+                (sums[index] / f64::from(count)).powf(1. / power)
+            };
+        }
+
+        chm
     }
 
     pub fn get_dfm_dimensions(&self) -> Bounds {

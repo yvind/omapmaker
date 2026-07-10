@@ -61,7 +61,7 @@ impl OmapMaker {
         ui.label("Selected files:");
 
         egui::ScrollArea::both()
-            .max_height(ui.available_height() - 300.)
+            .max_height(ui.available_height() - 400.)
             .auto_shrink(false)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
@@ -126,6 +126,10 @@ impl OmapMaker {
                 if !self.gui_variables.project.save_rasters {
                     self.gui_variables.project.save_slope_raster = false;
                     self.gui_variables.project.save_hillshade_raster = false;
+                    self.gui_variables.project.save_last_return_raster = false;
+                    self.gui_variables.project.save_canopy_height_raster = false;
+                    self.gui_variables.project.save_surface_objects_raster = false;
+                    self.gui_variables.project.save_ndvd_raster = false;
                 }
 
                 ui.indent("indented raster checkboxes", |ui| {
@@ -142,6 +146,38 @@ impl OmapMaker {
                         egui::Checkbox::new(
                             &mut self.gui_variables.project.save_hillshade_raster,
                             "Save hillshade raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_last_return_raster,
+                            "Save last-return raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_canopy_height_raster,
+                            "Save canopy height raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_surface_objects_raster,
+                            "Save surface objects raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_ndvd_raster,
+                            "Save NDVD raster",
                         ),
                     );
                 });
@@ -472,6 +508,16 @@ impl OmapMaker {
                             .openness
                             .bezier,
                     );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .openness
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
+                    );
                     ui.add_space(20.);
                     Self::render_buffer_rules(
                         ui,
@@ -498,6 +544,16 @@ impl OmapMaker {
                             .geometry
                             .vegetation
                             .bezier,
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .vegetation
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
                     );
                     ui.add_space(20.);
                     Self::render_buffer_rules(
@@ -528,6 +584,16 @@ impl OmapMaker {
                         ui,
                         &mut self.gui_variables.generation.params.geometry.cliffs.bezier,
                     );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .cliffs
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
+                    );
                     ui.add_space(20.);
                     Self::render_buffer_rules(
                         ui,
@@ -554,6 +620,16 @@ impl OmapMaker {
                             .geometry
                             .intensity
                             .bezier,
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .intensity
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
                     );
                     ui.add_space(20.);
                     Self::render_buffer_rules(
@@ -764,6 +840,25 @@ impl OmapMaker {
     }
 
     fn render_vegetation_adjustments(&mut self, ui: &mut egui::Ui) {
+        ui.label(egui::RichText::new("Vegetation weighting").strong());
+        let weights = &mut self.gui_variables.generation.params.vegetation.weights;
+        ui.add(
+            egui::Slider::new(&mut weights.low, 0.0..=1.0)
+                .text("Low vegetation")
+                .show_value(true),
+        );
+        ui.add(
+            egui::Slider::new(&mut weights.medium, 0.0..=1.0)
+                .text("Medium vegetation")
+                .show_value(true),
+        );
+        ui.add(
+            egui::Slider::new(&mut weights.high, 0.0..=1.0)
+                .text("High vegetation")
+                .show_value(true),
+        );
+        ui.add_space(20.);
+
         ui.label(egui::RichText::new("Green thresholds").strong());
         ui.add(
             egui::Slider::new(

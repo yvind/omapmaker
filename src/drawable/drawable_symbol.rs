@@ -52,7 +52,6 @@ impl DrawOrder for Symbol {
             Symbol::Area(AreaSymbol::Building),
             Symbol::Point(PointSymbol::SmallBoulder),
             Symbol::Point(PointSymbol::LargeBoulder),
-            Symbol::Area(AreaSymbol::OutOfBounds),
         ]
         .into_iter()
     }
@@ -110,9 +109,6 @@ impl DrawableSymbol for AreaSymbol {
             AreaSymbol::Building => Some((false, Stroke::new(0., Color32::BLACK))),
             AreaSymbol::PavedAreaWithBoundary => Some((false, Stroke::new(0., LIGHT_BROWN))),
             AreaSymbol::PrivateArea => Some((false, Stroke::new(0., OLIVE))),
-            AreaSymbol::OutOfBounds => {
-                Some((false, Stroke::new(0., Color32::PURPLE.gamma_multiply(0.5))))
-            }
             AreaSymbol::WhiteForest => None,
         }
     }

@@ -16,7 +16,7 @@ use proj_core::CrsDef;
 
 const DEFAULT_COPC_MEMORY_BUDGET: u64 = 8_u64 * 1024 * 1024 * 1024;
 
-// should be multithreaded
+#[allow(clippy::too_many_arguments)]
 pub fn convert_copc(
     sender: FrontendSender,
     paths: Vec<PathBuf>,
@@ -42,6 +42,7 @@ pub fn convert_copc(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn try_convert_copc(
     sender: FrontendSender,
     paths: Vec<PathBuf>,
@@ -154,7 +155,9 @@ fn try_convert_copc(
 
     let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
 
-    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Stats(stats)));
+    let _ = sender.send(FrontendTask::UpdateVariable(Variable::Stats(Box::new(
+        stats,
+    ))));
 
     let _ = sender.send(FrontendTask::UpdateVariable(Variable::Paths(new_paths)));
 

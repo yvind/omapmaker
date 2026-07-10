@@ -14,11 +14,51 @@ pub struct Hillshade;
 pub struct Returns;
 #[derive(Clone, Copy, Debug)]
 pub struct Intensity;
+#[derive(Clone, Copy, Debug)]
+pub struct HeightAboveGround;
+#[derive(Clone, Copy, Debug)]
+pub struct LastReturn;
+#[derive(Clone, Copy, Debug)]
+pub struct Ground;
+#[derive(Clone, Copy, Debug)]
+pub struct LowVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct MediumVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct HighVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceObjects;
+#[derive(Clone, Copy, Debug)]
+pub struct Ndvd;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DfmPixelBounds {
+    pub top: usize,
+    pub bottom: usize,
+    pub left: usize,
+    pub right: usize,
+}
+
+impl DfmPixelBounds {
+    fn full() -> Self {
+        Self {
+            top: 0,
+            bottom: TILE_SIZE_PIXELS,
+            left: 0,
+            right: TILE_SIZE_PIXELS,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.top >= self.bottom || self.left >= self.right
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct Dfm<T> {
     pub field: Box<[f64]>,
     pub tl_coord: geo::Coord,
+    pub inner: DfmPixelBounds,
     _t: PhantomData<T>,
 }
 
@@ -45,9 +85,45 @@ impl<T: Clone> Dfm<T> {
         Dfm {
             field: vec![f64::MIN; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS].into_boxed_slice(),
             tl_coord,
+            inner: DfmPixelBounds::full(),
             _t: PhantomData,
         }
     }
+
+    pub fn with_cut_bounds(tl_coord: geo::Coord, cut_bounds: geo::Rect) -> Dfm<T> {
+        let mut dfm = Self::new(tl_coord);
+        dfm.inner = dfm.pixel_bounds(cut_bounds);
+        dfm
+    }
+
+    pub fn new_like<U>(other: &Dfm<U>) -> Dfm<T> {
+        let mut dfm = Self::new(other.tl_coord);
+        dfm.inner = other.inner;
+        dfm
+    }
+
+    fn pixel_bounds(&self, cut_bounds: geo::Rect) -> DfmPixelBounds {
+        let left = (0..TILE_SIZE_PIXELS)
+            .find(|&x| self.index2coord(0, x).x >= cut_bounds.min().x)
+            .unwrap_or(TILE_SIZE_PIXELS);
+        let right = (left..TILE_SIZE_PIXELS)
+            .find(|&x| self.index2coord(0, x).x > cut_bounds.max().x)
+            .unwrap_or(TILE_SIZE_PIXELS);
+        let top = (0..TILE_SIZE_PIXELS)
+            .find(|&y| self.index2coord(y, 0).y <= cut_bounds.max().y)
+            .unwrap_or(TILE_SIZE_PIXELS);
+        let bottom = (top..TILE_SIZE_PIXELS)
+            .find(|&y| self.index2coord(y, 0).y < cut_bounds.min().y)
+            .unwrap_or(TILE_SIZE_PIXELS);
+
+        DfmPixelBounds {
+            top,
+            bottom,
+            left,
+            right,
+        }
+    }
+
     pub fn error(&self, other: &Dfm<T>) -> f64 {
         let mut square_diff = 0.;
         for y in 0..TILE_SIZE_PIXELS {
@@ -151,7 +227,7 @@ impl Dfm<Elevation> {
 
     /// Sobel filter gradient estimation
     pub fn slope(&self) -> Dfm<Slope> {
-        let mut slope = Dfm::new(self.tl_coord);
+        let mut slope = Dfm::new_like(self);
 
         for yi in 0..TILE_SIZE_PIXELS {
             for xi in 0..TILE_SIZE_PIXELS {
@@ -168,7 +244,13 @@ impl Dfm<Elevation> {
     /// `sun_angle` is an azimuth in radians, measured counter-clockwise from
     /// the positive x-axis. The sun elevation is fixed at 45 degrees.
     pub fn hillshade(&self, sun_angle: f64) -> Dfm<Hillshade> {
-        let mut hillshade = Dfm::new(self.tl_coord);
+        self.hillshade_as(sun_angle)
+    }
+}
+
+impl<T: Clone> Dfm<T> {
+    pub fn hillshade_as<U: Clone>(&self, sun_angle: f64) -> Dfm<U> {
+        let mut hillshade = Dfm::new_like(self);
 
         let sun_elevation = std::f64::consts::FRAC_PI_4;
         let light_x = sun_angle.cos() * sun_elevation.cos();
@@ -193,9 +275,7 @@ impl Dfm<Elevation> {
 
         hillshade
     }
-}
 
-impl<T: Clone> Dfm<T> {
     #[inline]
     fn sobel_gradient(&self, yi: usize, xi: usize) -> (f64, f64) {
         let top_i = yi.saturating_sub(1);

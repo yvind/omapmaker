@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use geo::{MapCoords, MapCoordsInPlace};
+use geo::{Area, BooleanOps, BoundingRect, Intersects, MapCoords, MapCoordsInPlace};
 use omap::{
     NonNegativeF64, Omap,
     objects::{AreaObject, LineObject, PointObject},
     symbols::{WeakAreaPathSymbol, WeakLinePathSymbol},
 };
 use proj_core::CrsDef;
-use rstar::{PointDistance, RTree, primitives::GeomWithData};
+use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 
 use crate::parameters::Scale;
 
@@ -78,7 +78,6 @@ pub enum AreaSymbol {
     UncrossableWaterWithBankLine,
     GiganticBoulder,
     Building,
-    OutOfBounds,
 }
 
 impl AreaSymbol {
@@ -98,9 +97,33 @@ impl AreaSymbol {
             AreaSymbol::UncrossableWaterWithBankLine => omap::Code::new(301, 0, 0),
             AreaSymbol::GiganticBoulder => omap::Code::new(206, 0, 0),
             AreaSymbol::Building => omap::Code::new(521, 0, 0),
-            AreaSymbol::OutOfBounds => omap::Code::new(709, 0, 0),
             AreaSymbol::WhiteForest => omap::Code::new(405, 0, 0),
         }
+    }
+
+    pub fn min_size(&self, scale: &Scale) -> f64 {
+        let a = match self {
+            AreaSymbol::WhiteForest => 64.,
+            AreaSymbol::RoughOpenLand => 225.,
+            AreaSymbol::OpenLand => 64.,
+            AreaSymbol::SandyGround => 225.,
+            AreaSymbol::BareRock => 225.,
+            AreaSymbol::LightGreen => 225.,
+            AreaSymbol::MediumGreen => 110.,
+            AreaSymbol::DarkGreen => 64.,
+            AreaSymbol::Marsh => 45.,
+            AreaSymbol::PrivateArea => 225.,
+            AreaSymbol::PavedAreaWithBoundary => 225.,
+            AreaSymbol::ShallowWaterWithSolidBankLine => 64.,
+            AreaSymbol::UncrossableWaterWithBankLine => 64.,
+            AreaSymbol::GiganticBoulder => 67.,
+            AreaSymbol::Building => 56.,
+        };
+        let mulitplier = match scale {
+            Scale::S10_000 => 4. / 9.,
+            Scale::S15_000 => 1.,
+        };
+        a * mulitplier
     }
 }
 
@@ -270,6 +293,26 @@ struct MergeLine {
     tags: HashMap<String, String>,
 }
 
+struct MergeArea {
+    object: geo::Polygon,
+    symbol: AreaSymbol,
+    tags: HashMap<String, String>,
+}
+
+#[derive(Clone, Copy)]
+struct IndexedPolygonEnvelope {
+    envelope: AABB<[f64; 2]>,
+    index: usize,
+}
+
+impl RTreeObject for IndexedPolygonEnvelope {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        self.envelope
+    }
+}
+
 impl MergeLine {
     fn elevation_key(&self) -> Option<i64> {
         self.tags
@@ -290,6 +333,28 @@ impl MergeLine {
 
     fn into_map_object(self) -> MapObject {
         MapObject::Line {
+            object: self.object,
+            symbol: self.symbol,
+            tags: self.tags,
+        }
+    }
+}
+
+impl MergeArea {
+    fn signed_area(&self) -> f64 {
+        self.object.signed_area()
+    }
+
+    fn abs_area(&self) -> f64 {
+        self.signed_area().abs()
+    }
+
+    fn envelope(&self) -> Option<AABB<[f64; 2]>> {
+        polygon_envelope(&self.object)
+    }
+
+    fn into_map_object(self) -> MapObject {
+        MapObject::Area {
             object: self.object,
             symbol: self.symbol,
             tags: self.tags,
@@ -328,6 +393,58 @@ impl TempMap {
 
     pub fn remove_empty_keys(&mut self) {
         self.objects.retain(|_, v| !v.is_empty());
+    }
+
+    pub fn merge_and_filter_min_size(
+        &mut self,
+        symbols: impl IntoIterator<Item = AreaSymbol>,
+    ) -> crate::Result<()> {
+        let min_areas = symbols
+            .into_iter()
+            .map(|a| (a, a.min_size(&self.scale)))
+            .collect::<Vec<_>>();
+
+        for (symbol, min_area) in min_areas {
+            self.merge_and_filter_symbol_min_size(symbol, min_area);
+        }
+
+        Ok(())
+    }
+
+    fn merge_and_filter_symbol_min_size(&mut self, symbol: AreaSymbol, min_area: f64) {
+        let Some(map_objects) = self.objects.get_mut(&Symbol::Area(symbol)) else {
+            return;
+        };
+
+        let mut areas = Vec::with_capacity(map_objects.len());
+        let mut others = Vec::new();
+
+        for map_object in map_objects.drain(..) {
+            if let MapObject::Area {
+                object,
+                symbol,
+                tags,
+            } = map_object
+            {
+                areas.push(MergeArea {
+                    object,
+                    symbol,
+                    tags,
+                });
+            } else {
+                others.push(map_object);
+            }
+        }
+
+        merge_small_areas(&mut areas, min_area);
+
+        map_objects.extend(
+            areas
+                .into_iter()
+                .filter(|area| area.abs_area() >= min_area)
+                .map(MergeArea::into_map_object),
+        );
+        map_objects.extend(others);
     }
 
     pub fn into_omap(
@@ -794,4 +911,137 @@ fn normalize_angle(angle: f64) -> f64 {
         normalized += std::f64::consts::PI;
     }
     normalized
+}
+
+fn merge_small_areas(areas: &mut Vec<MergeArea>, min_area: f64) {
+    let mut active = vec![true; areas.len()];
+    let mut candidate_lookup = small_area_merge_candidates(areas, min_area);
+
+    loop {
+        let Some((small_index, target_index)) =
+            find_small_area_merge(areas, &active, &candidate_lookup, min_area)
+        else {
+            break;
+        };
+
+        let union = areas[target_index].object.union(&areas[small_index].object);
+        if union.0.len() == 1 {
+            areas[target_index].object = union.0.into_iter().next().expect("checked union length");
+            active[small_index] = false;
+
+            let absorbed_candidates = std::mem::take(&mut candidate_lookup[small_index]);
+            candidate_lookup[target_index].extend(absorbed_candidates);
+        }
+    }
+
+    let mut active = active.into_iter();
+    areas.retain(|_| active.next().unwrap_or(false));
+}
+
+fn small_area_merge_candidates(areas: &[MergeArea], min_area: f64) -> Vec<Vec<usize>> {
+    let indexed_polygons = areas
+        .iter()
+        .enumerate()
+        .filter_map(|(index, area)| {
+            Some(IndexedPolygonEnvelope {
+                envelope: area.envelope()?,
+                index,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let tree = RTree::bulk_load(indexed_polygons);
+    let mut candidate_lookup = vec![Vec::new(); areas.len()];
+
+    for (small_index, small_area) in areas.iter().enumerate() {
+        let small_abs_area = small_area.abs_area();
+        if small_abs_area >= min_area {
+            continue;
+        }
+
+        let Some(envelope) = small_area.envelope() else {
+            continue;
+        };
+
+        for candidate in tree.locate_in_envelope_intersecting(envelope) {
+            if candidate.index == small_index {
+                continue;
+            }
+
+            let candidate_area = areas[candidate.index].abs_area();
+            if candidate_area < small_abs_area {
+                continue;
+            }
+
+            if small_area.object.intersects(&areas[candidate.index].object)
+                && small_area
+                    .object
+                    .union(&areas[candidate.index].object)
+                    .0
+                    .len()
+                    == 1
+            {
+                candidate_lookup[small_index].push(candidate.index);
+            }
+        }
+    }
+
+    candidate_lookup
+}
+
+fn find_small_area_merge(
+    areas: &[MergeArea],
+    active: &[bool],
+    candidate_lookup: &[Vec<usize>],
+    min_area: f64,
+) -> Option<(usize, usize)> {
+    for (small_index, small_area) in areas.iter().enumerate() {
+        if !active[small_index] {
+            continue;
+        }
+
+        let small_abs_area = small_area.abs_area();
+        if small_abs_area >= min_area {
+            continue;
+        }
+
+        let mut best_target = None;
+        let mut best_area = 0.;
+        for &candidate_index in &candidate_lookup[small_index] {
+            if !active[candidate_index] || candidate_index == small_index {
+                continue;
+            }
+
+            let candidate_area = areas[candidate_index].abs_area();
+            if candidate_area < small_abs_area || candidate_area <= best_area {
+                continue;
+            }
+
+            if small_area.object.intersects(&areas[candidate_index].object)
+                && small_area
+                    .object
+                    .union(&areas[candidate_index].object)
+                    .0
+                    .len()
+                    == 1
+            {
+                best_area = candidate_area;
+                best_target = Some(candidate_index);
+            }
+        }
+
+        if let Some(target_index) = best_target {
+            return Some((small_index, target_index));
+        }
+    }
+
+    None
+}
+
+fn polygon_envelope(polygon: &geo::Polygon) -> Option<AABB<[f64; 2]>> {
+    let rect = polygon.bounding_rect()?;
+    Some(AABB::from_corners(
+        [rect.min().x, rect.min().y],
+        [rect.max().x, rect.max().y],
+    ))
 }

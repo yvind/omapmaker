@@ -10,6 +10,7 @@ use crate::{
 
 use rayon::{ThreadPool, prelude::*};
 
+#[allow(clippy::too_many_arguments)]
 pub fn regenerate_map_tile(
     sender: &OmapComms<FrontendTask, BackendTask>,
     job_id: JobId,
@@ -63,6 +64,17 @@ pub fn regenerate_map_tile(
         for object in output.objects {
             omap.add_object(object);
         }
+    }
+
+    let min_size_filter_symbols = params.min_size_filter_symbols(
+        steps.openness,
+        steps.vegetation,
+        steps.cliffs,
+        steps.intensity,
+    );
+    if let Err(e) = omap.merge_and_filter_min_size(min_size_filter_symbols) {
+        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+        return;
     }
 
     if old_params.is_none() {
@@ -141,6 +153,7 @@ fn changed_steps(
         ..PipelineSteps::default()
     };
     let Some(old) = old else {
+        steps.basemap = new.contour.basemap_contour;
         force_scope(&mut steps, scope);
         return steps;
     };
@@ -156,6 +169,7 @@ fn changed_steps(
     steps.openness = new.vegetation.yellow != old.vegetation.yellow
         || new.geometry.openness != old.geometry.openness;
     steps.vegetation = new.vegetation.green != old.vegetation.green
+        || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
     steps.cliffs = new.cliff.cliff != old.cliff.cliff || new.geometry.cliffs != old.geometry.cliffs;
 
@@ -167,7 +181,6 @@ fn changed_steps(
         || new.contour.algo_steps != old.contour.algo_steps
         || new.geometry.contours != old.geometry.contours
         || new.contour.form_lines != old.contour.form_lines
-        || new.contour.form_lines
         || new.contour.interval != old.contour.interval
         || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;

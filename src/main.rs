@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder {
-            min_inner_size: Some(egui::vec2(800., 600.)),
+            min_inner_size: Some(egui::vec2(1000., 800.)),
             icon: Some(Arc::new(icon)),
             ..Default::default()
         },

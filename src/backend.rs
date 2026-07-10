@@ -66,15 +66,17 @@ impl Backend {
                 BackendTask::MapSpatialLidarRelations(paths, crs) => {
                     map_gen::egui_map::map_laz(self.comms.sender(), paths, crs);
                 }
-                BackendTask::ConvertCopc(
-                    paths,
-                    in_epsg,
-                    out_epsg,
-                    save_location,
-                    bounds,
-                    polygon,
-                    write_single_copc,
-                ) => {
+                BackendTask::ConvertCopc(task) => {
+                    let ConvertCopcTask {
+                        paths,
+                        in_epsg,
+                        out_epsg,
+                        save_location,
+                        bounds,
+                        polygon,
+                        write_single_copc,
+                    } = *task;
+
                     crate::convert_copc::convert_copc(
                         self.comms.sender(),
                         paths,
@@ -87,7 +89,13 @@ impl Backend {
                     );
                 }
 
-                BackendTask::InitializeMapTile(paths, test_area, stats) => {
+                BackendTask::InitializeMapTile(task) => {
+                    let InitializeMapTileTask {
+                        paths,
+                        test_area,
+                        stats,
+                    } = *task;
+
                     match map_gen::egui_map::initialize_map_tile(
                         self.comms.sender(),
                         paths,
@@ -125,7 +133,14 @@ impl Backend {
                     self.map_params = Some(*params);
                 }
 
-                BackendTask::MakeMap(map_params, file_params, polygon_filter, stats) => {
+                BackendTask::MakeMap(task) => {
+                    let MakeMapTask {
+                        map_params,
+                        file_params,
+                        polygon_filter,
+                        stats,
+                    } = *task;
+
                     // transform the linestring to output coords
                     let local_polygon_filter = match project::polygon::from_walkers_map_coords(
                         map_params.output.crs.clone(),
@@ -144,8 +159,8 @@ impl Backend {
                     let _ = match map_gen::final_map::make_map(
                         self.comms.sender(),
                         &self.thread_pool,
-                        *map_params,
-                        *file_params,
+                        map_params,
+                        file_params,
                         local_polygon_filter,
                         stats,
                     ) {

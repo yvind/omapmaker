@@ -6,7 +6,7 @@ use crate::{
     parameters::{FileParameters, MapParameters},
     raster::{
         Dfm,
-        dfm::{Hillshade, Slope},
+        dfm::{HeightAboveGround, Hillshade, LastReturn, Ndvd, Slope, SurfaceObjects},
     },
     statistics::LidarStats,
 };
@@ -51,6 +51,18 @@ pub fn make_map(
     let saved_hillshade_rasters = file_params
         .save_hillshade_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<Hillshade>>::new())));
+    let saved_last_return_rasters = file_params
+        .save_last_return_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<LastReturn>>::new())));
+    let saved_canopy_height_rasters = file_params
+        .save_canopy_height_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<HeightAboveGround>>::new())));
+    let saved_surface_objects_rasters = file_params
+        .save_surface_objects_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<SurfaceObjects>>::new())));
+    let saved_ndvd_rasters = file_params
+        .save_ndvd_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<Ndvd>>::new())));
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {
@@ -99,7 +111,7 @@ pub fn make_map(
                     return;
                 }
 
-                let (cloud, mut hull) = match super::read_laz(
+                let (cloud, all_point_cloud, mut hull) = match super::read_laz(
                     &laz_paths,
                     &laz_neighbor_map[fi],
                     tile_bounds[tile_i],
@@ -133,7 +145,13 @@ pub fn make_map(
                     hull = mp.0.swap_remove(0);
                 }
 
-                let tile = match PreparedTile::from_cloud(cloud, &stats, hull, cut_bounds[tile_i]) {
+                let tile = match PreparedTile::from_cloud(
+                    cloud,
+                    all_point_cloud,
+                    &stats,
+                    hull,
+                    cut_bounds[tile_i],
+                ) {
                     Ok(Some(tile)) => tile,
                     Ok(None) => return,
                     Err(e) => {
@@ -150,28 +168,70 @@ pub fn make_map(
                     }
                 };
 
-                if let Some(saved_slope_rasters) = &saved_slope_rasters {
-                    if let Ok(mut rasters) = saved_slope_rasters.lock() {
-                        rasters.push(tile.rasters.slope.clone());
-                    } else {
-                        let _ = sender.send(FrontendTask::Error(
-                            "Slope raster mutex was poisoned".to_string(),
-                            true,
-                        ));
-                        return;
-                    }
+                if let Some(saved_rasters) = &saved_slope_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.slope.clone(),
+                        "Slope",
+                        &sender,
+                    )
+                {
+                    return;
                 }
 
-                if let Some(saved_hillshade_rasters) = &saved_hillshade_rasters {
-                    if let Ok(mut rasters) = saved_hillshade_rasters.lock() {
-                        rasters.push(tile.rasters.dem.hillshade(3. * std::f64::consts::FRAC_PI_4));
-                    } else {
-                        let _ = sender.send(FrontendTask::Error(
-                            "Hillshade raster mutex was poisoned".to_string(),
-                            true,
-                        ));
-                        return;
-                    }
+                if let Some(saved_rasters) = &saved_hillshade_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.dem.hillshade(3. * std::f64::consts::FRAC_PI_4),
+                        "Hillshade",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_last_return_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.last_return.clone(),
+                        "Last-return",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_canopy_height_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.canopy_height.clone(),
+                        "Canopy Height",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_surface_objects_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.surface_objects.clone(),
+                        "Surface objects",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_ndvd_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.compute_ndvd(map_params.vegetation.weights),
+                        "NDVD",
+                        &sender,
+                    )
+                {
+                    return;
                 }
                 {
                     if let Ok(mut map) = map.lock() {
@@ -198,6 +258,14 @@ pub fn make_map(
         .into_inner()
         .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;
 
+    let min_size_filter_symbols = map_params.min_size_filter_symbols(true, true, true, true);
+    if !min_size_filter_symbols.is_empty() {
+        let _ = sender.send(FrontendTask::Log(
+            "Filtering polygons by minimum symbol size...".to_string(),
+        ));
+        map.merge_and_filter_min_size(min_size_filter_symbols)?;
+    }
+
     let _ = sender.send(FrontendTask::Log("Post-processing contours...".to_string()));
 
     map.mark_basemap_depressions();
@@ -222,52 +290,119 @@ pub fn make_map(
 
     omap.write_to_file(file_params.save_location.clone())?;
 
-    if let Some(saved_slope_rasters) = saved_slope_rasters {
-        let rasters = Arc::<Mutex<Vec<Dfm<Slope>>>>::into_inner(saved_slope_rasters)
-            .context("Could not get saved slope rasters; a worker still holds a reference")?
-            .into_inner()
-            .map_err(|_| anyhow::anyhow!("Slope raster mutex was poisoned during generation"))?;
-        if !rasters.is_empty() {
-            let _ = sender.send(FrontendTask::Log("Writing slope GeoTIFF...".to_string()));
-            let path = crate::raster::geotiff::write_merged_dfm_geotiff(
-                &file_params.save_location,
-                "slope",
-                &rasters,
-                ref_point,
-                map_params.output.crs.as_ref(),
-            )?;
-            let _ = sender.send(FrontendTask::Log(format!(
-                "Wrote slope raster to {}",
-                path.display()
-            )));
-        }
-    }
-
-    if let Some(saved_hillshade_rasters) = saved_hillshade_rasters {
-        let rasters = Arc::<Mutex<Vec<Dfm<Hillshade>>>>::into_inner(saved_hillshade_rasters)
-            .context("Could not get saved hillshade rasters; a worker still holds a reference")?
-            .into_inner()
-            .map_err(|_| {
-                anyhow::anyhow!("Hillshade raster mutex was poisoned during generation")
-            })?;
-        if !rasters.is_empty() {
-            let _ = sender.send(FrontendTask::Log(
-                "Writing hillshade GeoTIFF...".to_string(),
-            ));
-            let path = crate::raster::geotiff::write_merged_dfm_geotiff(
-                &file_params.save_location,
-                "hillshade",
-                &rasters,
-                ref_point,
-                map_params.output.crs.as_ref(),
-            )?;
-            let _ = sender.send(FrontendTask::Log(format!(
-                "Wrote hillshade raster to {}",
-                path.display()
-            )));
-        }
-    }
+    write_saved_rasters(
+        &sender,
+        saved_slope_rasters,
+        "slope",
+        "slope",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_hillshade_rasters,
+        "hillshade",
+        "hillshade",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_last_return_rasters,
+        "last-return",
+        "last_return",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_canopy_height_rasters,
+        "canopy height",
+        "canopy_height",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_surface_objects_rasters,
+        "surface objects",
+        "surface_objects",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_ndvd_rasters,
+        "NDVD",
+        "ndvd",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
 
     let _ = sender.send(FrontendTask::Log("Done!".to_string()));
+    Ok(())
+}
+
+fn push_saved_raster<T>(
+    saved_rasters: &Arc<Mutex<Vec<Dfm<T>>>>,
+    raster: Dfm<T>,
+    label: &str,
+    sender: &FrontendSender,
+) -> bool {
+    if let Ok(mut rasters) = saved_rasters.lock() {
+        rasters.push(raster);
+        true
+    } else {
+        let _ = sender.send(FrontendTask::Error(
+            format!("{label} raster mutex was poisoned"),
+            true,
+        ));
+        false
+    }
+}
+
+fn write_saved_rasters<T>(
+    sender: &FrontendSender,
+    saved_rasters: Option<Arc<Mutex<Vec<Dfm<T>>>>>,
+    label: &str,
+    suffix: &str,
+    file_params: &FileParameters,
+    ref_point: geo::Coord,
+    crs: Option<&proj_core::CrsDef>,
+) -> Result<()> {
+    let Some(saved_rasters) = saved_rasters else {
+        return Ok(());
+    };
+
+    let rasters = Arc::<Mutex<Vec<Dfm<T>>>>::into_inner(saved_rasters)
+        .with_context(|| {
+            format!("Could not get saved {label} rasters; a worker still holds a reference")
+        })?
+        .into_inner()
+        .map_err(|_| anyhow::anyhow!("{label} raster mutex was poisoned during generation"))?;
+
+    if rasters.is_empty() {
+        return Ok(());
+    }
+
+    let _ = sender.send(FrontendTask::Log(format!("Writing {label} GeoTIFF...")));
+    let path = crate::raster::geotiff::write_merged_dfm_geotiff(
+        &file_params.save_location,
+        suffix,
+        &rasters,
+        ref_point,
+        crs,
+    )?;
+    let _ = sender.send(FrontendTask::Log(format!(
+        "Wrote {label} raster to {}",
+        path.display()
+    )));
+
     Ok(())
 }

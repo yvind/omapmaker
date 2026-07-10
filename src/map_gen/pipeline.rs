@@ -2,12 +2,16 @@ use crate::{
     geometry::PointCloud,
     map_gen::{
         self,
+        common::ComputedDfms,
         egui_map::{AreaSymbol, MapObject},
     },
-    parameters::{ContourAlgo, MapParameters},
+    parameters::{ContourAlgo, MapParameters, VegetationWeights},
     raster::{
         Dfm, Threshold,
-        dfm::{Elevation, Intensity, Returns, Slope},
+        dfm::{
+            Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
+            LowVegetation, MediumVegetation, Ndvd, Returns, Slope, SurfaceObjects,
+        },
     },
     statistics::LidarStats,
 };
@@ -19,6 +23,13 @@ pub struct TileRasters {
     pub slope: Dfm<Slope>,
     pub return_number: Dfm<Returns>,
     pub intensity: Dfm<Intensity>,
+    pub last_return: Dfm<LastReturn>,
+    pub ground_vegetation: Dfm<Ground>,
+    pub low_vegetation: Dfm<LowVegetation>,
+    pub medium_vegetation: Dfm<MediumVegetation>,
+    pub high_vegetation: Dfm<HighVegetation>,
+    pub surface_objects: Dfm<SurfaceObjects>,
+    pub canopy_height: Dfm<HeightAboveGround>,
 }
 
 pub struct PreparedTile {
@@ -45,20 +56,34 @@ pub struct PipelineSteps {
 }
 
 impl PreparedTile {
-    pub fn new(
-        dem: Dfm<Elevation>,
-        return_number: Dfm<Returns>,
-        intensity: Dfm<Intensity>,
-        hull: geo::Polygon,
-        cut_overlay: geo::Polygon,
-        z_range: (f64, f64),
-    ) -> Self {
+    pub fn new(dfms: ComputedDfms, hull: geo::Polygon, cut_overlay: geo::Polygon) -> Self {
+        let ComputedDfms {
+            dem,
+            return_number,
+            intensity,
+            last_return,
+            ground_vegetation,
+            low_vegetation,
+            medium_vegetation,
+            high_vegetation,
+            surface_objects,
+            canopy_height,
+            z_range,
+        } = dfms;
+
         Self {
             rasters: TileRasters {
                 slope: dem.slope(),
                 dem,
                 return_number,
                 intensity,
+                last_return,
+                ground_vegetation,
+                low_vegetation,
+                medium_vegetation,
+                high_vegetation,
+                surface_objects,
+                canopy_height,
             },
             hull,
             cut_overlay,
@@ -68,6 +93,7 @@ impl PreparedTile {
 
     pub fn from_cloud(
         ground_cloud: PointCloud,
+        all_point_cloud: PointCloud,
         stats: &LidarStats,
         convex_hull: geo::Polygon,
         cut_bounds: geo::Rect,
@@ -83,16 +109,21 @@ impl PreparedTile {
                 .unwrap_or(Ordering::Equal)
         });
 
-        let (dem, return_number, intensity, z_range) =
-            map_gen::common::compute_dfms(ground_cloud, stats)?;
-        Ok(Some(Self::new(
-            dem,
-            return_number,
-            intensity,
-            convex_hull,
-            mp.0.swap_remove(0),
-            z_range,
-        )))
+        let dfms =
+            map_gen::common::compute_dfms(ground_cloud, stats, &all_point_cloud, cut_bounds)?;
+        Ok(Some(Self::new(dfms, convex_hull, mp.0.swap_remove(0))))
+    }
+}
+
+impl TileRasters {
+    pub fn compute_ndvd(&self, weights: VegetationWeights) -> Dfm<Ndvd> {
+        map_gen::common::compute_ndvd(
+            &self.ground_vegetation,
+            &self.low_vegetation,
+            &self.medium_vegetation,
+            &self.high_vegetation,
+            weights,
+        )
     }
 }
 
@@ -156,13 +187,14 @@ pub fn compute_tile(
     }
 
     if steps.vegetation {
+        let ndvd = tile.rasters.compute_ndvd(params.vegetation.weights);
         for (threshold, symbol) in [
             (params.vegetation.green.0, AreaSymbol::LightGreen),
             (params.vegetation.green.1, AreaSymbol::MediumGreen),
             (params.vegetation.green.2, AreaSymbol::DarkGreen),
         ] {
             objects.extend(map_gen::common::compute_vegetation(
-                &tile.rasters.return_number,
+                &ndvd,
                 Threshold::Lower(threshold),
                 &tile.hull,
                 &tile.cut_overlay,

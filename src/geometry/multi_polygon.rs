@@ -1,7 +1,7 @@
 use crate::parameters::BufferRule;
 
 use super::MapLineString;
-use geo::{Area, BooleanOps, Buffer, Contains, Simplify};
+use geo::{BooleanOps, Buffer, Contains, Simplify};
 
 pub trait MapMultiPolygon {
     fn from_contours(
@@ -11,8 +11,6 @@ pub trait MapMultiPolygon {
     ) -> geo::MultiPolygon;
 
     fn apply_buffer_rule(self, buffer_rule: &BufferRule) -> geo::MultiPolygon;
-
-    fn remove_small_polygons(self, min_size: f64) -> geo::MultiPolygon;
 }
 
 impl MapMultiPolygon for geo::MultiPolygon {
@@ -71,19 +69,5 @@ impl MapMultiPolygon for geo::MultiPolygon {
         };
         let distance = sign * buffer_rule.amount;
         self.buffer(distance).simplify(crate::SIMPLIFICATION_DIST)
-    }
-
-    fn remove_small_polygons(mut self, min_size: f64) -> geo::MultiPolygon {
-        let mut i = 0;
-        while i < self.0.len() {
-            let area = self.0[i].signed_area();
-
-            if area < min_size {
-                self.0.swap_remove(i);
-            } else {
-                i += 1;
-            }
-        }
-        self
     }
 }
