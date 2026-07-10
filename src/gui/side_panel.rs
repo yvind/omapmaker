@@ -115,6 +115,15 @@ impl OmapMaker {
                     "The final map generation will read one merged .copc.laz file instead of one COPC file per relevant input tile.",
                 );
 
+                ui.add(
+                    egui::Slider::new(
+                        &mut self.gui_variables.project.memory_budget_gb,
+                        1..=64
+                    ).text("COPC memory budget")
+                ).on_hover_text(
+                    "All non-COPC lidar files are converted into COPC. This is a memory intensive process. Adjust the max allowed memory usage (in GB) with this slider."
+                );
+
                 ui.checkbox(
                     &mut self.gui_variables.project.save_rasters,
                     "Save rasters",

@@ -14,8 +14,6 @@ use copc_rs::CopcReader;
 use geo::Intersects;
 use proj_core::CrsDef;
 
-const DEFAULT_COPC_MEMORY_BUDGET: u64 = 8_u64 * 1024 * 1024 * 1024;
-
 #[allow(clippy::too_many_arguments)]
 pub fn convert_copc(
     sender: FrontendSender,
@@ -26,6 +24,7 @@ pub fn convert_copc(
     boundaries: Vec<[walkers::Position; 4]>,
     polygon_filter: geo::LineString,
     write_single_copc: bool,
+    memory_budget: u8,
 ) {
     if let Err(e) = try_convert_copc(
         sender.clone(),
@@ -36,6 +35,7 @@ pub fn convert_copc(
         boundaries,
         polygon_filter,
         write_single_copc,
+        memory_budget,
     ) {
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
         let _ = sender.send(FrontendTask::Error(e.to_string(), true));
@@ -52,9 +52,12 @@ fn try_convert_copc(
     boundaries: Vec<[walkers::Position; 4]>,
     polygon_filter: geo::LineString,
     write_single_copc: bool,
+    memory_budget: u8,
 ) -> Result<()> {
     let mut new_paths = paths.clone();
     let mut relevant_paths = Vec::new();
+
+    let memory_budget = memory_budget as u64 * 1024 * 1024 * 1024;
 
     let _ = sender.send(FrontendTask::Log(
         "Gathering statistics and Converting files...".to_string(),
@@ -101,7 +104,7 @@ fn try_convert_copc(
                 )?
             } else if conversion_needed && !transform_needed {
                 // the lidar file needs to be converted to copc
-                convert_file(path, input_crs[pi].clone(), sender.clone())?
+                convert_file(path, input_crs[pi].clone(), sender.clone(), memory_budget)?
             } else {
                 // the lidar file needs both to be transformed into another CRS and written to COPC
                 convert_and_transform_file(
@@ -140,7 +143,7 @@ fn try_convert_copc(
             merged_path
         )));
 
-        run_copc_converter(&relevant_paths, &merged_path)
+        run_copc_converter(&relevant_paths, &merged_path, memory_budget)
             .with_context(|| format!("Failed to write merged COPC to {merged_path:?}"))?;
 
         let _ = sender.send(FrontendTask::UpdateVariable(Variable::SingleCopcPath(
@@ -191,18 +194,23 @@ fn convert_file(
     mut path: PathBuf,
     _current_crs: Option<CrsDef>,
     _sender: FrontendSender,
+    memory_budget: u64,
 ) -> Result<PathBuf> {
     let raw_path = path.clone();
     path.set_extension("copc.laz");
 
-    run_copc_converter(&[raw_path], &path)
+    run_copc_converter(&[raw_path], &path, memory_budget)
         .with_context(|| format!("Failed to convert lidar file to COPC at {path:?}"))?;
     Ok(path)
 }
 
-fn run_copc_converter(input_files: &[PathBuf], output_path: &Path) -> copc_converter::Result<()> {
+fn run_copc_converter(
+    input_files: &[PathBuf],
+    output_path: &Path,
+    budget: u64,
+) -> copc_converter::Result<()> {
     let config = PipelineConfig {
-        memory_budget: DEFAULT_COPC_MEMORY_BUDGET,
+        memory_budget: budget,
         temp_dir: None,
         temporal_index: None,
         progress: None,

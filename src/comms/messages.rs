@@ -48,6 +48,7 @@ pub struct ConvertCopcTask {
     pub bounds: Vec<[walkers::Position; 4]>,
     pub polygon: geo::LineString,
     pub write_single_copc: bool,
+    pub budget_gb: u8,
 }
 
 pub struct MakeMapTask {

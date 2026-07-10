@@ -382,6 +382,7 @@ impl OmapMaker {
                         bounds: ready.boundaries,
                         polygon: ready.polygon_filter,
                         write_single_copc: ready.write_single_copc,
+                        budget_gb: ready.memory_budget_gb,
                     })));
             }
             ProcessStage::ConvertingCOPC => {

@@ -45,6 +45,7 @@ pub struct ProjectFiles {
     pub selected_file: Option<usize>,
     pub crs_epsg: Vec<Option<CrsDef>>,
     pub write_single_copc: bool,
+    pub memory_budget_gb: u8,
     pub single_copc_path: Option<std::path::PathBuf>,
     pub worker_threads: usize,
     pub save_rasters: bool,
@@ -65,6 +66,7 @@ impl Default for ProjectFiles {
             crs_epsg: Default::default(),
             write_single_copc: Default::default(),
             single_copc_path: Default::default(),
+            memory_budget_gb: 8,
             worker_threads: std::thread::available_parallelism()
                 .map(|threads| threads.get())
                 .unwrap_or(8)
@@ -231,6 +233,7 @@ pub struct ReadyForCopcConversion {
     pub boundaries: Vec<[walkers::Position; 4]>,
     pub polygon_filter: geo::LineString,
     pub write_single_copc: bool,
+    pub memory_budget_gb: u8,
 }
 
 pub struct ReadyForMapPreview {
@@ -372,6 +375,7 @@ impl GuiVariables {
             boundaries: self.lidar.boundaries.clone(),
             polygon_filter: self.area.polygon_filter.clone(),
             write_single_copc: self.project.write_single_copc,
+            memory_budget_gb: self.project.memory_budget_gb,
         })
     }
 

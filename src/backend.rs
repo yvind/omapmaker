@@ -75,6 +75,7 @@ impl Backend {
                         bounds,
                         polygon,
                         write_single_copc,
+                        budget_gb,
                     } = *task;
 
                     crate::convert_copc::convert_copc(
@@ -86,6 +87,7 @@ impl Backend {
                         bounds,
                         polygon,
                         write_single_copc,
+                        budget_gb,
                     );
                 }
 
