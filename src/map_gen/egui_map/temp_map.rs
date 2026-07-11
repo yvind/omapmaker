@@ -119,11 +119,11 @@ impl AreaSymbol {
             AreaSymbol::GiganticBoulder => 67.,
             AreaSymbol::Building => 56.,
         };
-        let mulitplier = match scale {
+        let multiplier = match scale {
             Scale::S10_000 => 4. / 9.,
             Scale::S15_000 => 1.,
         };
-        a * mulitplier
+        a * multiplier
     }
 }
 
@@ -147,6 +147,33 @@ impl LineSymbol {
             LineSymbol::NegBasemapContour => omap::Code::new(101, 3, 0),
             LineSymbol::SmallCrossableWatercourse => omap::Code::new(305, 0, 0),
         }
+    }
+
+    pub fn min_length(&self, scale: Scale, is_closed: bool) -> f64 {
+        let l = match self {
+            LineSymbol::BasemapContour => 3.,
+            LineSymbol::FormLine => {
+                if is_closed {
+                    150.
+                } else {
+                    250.
+                }
+            }
+            LineSymbol::Contour | LineSymbol::IndexContour => {
+                if is_closed {
+                    120.
+                } else {
+                    10.
+                }
+            }
+            LineSymbol::NegBasemapContour => 3.,
+            LineSymbol::SmallCrossableWatercourse => 15.,
+        };
+        let multiplier = match scale {
+            Scale::S10_000 => 2. / 3.,
+            Scale::S15_000 => 1.,
+        };
+        l * multiplier
     }
 }
 

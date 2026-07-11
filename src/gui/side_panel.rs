@@ -2,7 +2,9 @@ use crate::{
     comms::messages::*,
     drawable::DrawOrder,
     map_gen::egui_map::AreaSymbol,
-    parameters::{BezierParameters, BufferDirection, BufferRule, ContourAlgo, Scale},
+    parameters::{
+        BezierParameters, BufferDirection, BufferRule, ContourAlgo, FormlinePruneAlgo, Scale,
+    },
 };
 
 use super::{ProcessStage, modals::OmapModal};
@@ -762,6 +764,19 @@ impl OmapMaker {
         });
         ui.add_space(20.);
 
+        ui.horizontal(|ui| {
+            ui.label("Contour interval: ");
+            ui.add(
+                egui::widgets::DragValue::new(
+                    &mut self.gui_variables.generation.params.contour.interval,
+                )
+                .fixed_decimals(1)
+                .range(1.0..=20.),
+            );
+        });
+
+        ui.add_space(10.);
+
         ui.label(egui::RichText::new("Contour algorithm parameters").strong());
         ui.horizontal(|ui| {
             ui.label("Contour algorithm:");
@@ -807,21 +822,142 @@ impl OmapMaker {
         }
         ui.add_space(10.);
 
-        ui.label(egui::RichText::new("Contour parameters").strong());
-        ui.horizontal(|ui| {
-            ui.label("Contour interval: ");
-            ui.add(
-                egui::widgets::DragValue::new(
-                    &mut self.gui_variables.generation.params.contour.interval,
-                )
-                .fixed_decimals(1)
-                .range(1.0..=20.),
-            );
-        });
+        ui.label(egui::RichText::new("Formline algorithm parameters").strong());
         ui.checkbox(
             &mut self.gui_variables.generation.params.contour.form_lines,
             "Add form lines to the map.",
         );
+        ui.add_enabled_ui(
+            self.gui_variables.generation.params.contour.form_lines,
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Form-line pruning algorithm:");
+                    egui::ComboBox::from_id_salt("Form-line pruning algorithm")
+                        .selected_text(format!(
+                            "{}",
+                            self
+                                .gui_variables
+                                .generation
+                                .params
+                                .contour
+                                .form_line_prune_algorithm
+                        ))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .form_line_prune_algorithm,
+                                FormlinePruneAlgo::None,
+                                "None",
+                            );
+                            ui.selectable_value(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .form_line_prune_algorithm,
+                                FormlinePruneAlgo::TerrainChange,
+                                "Terrain change",
+                            );
+                            ui.selectable_value(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .form_line_prune_algorithm,
+                                FormlinePruneAlgo::InterpolationError,
+                                "Contour interpolation error",
+                            );
+                        });
+                });
+
+                match self
+                    .gui_variables
+                    .generation
+                    .params
+                    .contour
+                    .form_line_prune_algorithm
+                {
+                    FormlinePruneAlgo::TerrainChange => {
+                        ui.add(
+                            egui::Slider::new(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .form_line_prune_threshold,
+                                0.05..=5.0,
+                            )
+                            .logarithmic(true)
+                            .text("Terrain-change threshold")
+                            .show_value(true),
+                        )
+                        .on_hover_text(
+                            "Higher values keep form lines only where slope or elevation curvature is stronger.",
+                        );
+                    }
+                    FormlinePruneAlgo::InterpolationError => {
+                        ui.add(
+                            egui::Slider::new(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .form_line_error_threshold,
+                                0.01..=5.0,
+                            )
+                            .logarithmic(true)
+                            .text("Error improvement threshold (m)")
+                            .show_value(true),
+                        )
+                        .on_hover_text(
+                            "Minimum local reduction in elevation reconstruction error required to retain a form line.",
+                        );
+                    }
+                    FormlinePruneAlgo::None => {
+                        ui.label("All generated form lines are retained.");
+                    }
+                }
+            },
+        );
+
+        ui.add_space(10.);
+        ui.label(egui::RichText::new("Basemap parameters").strong());
+        ui.checkbox(
+            &mut self.gui_variables.generation.params.contour.basemap_contour,
+            "Add basemap contours to the map.",
+        );
+        ui.add_enabled_ui(
+            self.gui_variables.generation.params.contour.basemap_contour,
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Basemap interval:");
+                    ui.add(
+                        egui::widgets::DragValue::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .contour
+                                .basemap_interval,
+                        )
+                        .fixed_decimals(2)
+                        .range(0.1..=self.gui_variables.generation.params.contour.interval),
+                    );
+                });
+            },
+        );
+
+        ui.add_space(10.);
+        ui.label(egui::RichText::new("Dotknoll filter").strong());
+
         ui.label("Area filter for marking small knolls as dotknolls:");
         ui.horizontal(|ui| {
             ui.add(
@@ -869,29 +1005,6 @@ impl OmapMaker {
                 .range(0.0..=225.0),
             );
         });
-
-        ui.checkbox(
-            &mut self.gui_variables.generation.params.contour.basemap_contour,
-            "Add basemap contours to the map.",
-        );
-        ui.add_enabled_ui(
-            self.gui_variables.generation.params.contour.basemap_contour,
-            |ui| {
-                ui.label("Basemap interval: ");
-                ui.add(
-                    egui::widgets::DragValue::new(
-                        &mut self
-                            .gui_variables
-                            .generation
-                            .params
-                            .contour
-                            .basemap_interval,
-                    )
-                    .fixed_decimals(2)
-                    .range(0.1..=self.gui_variables.generation.params.contour.interval),
-                );
-            },
-        );
     }
 
     fn render_vegetation_adjustments(&mut self, ui: &mut egui::Ui) {

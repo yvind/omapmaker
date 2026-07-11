@@ -9,6 +9,10 @@ pub struct Elevation;
 #[derive(Clone, Copy, Debug)]
 pub struct Slope;
 #[derive(Clone, Copy, Debug)]
+pub struct TerrainChange;
+#[derive(Clone, Copy, Debug)]
+pub struct InterpolationErrorImprovement;
+#[derive(Clone, Copy, Debug)]
 pub struct Hillshade;
 #[derive(Clone, Copy, Debug)]
 pub struct Returns;
@@ -239,6 +243,65 @@ impl Dfm<Elevation> {
             }
         }
         slope
+    }
+
+    /// A dimensionless measure of terrain change used for form-line pruning.
+    ///
+    /// The first term is the elevation gradient. The second is the Frobenius
+    /// norm of the elevation Hessian, scaled by the contour interval so both
+    /// terms are dimensionless and can share one threshold.
+    pub fn terrain_change(&self, contour_interval: f64) -> Dfm<TerrainChange> {
+        let mut terrain_change = Dfm::new_like(self);
+        let cell = CELL_SIZE_METERS;
+        let cell_squared = cell * cell;
+        let curvature_scale = contour_interval.abs();
+
+        for yi in 0..TILE_SIZE_PIXELS {
+            let top = yi.saturating_sub(1);
+            let bottom = (yi + 1).min(TILE_SIZE_PIXELS - 1);
+
+            for xi in 0..TILE_SIZE_PIXELS {
+                let left = xi.saturating_sub(1);
+                let right = (xi + 1).min(TILE_SIZE_PIXELS - 1);
+
+                let dz_dx = (self[(yi, right)] - self[(yi, left)]) / (2. * cell);
+                let dz_dy = (self[(top, xi)] - self[(bottom, xi)]) / (2. * cell);
+                let d2z_dx2 =
+                    (self[(yi, right)] - 2. * self[(yi, xi)] + self[(yi, left)]) / cell_squared;
+                let d2z_dy2 =
+                    (self[(top, xi)] - 2. * self[(yi, xi)] + self[(bottom, xi)]) / cell_squared;
+                let d2z_dxdy = (self[(top, right)] - self[(top, left)] - self[(bottom, right)]
+                    + self[(bottom, left)])
+                    / (4. * cell_squared);
+
+                let slope = dz_dx.hypot(dz_dy);
+                let curvature = (d2z_dx2.powi(2) + 2. * d2z_dxdy.powi(2) + d2z_dy2.powi(2)).sqrt();
+
+                terrain_change[(yi, xi)] = slope.hypot(curvature_scale * curvature);
+            }
+        }
+
+        terrain_change
+    }
+
+    /// Local reduction in absolute elevation error obtained by including form
+    /// lines in a contour-based reconstruction.
+    pub fn interpolation_error_improvement(
+        &self,
+        with_formlines: &Dfm<Elevation>,
+        without_formlines: &Dfm<Elevation>,
+    ) -> Dfm<InterpolationErrorImprovement> {
+        let mut improvement = Dfm::new_like(self);
+
+        for yi in 0..TILE_SIZE_PIXELS {
+            for xi in 0..TILE_SIZE_PIXELS {
+                let with_error = (self[(yi, xi)] - with_formlines[(yi, xi)]).abs();
+                let without_error = (self[(yi, xi)] - without_formlines[(yi, xi)]).abs();
+                improvement[(yi, xi)] = (without_error - with_error).max(0.);
+            }
+        }
+
+        improvement
     }
 
     /// Hill shade from a Sobel-estimated surface normal.

@@ -69,6 +69,7 @@ fn push_unique_area_symbol(symbols: &mut Vec<AreaSymbol>, symbol: AreaSymbol) {
 #[derive(Clone, Debug)]
 pub struct ContourParameters {
     pub algorithm: ContourAlgo,
+    pub form_line_prune_algorithm: FormlinePruneAlgo,
     pub basemap_interval: f64,
     pub interval: f64,
     pub dot_knoll_area: (f64, f64),
@@ -76,6 +77,8 @@ pub struct ContourParameters {
     pub algo_lambda: f64,
     pub basemap_contour: bool,
     pub form_lines: bool,
+    pub form_line_prune_threshold: f64,
+    pub form_line_error_threshold: f64,
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +136,7 @@ impl Default for ContourParameters {
     fn default() -> Self {
         Self {
             algorithm: Default::default(),
+            form_line_prune_algorithm: Default::default(),
             basemap_interval: 0.5,
             interval: 5.,
             dot_knoll_area: (10., 160.),
@@ -140,6 +144,8 @@ impl Default for ContourParameters {
             algo_lambda: 0.01,
             basemap_contour: false,
             form_lines: false,
+            form_line_prune_threshold: 0.8,
+            form_line_error_threshold: 0.15,
         }
     }
 }
@@ -235,6 +241,24 @@ impl Display for ContourAlgo {
             ContourAlgo::NaiveIterations => f.write_str("Naive"),
             ContourAlgo::NormalFieldSmoothing => f.write_str("Smooth"),
             ContourAlgo::Raw => f.write_str("Raw"),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub enum FormlinePruneAlgo {
+    #[default]
+    None,
+    TerrainChange,
+    InterpolationError,
+}
+
+impl Display for FormlinePruneAlgo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FormlinePruneAlgo::TerrainChange => f.write_str("Terrain change"),
+            FormlinePruneAlgo::InterpolationError => f.write_str("Interpolation error"),
+            FormlinePruneAlgo::None => f.write_str("None"),
         }
     }
 }

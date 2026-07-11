@@ -186,6 +186,9 @@ fn changed_steps(
         || new.contour.algo_steps != old.contour.algo_steps
         || new.geometry.contours != old.geometry.contours
         || new.contour.form_lines != old.contour.form_lines
+        || new.contour.form_line_prune_algorithm != old.contour.form_line_prune_algorithm
+        || new.contour.form_line_prune_threshold != old.contour.form_line_prune_threshold
+        || new.contour.form_line_error_threshold != old.contour.form_line_error_threshold
         || new.contour.interval != old.contour.interval
         || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;
