@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use eframe::egui::{self, Color32, Response, Ui};
 use geo::{Area, BooleanOps, Contains, TriangulateEarcut, Validation};
 use proj_core::{CrsDef, Transform};
-use walkers::{Plugin, Position, ScreenProjector};
+use walkers::{Plugin, ScreenProjector};
 
 use crate::{drawable::DrawableOmap, map_gen::egui_map::Symbol};
 
@@ -20,12 +20,15 @@ const COLOR_LIST: [egui::Color32; 9] = [
 ];
 
 pub struct LasComponentPainter<'a> {
-    boundaries: &'a Vec<[Position; 4]>,
+    boundaries: &'a Vec<[walkers::Position; 4]>,
     components: &'a Vec<Vec<usize>>,
 }
 
 impl<'a> LasComponentPainter<'a> {
-    pub fn new(b: &'a Vec<[Position; 4]>, c: &'a Vec<Vec<usize>>) -> LasComponentPainter<'a> {
+    pub fn new(
+        b: &'a Vec<[walkers::Position; 4]>,
+        c: &'a Vec<Vec<usize>>,
+    ) -> LasComponentPainter<'a> {
         LasComponentPainter {
             boundaries: b,
             components: c,
@@ -59,11 +62,11 @@ impl Plugin for LasComponentPainter<'_> {
 }
 
 pub struct LasBoundaryPainter<'a> {
-    boundaries: &'a Vec<[Position; 4]>,
+    boundaries: &'a Vec<[walkers::Position; 4]>,
 }
 
 impl<'a> LasBoundaryPainter<'a> {
-    pub fn new(b: &'a Vec<[Position; 4]>) -> LasBoundaryPainter<'a> {
+    pub fn new(b: &'a Vec<[walkers::Position; 4]>) -> LasBoundaryPainter<'a> {
         LasBoundaryPainter { boundaries: b }
     }
 }
@@ -206,7 +209,7 @@ pub struct TestAreaSelector<'a> {
     test_area_display: &'a geo::MultiPolygon,
     test_area_projected: &'a geo::MultiPolygon,
     selected_square: &'a mut Option<geo::Rect>,
-    selected_square_boundary: &'a mut Option<[Position; 4]>,
+    selected_square_boundary: &'a mut Option<[walkers::Position; 4]>,
     crs: Option<&'a CrsDef>,
 }
 
@@ -215,7 +218,7 @@ impl<'a> TestAreaSelector<'a> {
         test_area_display: &'a geo::MultiPolygon,
         test_area_projected: &'a geo::MultiPolygon,
         selected_square: &'a mut Option<geo::Rect>,
-        selected_square_boundary: &'a mut Option<[Position; 4]>,
+        selected_square_boundary: &'a mut Option<[walkers::Position; 4]>,
         crs: Option<&'a CrsDef>,
     ) -> Self {
         Self {
@@ -346,7 +349,7 @@ fn display_to_projected_coord(
 fn rect_to_display_boundary(
     crs: Option<&CrsDef>,
     rect: &geo::Rect,
-) -> crate::Result<[Position; 4]> {
+) -> crate::Result<[walkers::Position; 4]> {
     let mut corners = [
         geo::Coord {
             x: rect.min().x,

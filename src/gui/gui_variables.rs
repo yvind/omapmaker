@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use geo::{Area, BooleanOps, Intersects, Validation};
 use proj_core::{CrsDef, Transform};
-use walkers::Position;
 
 use super::terminal_like::TerminalLike;
 use crate::{
@@ -131,7 +130,7 @@ pub struct ReadyForCrsCheck {
 
 #[derive(Default)]
 pub struct LidarAnalysisState {
-    pub boundaries: Vec<[Position; 4]>,
+    pub boundaries: Vec<[walkers::Position; 4]>,
     pub boundary_areas: Vec<f64>,
     pub crs_less_search_strings: Vec<String>,
     pub unique_crs: Vec<CrsDef>,
@@ -293,7 +292,7 @@ impl GuiVariables {
         }
     }
 
-    pub fn drop_small_graph_components(&mut self) -> Position {
+    pub fn drop_small_graph_components(&mut self) -> walkers::Position {
         let mut drop_files = vec![];
 
         let mut biggest_component_index = 0;

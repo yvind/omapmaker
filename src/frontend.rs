@@ -2,7 +2,7 @@ use crate::backend::Backend;
 use crate::comms::{OmapComms, messages::*};
 use crate::gui::{GuiVariables, ProcessStage, modals::OmapModal};
 use eframe::egui;
-use walkers::{HttpTiles, MapMemory, MercatorProjection, Position, sources};
+use walkers::{HttpTiles, MapMemory, MercatorProjection, sources};
 
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
@@ -14,7 +14,7 @@ pub struct OmapMaker {
         HttpTiles<MercatorProjection>,
     ),
     pub map_memory: MapMemory,
-    pub home: Position,
+    pub home: walkers::Position,
     pub home_zoom: f64,
 
     // variables controlling what to show

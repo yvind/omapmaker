@@ -1,4 +1,4 @@
-use spade::{HasPosition, Point2};
+use spade::HasPosition;
 
 #[derive(Debug, Clone)]
 pub struct PointLaz(pub las::Point);
@@ -60,7 +60,7 @@ impl PointLaz {
 impl HasPosition for PointLaz {
     type Scalar = f64;
 
-    fn position(&self) -> Point2<Self::Scalar> {
-        Point2::new(self.0.x, self.0.y)
+    fn position(&self) -> spade::Point2<Self::Scalar> {
+        spade::Point2::new(self.0.x, self.0.y)
     }
 }

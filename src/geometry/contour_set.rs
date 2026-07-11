@@ -6,7 +6,7 @@ use crate::{
 
 use geo::Vector2DOps;
 use log::{Level, log};
-use spade::{DelaunayTriangulation, HasPosition, Point2, Triangulation};
+use spade::{DelaunayTriangulation, HasPosition, Triangulation};
 
 #[derive(Debug, Clone)]
 pub struct ContourSet(pub Vec<ContourLevel>);
@@ -68,7 +68,7 @@ impl ContourSet {
 
                 for i in 1..line.0.len() - 1 {
                     let cp = ContourPoint {
-                        pos: Point2::new(line.0[i].x, line.0[i].y),
+                        pos: spade::Point2::new(line.0[i].x, line.0[i].y),
                         z: level.z,
                         grad: (line.0[i + 1] - line.0[i - 1])
                             .left()
@@ -84,7 +84,7 @@ impl ContourSet {
 
                 if line.is_closed() {
                     let cp = ContourPoint {
-                        pos: Point2::new(line.0[0].x, line.0[0].y),
+                        pos: spade::Point2::new(line.0[0].x, line.0[0].y),
                         z: level.z,
                         grad: (line.0[1] - line.0[line.0.len() - 2])
                             .left()
@@ -98,7 +98,7 @@ impl ContourSet {
                     points.push(cp);
                 } else {
                     let cp = ContourPoint {
-                        pos: Point2::new(line.0[0].x, line.0[0].y),
+                        pos: spade::Point2::new(line.0[0].x, line.0[0].y),
                         z: level.z,
                         grad: (line.0[1] - line.0[0])
                             .left()
@@ -112,7 +112,10 @@ impl ContourSet {
                     points.push(cp);
 
                     let cp = ContourPoint {
-                        pos: Point2::new(line.0[line.0.len() - 1].x, line.0[line.0.len() - 1].y),
+                        pos: spade::Point2::new(
+                            line.0[line.0.len() - 1].x,
+                            line.0[line.0.len() - 1].y,
+                        ),
                         z: level.z,
                         grad: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
                             .left()
@@ -203,7 +206,7 @@ impl ContourLevel {
 
 #[derive(Debug, Clone)]
 pub struct ContourPoint {
-    pub pos: Point2<f64>,
+    pub pos: spade::Point2<f64>,
     pub z: f64,
     pub grad: [f64; 2], // direction is always normal to the contour line, length must be derived
 }
@@ -211,7 +214,7 @@ pub struct ContourPoint {
 impl HasPosition for ContourPoint {
     type Scalar = f64;
 
-    fn position(&self) -> Point2<Self::Scalar> {
+    fn position(&self) -> spade::Point2<Self::Scalar> {
         self.pos
     }
 }

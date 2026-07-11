@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use eframe::egui;
-use walkers::{MapMemory, Position, Projection, sources::Attribution};
+use walkers::{MapMemory, Projection, sources::Attribution};
 
 use super::gui_variables::TileProvider;
 use crate::{
@@ -66,7 +66,7 @@ pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory, home_zoom: f64
 pub fn render_scale_pos_label(
     ui: &mut egui::Ui,
     map_memory: &MapMemory,
-    my_pos: Position,
+    my_pos: walkers::Position,
     projection: &dyn Projection,
 ) {
     // Pos and zoom labels
