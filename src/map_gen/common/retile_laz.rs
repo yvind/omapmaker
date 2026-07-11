@@ -7,19 +7,29 @@ pub fn retile_bounds(
     lidar_neighbors: &Neighborhood,
 ) -> (Vec<geo::Rect>, Vec<geo::Rect>, usize, usize) {
     let mut neighbor_file_margin = [(0., 0.), (0., 0.)];
+    let mut cut_margin = [(0., 0.), (0., 0.)];
     if lidar_neighbors.has_neighbor_above() {
         neighbor_file_margin[1].1 = MIN_NEIGHBOR_MARGIN_METERS;
+    } else {
+        cut_margin[1].1 = 2. * crate::CELL_SIZE_METERS;
     }
     if lidar_neighbors.has_neighbor_below() {
         neighbor_file_margin[0].1 = -MIN_NEIGHBOR_MARGIN_METERS;
+    } else {
+        cut_margin[0].1 = -2. * crate::CELL_SIZE_METERS;
     }
     if lidar_neighbors.has_neighbor_right() {
         neighbor_file_margin[1].0 = MIN_NEIGHBOR_MARGIN_METERS;
+    } else {
+        cut_margin[1].0 = 2. * crate::CELL_SIZE_METERS;
     }
     if lidar_neighbors.has_neighbor_left() {
         neighbor_file_margin[0].0 = -MIN_NEIGHBOR_MARGIN_METERS;
+    } else {
+        cut_margin[0].0 = -2. * crate::CELL_SIZE_METERS;
     }
     let neighbor_file_margin = geo::Rect::new(neighbor_file_margin[0], neighbor_file_margin[1]);
+    let cut_margin = geo::Rect::new(cut_margin[0], cut_margin[1]);
 
     let x_range = bounds.max().x - bounds.min().x - neighbor_file_margin.min().x
         + neighbor_file_margin.max().x;
@@ -55,13 +65,13 @@ pub fn retile_bounds(
                 tile_max.y = bounds.max().y + neighbor_file_margin.max().y;
                 tile_min.y = tile_max.y - TILE_SIZE_METERS;
 
-                inner_max.y = bounds.max().y;
+                inner_max.y = bounds.max().y - cut_margin.max().y;
                 inner_min.y = tile_min.y + neighbor_margin_y / 2.;
             } else if yi == num_y_tiles - 1 {
                 tile_min.y = bounds.min().y + neighbor_file_margin.min().y;
                 tile_max.y = tile_min.y + TILE_SIZE_METERS;
 
-                inner_min.y = bounds.min().y;
+                inner_min.y = bounds.min().y - cut_margin.min().y;
                 inner_max.y = tile_max.y - neighbor_margin_y / 2.;
             } else {
                 tile_max.y = bounds.max().y + neighbor_file_margin.max().y
@@ -75,13 +85,13 @@ pub fn retile_bounds(
                 tile_min.x = bounds.min().x + neighbor_file_margin.min().x;
                 tile_max.x = tile_min.x + TILE_SIZE_METERS;
 
-                inner_min.x = bounds.min().x;
+                inner_min.x = bounds.min().x - cut_margin.min().x;
                 inner_max.x = tile_max.x - neighbor_margin_x / 2.;
             } else if xi == num_x_tiles - 1 {
                 tile_max.x = bounds.max().x + neighbor_file_margin.max().x;
                 tile_min.x = tile_max.x - TILE_SIZE_METERS;
 
-                inner_max.x = bounds.max().x;
+                inner_max.x = bounds.max().x - cut_margin.max().x;
                 inner_min.x = tile_min.x + neighbor_margin_x / 2.;
             } else {
                 tile_min.x = bounds.min().x
