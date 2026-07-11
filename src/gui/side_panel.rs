@@ -24,7 +24,7 @@ impl OmapMaker {
         ui.label(
             "Only .las and .laz files are accepted.\n\
         .copc.laz files are strongly recommended.\n\
-        If normal las or laz files are provided they will be written to copc.laz.",
+        If normal las or laz files are provided, they will be written to copc.laz.",
         );
 
         ui.horizontal(|ui| {

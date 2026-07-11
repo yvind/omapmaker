@@ -207,7 +207,7 @@ pub fn render_symbol_toggles(
     // add a window for toggling visibilities
     egui::Window::new("Symbol Visibility Toggles")
         .default_open(false)
-        .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -60.])
+        .anchor(egui::Align2::RIGHT_BOTTOM, [-10., -70.])
         .show(ui.ctx(), |ui| {
             let white_forest = Symbol::Area(AreaSymbol::WhiteForest);
             let mut keys = map_tile
@@ -231,7 +231,7 @@ pub fn render_map_opacity_slider(ui: &mut egui::Ui, slider_val: &mut f32, rect: 
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 65.])
+        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 10.])
         .show(ui.ctx(), |ui| {
             ui.label("Map opacity");
             ui.add(egui::Slider::new(slider_val, 0.0..=1.0));
@@ -243,7 +243,7 @@ pub fn render_contour_scores(ui: &mut egui::Ui, score: (f32, f32), weight: f32, 
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 10.])
+        .anchor(egui::Align2::LEFT_TOP, [rect.min.x + 10., 70.])
         .show(ui.ctx(), |ui| {
             ui.label(format!("Contour Score: {:.4}", score.0 + weight * score.1));
             ui.label(format!(

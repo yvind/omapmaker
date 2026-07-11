@@ -24,16 +24,16 @@ Overlapping lidar files not yet handled
 - Coordinate system assignment tool for CRS-less lidar-files (Lantmäteriet in Sweden uses EPSG:3006, but often skips writing the __mandatory__ CRS-VLR to their files)
 - CRS-less files are supported if the CRS is unknown
 - Non-connected lidar file detection (Useful when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
-- OpenStreetMap or OpenTopoMap background map
+- OpenStreetMap, OpenTopoMap or ESRI satellite background map
 - Experimental lidar-intensity filter
 - Buffering on polygons to remove small holes and too thin areas or exaggerating small details
 
 ### WIP:
 - AI contours
 - Form lines
+- Water detection
 
 ### Wish List:
-- Water detection
 - Building detection
 - Vegetation boundaries
 - Stream detection
@@ -43,12 +43,38 @@ Overlapping lidar files not yet handled
 - Lidar CRS transformation
 - Overlapping Lidar handling
 
-### Parameter tuning in OmapMaker
-Tune the map parameters on a test tile before generating the whole map
+## Step-by-step
+### Add lidar files
+Add your files, select output location and optionally adjust some advanced setting.
+![Welcome screen in OmapMaker](./readme_images/welcome.png)
 
-![Parameter tuning in OmapMaker](./readme_images/parameter_tuning.png)
+### Add an optional polygon filter to the files
+Add a polygon filter. Only the area inside the filter is processed.
+![Polygon filter in OmapMaker](./readme_images/polygon.png)
 
-### Adding a polygon filter to lidar files
-Add a polygon filter. Only lidar points inside the filter are used in map generation
+### Parameter tuning
+OmapMaker let's the user adjust parameters live.
 
-![Polygon filter in OmapMaker](./readme_images/polygon_filter.png)
+#### Contour tuning
+![Contour tuning in OmapMaker](./readme_images/contours.png)
+
+#### Openness tuning
+![Openness tuning in OmapMaker](./readme_images/yellow.png)
+
+#### Vegetation tuning
+![Vegetation tuning in OmapMaker](./readme_images/vegetation.png)
+
+#### Cliff tuning
+![Cliff tuning](./readme_images/cliffs.png)
+
+#### Water detection
+![Water detection](./readme_images/water.png)
+
+### Writes to omap
+Here is the finished map in OpenOrienteering Mapper (geo-referenced and magnetic north aligned).
+The generation process is on the order of minutes, depending on point density and map size.
+![Map in OOmapper](./readme_images/omapper.png)
+
+### Writes geo-referenced geotiffs
+OmapMaker writes geotiffs for the rasters that are checked on the welcome screen
+![Hillshade in OOmapper](./readme_images/hillshade.png)
