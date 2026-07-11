@@ -470,6 +470,10 @@ impl OmapMaker {
                 "Adjust cliff settings",
                 "Tune cliff detection and cliff geometry.",
             ),
+            ProcessStage::AdjustWater => (
+                "Adjust water settings",
+                "Threshold the water-probability raster and tune the resulting polygon geometry.",
+            ),
             ProcessStage::AdjustIntensity => (
                 "Adjust lidar intensity settings",
                 "Tune lidar intensity filters and their polygon geometry.",
@@ -613,6 +617,48 @@ impl OmapMaker {
                             .params
                             .geometry
                             .cliffs
+                            .buffer_rules,
+                    );
+                }
+                ProcessStage::AdjustWater => {
+                    ui.label(egui::RichText::new("Water probability threshold").strong());
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self.gui_variables.generation.params.water.threshold,
+                            0.0..=1.0,
+                        )
+                        .text("Water")
+                        .show_value(true),
+                    )
+                    .on_hover_text(
+                        "Cells at or above this probability become uncrossable water. Higher values are more selective.",
+                    );
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Water Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self.gui_variables.generation.params.geometry.water.bezier,
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .water
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "water_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .water
                             .buffer_rules,
                     );
                 }

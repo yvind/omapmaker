@@ -3,7 +3,7 @@ use crate::parameters::VegetationWeights;
 use crate::raster::Dfm;
 use crate::raster::dfm::{
     Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn, LowVegetation,
-    MediumVegetation, Ndvd, Returns, SurfaceObjects,
+    MediumVegetation, Ndvd, Returns, SurfaceObjects, Water,
 };
 use crate::statistics::LidarStats;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
@@ -27,6 +27,7 @@ pub struct ComputedDfms {
     pub medium_vegetation: Dfm<MediumVegetation>,
     pub high_vegetation: Dfm<HighVegetation>,
     pub surface_objects: Dfm<SurfaceObjects>,
+    pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub z_range: (f64, f64),
 }
@@ -113,6 +114,7 @@ pub fn compute_dfms(
 
     let vegetation_density =
         compute_vegetation_density_dfms(all_point_cloud, &dem, VEGETATION_DENSITY_RADIUS_METERS);
+    let water = super::compute_water_probability(all_point_cloud, &dem, stats);
 
     Ok(ComputedDfms {
         dem,
@@ -124,6 +126,7 @@ pub fn compute_dfms(
         medium_vegetation: vegetation_density.medium,
         high_vegetation: vegetation_density.high,
         surface_objects,
+        water,
         canopy_height,
         z_range,
     })

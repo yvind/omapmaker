@@ -71,6 +71,7 @@ pub fn regenerate_map_tile(
         steps.vegetation,
         steps.cliffs,
         steps.intensity,
+        steps.water,
     );
     if let Err(e) = omap.merge_and_filter_min_size(min_size_filter_symbols) {
         let _ = sender.send(FrontendTask::Error(e.to_string(), true));
@@ -100,6 +101,9 @@ pub fn regenerate_map_tile(
     }
     if steps.cliffs {
         omap.reserve_capacity(AreaSymbol::GiganticBoulder, 0);
+    }
+    if steps.water {
+        omap.reserve_capacity(AreaSymbol::UncrossableWaterWithBankLine, 0);
     }
     if steps.intensity {
         for filter in params.intensity.filters.iter() {
@@ -172,6 +176,7 @@ fn changed_steps(
         || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
     steps.cliffs = new.cliff.cliff != old.cliff.cliff || new.geometry.cliffs != old.geometry.cliffs;
+    steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval
         || new.contour.basemap_contour != old.contour.basemap_contour;
@@ -195,6 +200,7 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
         RegenerationScope::Section(MapPreviewSection::Openness) => steps.openness = true,
         RegenerationScope::Section(MapPreviewSection::Vegetation) => steps.vegetation = true,
         RegenerationScope::Section(MapPreviewSection::Cliffs) => steps.cliffs = true,
+        RegenerationScope::Section(MapPreviewSection::Water) => steps.water = true,
         RegenerationScope::Section(MapPreviewSection::Intensity) => steps.intensity = true,
     }
 }

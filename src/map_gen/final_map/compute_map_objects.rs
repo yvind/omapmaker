@@ -20,6 +20,7 @@ pub fn compute_tile_map_objects(
             vegetation: true,
             cliffs: true,
             intensity: true,
+            water: true,
         },
         false,
     )?

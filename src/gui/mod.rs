@@ -14,6 +14,7 @@ pub enum ProcessStage {
     AdjustOpenness,
     AdjustVegetation,
     AdjustCliffs,
+    AdjustWater,
     AdjustIntensity,
     CheckLidar,
     ShowComponents,
@@ -38,7 +39,8 @@ impl ProcessStage {
             ProcessStage::AdjustContours => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustVegetation,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustCliffs,
-            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustIntensity,
+            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustWater,
+            ProcessStage::AdjustWater => *self = ProcessStage::AdjustIntensity,
             ProcessStage::AdjustIntensity => *self = ProcessStage::MakeMap,
             ProcessStage::MakeMap => *self = ProcessStage::ExportDone,
             _ => unreachable!("Should not call next on state for {:?} variant.", self),
@@ -51,7 +53,8 @@ impl ProcessStage {
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustVegetation,
-            ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustCliffs,
+            ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustWater,
+            ProcessStage::AdjustWater => *self = ProcessStage::AdjustCliffs,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
             _ => unreachable!("Should not call prev on state for {:?} variant.", self),
         }
@@ -64,6 +67,7 @@ impl ProcessStage {
                 | ProcessStage::AdjustOpenness
                 | ProcessStage::AdjustVegetation
                 | ProcessStage::AdjustCliffs
+                | ProcessStage::AdjustWater
                 | ProcessStage::AdjustIntensity
         )
     }

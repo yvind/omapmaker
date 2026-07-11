@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use geo::{Area, BooleanOps, BoundingRect, Intersects, MapCoords, MapCoordsInPlace};
+use geo::{Area, BooleanOps, BoundingRect, Buffer, Intersects, MapCoords, MapCoordsInPlace};
 use omap::{
     NonNegativeF64, Omap,
     objects::{AreaObject, LineObject, PointObject},
@@ -393,6 +393,53 @@ impl TempMap {
 
     pub fn remove_empty_keys(&mut self) {
         self.objects.retain(|_, v| !v.is_empty());
+    }
+
+    pub fn merge_areas(&mut self, symbol: AreaSymbol, delta: f64) -> crate::Result<()> {
+        let objects = self.objects.remove(&Symbol::Area(symbol));
+
+        let Some(objects) = objects else {
+            return Ok(());
+        };
+
+        let areas = objects
+            .into_iter()
+            .map(|mo| match mo {
+                MapObject::Area {
+                    object,
+                    symbol: _,
+                    tags: _,
+                } => Ok(object),
+                MapObject::Line {
+                    object: _,
+                    symbol: _,
+                    tags: _,
+                } => anyhow::bail!("Should not be any Line objects under an Area key"),
+                MapObject::Point {
+                    object: _,
+                    symbol: _,
+                    rotation: _,
+                    tags: _,
+                } => anyhow::bail!("Should not be any Point objects under an Area key"),
+            })
+            .collect::<anyhow::Result<geo::MultiPolygon>>()?;
+
+        let areas = areas.buffer(delta);
+        let areas = geo::unary_union(&areas);
+        let areas = areas.buffer(-delta);
+
+        let objects = areas
+            .into_iter()
+            .map(|p| MapObject::Area {
+                object: p,
+                symbol,
+                tags: Default::default(),
+            })
+            .collect::<Vec<_>>();
+
+        self.objects.insert(Symbol::Area(symbol), objects);
+
+        Ok(())
     }
 
     pub fn merge_and_filter_min_size(

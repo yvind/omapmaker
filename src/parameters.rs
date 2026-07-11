@@ -13,6 +13,7 @@ pub struct MapParameters {
     pub geometry: GeometryParameters,
     pub intensity: IntensityParameters,
     pub cliff: CliffParameters,
+    pub water: WaterParameters,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -27,6 +28,7 @@ impl MapParameters {
         vegetation: bool,
         cliffs: bool,
         intensity: bool,
+        water: bool,
     ) -> Vec<AreaSymbol> {
         let mut symbols = Vec::new();
 
@@ -48,6 +50,10 @@ impl MapParameters {
             for filter in &self.intensity.filters {
                 push_unique_area_symbol(&mut symbols, filter.symbol);
             }
+        }
+
+        if water && self.geometry.water.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::UncrossableWaterWithBankLine);
         }
 
         symbols
@@ -93,6 +99,18 @@ pub struct GeometryParameters {
     pub vegetation: BufferedGeometryParameters,
     pub cliffs: BufferedGeometryParameters,
     pub intensity: BufferedGeometryParameters,
+    pub water: BufferedGeometryParameters,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WaterParameters {
+    pub threshold: f64,
+}
+
+impl Default for WaterParameters {
+    fn default() -> Self {
+        Self { threshold: 0.65 }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -157,6 +175,7 @@ impl GeometryParameters {
             | Symbol::Area(AreaSymbol::MediumGreen)
             | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
             Symbol::Area(AreaSymbol::GiganticBoulder) => &self.cliffs.bezier,
+            Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine) => &self.water.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,
         };

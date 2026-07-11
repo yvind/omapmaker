@@ -1,7 +1,11 @@
 use crate::{
     Result,
     comms::{FrontendSender, messages::*},
-    map_gen::{self, egui_map::TempMap, pipeline::PreparedTile},
+    map_gen::{
+        self,
+        egui_map::{AreaSymbol, TempMap},
+        pipeline::PreparedTile,
+    },
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
@@ -258,7 +262,7 @@ pub fn make_map(
         .into_inner()
         .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;
 
-    let min_size_filter_symbols = map_params.min_size_filter_symbols(true, true, true, true);
+    let min_size_filter_symbols = map_params.min_size_filter_symbols(true, true, true, true, true);
     if !min_size_filter_symbols.is_empty() {
         let _ = sender.send(FrontendTask::Log(
             "Filtering polygons by minimum symbol size...".to_string(),
@@ -267,6 +271,11 @@ pub fn make_map(
     }
 
     let _ = sender.send(FrontendTask::Log("Post-processing contours...".to_string()));
+
+    map.merge_areas(
+        AreaSymbol::UncrossableWaterWithBankLine,
+        2. * crate::CELL_SIZE_METERS,
+    )?;
 
     map.mark_basemap_depressions();
 

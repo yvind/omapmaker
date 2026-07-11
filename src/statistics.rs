@@ -9,6 +9,10 @@ pub struct LidarStats {
     pub return_distr: Vec<u64>,
     pub return_number: Stat,
     pub intensity: Stat,
+    /// Average number of lidar points per square metre, weighted by the
+    /// footprint area of every input file included in these statistics.
+    pub average_density: f64,
+    pub(crate) density_area: f64,
 }
 
 impl LidarStats {
@@ -16,6 +20,13 @@ impl LidarStats {
         let mut reader = Reader::from_path(path)?;
         let header = reader.header();
         let num_points = header.number_of_points();
+        let bounds = header.bounds();
+        let density_area = ((bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y)).max(0.);
+        let average_density = if density_area > f64::EPSILON {
+            num_points as f64 / density_area
+        } else {
+            0.
+        };
 
         let num_points_by_return = (1..=MAX_NUMBER_OF_RETURNS)
             .map(|i| header.number_of_points_by_return(i).unwrap_or(0))
@@ -89,6 +100,8 @@ impl LidarStats {
             return_distr: num_points_by_return,
             return_number: return_number_stat,
             intensity: intensity_stat,
+            average_density,
+            density_area,
         })
     }
 
@@ -100,10 +113,20 @@ impl LidarStats {
             .map(|(s, o)| s + o)
             .collect::<Vec<_>>();
 
+        let density_area = self.density_area + other.density_area;
+        let average_density = if density_area > f64::EPSILON {
+            (self.average_density * self.density_area + other.average_density * other.density_area)
+                / density_area
+        } else {
+            0.
+        };
+
         LidarStats {
             return_distr: total_return_distr,
             return_number: self.return_number.combine_stats(other.return_number),
             intensity: self.intensity.combine_stats(other.intensity),
+            average_density,
+            density_area,
         }
     }
 }

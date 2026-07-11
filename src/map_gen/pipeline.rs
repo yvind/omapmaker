@@ -10,7 +10,7 @@ use crate::{
         Dfm, Threshold,
         dfm::{
             Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
-            LowVegetation, MediumVegetation, Ndvd, Returns, Slope, SurfaceObjects,
+            LowVegetation, MediumVegetation, Ndvd, Returns, Slope, SurfaceObjects, Water,
         },
     },
     statistics::LidarStats,
@@ -29,6 +29,7 @@ pub struct TileRasters {
     pub medium_vegetation: Dfm<MediumVegetation>,
     pub high_vegetation: Dfm<HighVegetation>,
     pub surface_objects: Dfm<SurfaceObjects>,
+    pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
 }
 
@@ -53,6 +54,7 @@ pub struct PipelineSteps {
     pub vegetation: bool,
     pub cliffs: bool,
     pub intensity: bool,
+    pub water: bool,
 }
 
 impl PreparedTile {
@@ -67,6 +69,7 @@ impl PreparedTile {
             medium_vegetation,
             high_vegetation,
             surface_objects,
+            water,
             canopy_height,
             z_range,
         } = dfms;
@@ -83,6 +86,7 @@ impl PreparedTile {
                 medium_vegetation,
                 high_vegetation,
                 surface_objects,
+                water,
                 canopy_height,
             },
             hull,
@@ -212,6 +216,18 @@ pub fn compute_tile(
             &tile.cut_overlay,
             params,
             &params.geometry.cliffs.buffer_rules,
+        ));
+    }
+
+    if steps.water {
+        objects.extend(map_gen::common::compute_vegetation(
+            &tile.rasters.water,
+            Threshold::Lower(params.water.threshold),
+            &tile.hull,
+            &tile.cut_overlay,
+            AreaSymbol::UncrossableWaterWithBankLine,
+            params,
+            &params.geometry.water.buffer_rules,
         ));
     }
 

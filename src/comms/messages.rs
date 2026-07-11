@@ -84,6 +84,7 @@ pub enum MapPreviewSection {
     Openness,
     Vegetation,
     Cliffs,
+    Water,
     Intensity,
 }
 

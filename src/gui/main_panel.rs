@@ -150,26 +150,25 @@ impl OmapMaker {
         map.draw_map(ui, rect);
 
         // Draw utility windows.
-        match self.state {
-            state if state.is_adjustment() => {
-                map_controls::render_contour_scores(
-                    ui,
-                    self.gui_variables.preview.contour_score,
-                    self.gui_variables.generation.params.contour.algo_lambda as f32,
-                    rect,
-                );
-                map_controls::render_map_opacity_slider(
-                    ui,
-                    &mut self.gui_variables.preview.map_opacity,
-                    rect,
-                );
-                map_controls::render_symbol_toggles(
-                    ui,
-                    &self.gui_variables.preview.map_tile,
-                    &mut self.gui_variables.preview.visibility_checkboxes,
-                );
-            }
-            _ => (),
+        if self.state.is_adjustment() {
+            map_controls::render_map_opacity_slider(
+                ui,
+                &mut self.gui_variables.preview.map_opacity,
+                rect,
+            );
+            map_controls::render_symbol_toggles(
+                ui,
+                &self.gui_variables.preview.map_tile,
+                &mut self.gui_variables.preview.visibility_checkboxes,
+            );
+        }
+        if self.state == ProcessStage::AdjustContours {
+            map_controls::render_contour_scores(
+                ui,
+                self.gui_variables.preview.contour_score,
+                self.gui_variables.generation.params.contour.algo_lambda as f32,
+                rect,
+            );
         }
 
         map_controls::render_zoom(ui, &mut self.map_memory);

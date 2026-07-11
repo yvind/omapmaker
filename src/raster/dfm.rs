@@ -29,6 +29,8 @@ pub struct HighVegetation;
 #[derive(Clone, Copy, Debug)]
 pub struct SurfaceObjects;
 #[derive(Clone, Copy, Debug)]
+pub struct Water;
+#[derive(Clone, Copy, Debug)]
 pub struct Ndvd;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
