@@ -28,13 +28,16 @@ impl ContourSet {
             for x_index in 0..TILE_SIZE_PIXELS {
                 let coords = interpolated_dem.index2spade(y_index, x_index);
 
-                if let Some(elev) =
-                    nn.interpolate_gradient(|p| p.data().z, |p| p.data().grad, 1., coords)
-                {
+                if let Some(elev) = nn.interpolate_gradient(
+                    |p| f64::from(p.data().z),
+                    |p| p.data().grad.map(f64::from),
+                    1.,
+                    coords,
+                ) {
                     if elev.is_nan() {
                         log!(Level::Warn, "Nan in c1 interpolating!");
                     } else {
-                        interpolated_dem[(y_index, x_index)] = elev;
+                        interpolated_dem[(y_index, x_index)] = elev as f32;
                     }
                 } else {
                     log!(Level::Warn, "DEM coord outside of contour hull!");
@@ -70,14 +73,10 @@ impl ContourSet {
                     let cp = ContourPoint {
                         pos: spade::Point2::new(line.0[i].x, line.0[i].y),
                         z: level.z,
-                        grad: (line.0[i + 1] - line.0[i - 1])
-                            .left()
-                            .try_normalize()
-                            .unwrap_or(geo::Coord {
-                                x: points[points.len() - 1].grad[0],
-                                y: points[points.len() - 1].grad[1],
-                            })
-                            .into(),
+                        grad: normalized_left_gradient(
+                            line.0[i + 1] - line.0[i - 1],
+                            points[points.len() - 1].grad,
+                        ),
                     };
                     points.push(cp);
                 }
@@ -86,28 +85,20 @@ impl ContourSet {
                     let cp = ContourPoint {
                         pos: spade::Point2::new(line.0[0].x, line.0[0].y),
                         z: level.z,
-                        grad: (line.0[1] - line.0[line.0.len() - 2])
-                            .left()
-                            .try_normalize()
-                            .unwrap_or(geo::Coord {
-                                x: points[points.len() - 1].grad[0],
-                                y: points[points.len() - 1].grad[1],
-                            })
-                            .into(),
+                        grad: normalized_left_gradient(
+                            line.0[1] - line.0[line.0.len() - 2],
+                            points[points.len() - 1].grad,
+                        ),
                     };
                     points.push(cp);
                 } else {
                     let cp = ContourPoint {
                         pos: spade::Point2::new(line.0[0].x, line.0[0].y),
                         z: level.z,
-                        grad: (line.0[1] - line.0[0])
-                            .left()
-                            .try_normalize()
-                            .unwrap_or(geo::Coord {
-                                x: points[points.len() - 1].grad[0],
-                                y: points[points.len() - 1].grad[1],
-                            })
-                            .into(),
+                        grad: normalized_left_gradient(
+                            line.0[1] - line.0[0],
+                            points[points.len() - 1].grad,
+                        ),
                     };
                     points.push(cp);
 
@@ -117,14 +108,10 @@ impl ContourSet {
                             line.0[line.0.len() - 1].y,
                         ),
                         z: level.z,
-                        grad: (line.0[line.0.len() - 1] - line.0[line.0.len() - 2])
-                            .left()
-                            .try_normalize()
-                            .unwrap_or(geo::Coord {
-                                x: points[points.len() - 1].grad[0],
-                                y: points[points.len() - 1].grad[1],
-                            })
-                            .into(),
+                        grad: normalized_left_gradient(
+                            line.0[line.0.len() - 1] - line.0[line.0.len() - 2],
+                            points[points.len() - 1].grad,
+                        ),
                     };
                     points.push(cp);
                 }
@@ -140,10 +127,10 @@ impl ContourSet {
         let mut grads = vec![];
         let mut vertices = vec![];
         for v in tri.vertices().skip(4) {
-            let mut grad_length = crate::MIN_GRAD_LENGTH;
+            let mut grad_length = f64::from(crate::MIN_GRAD_LENGTH);
             let v_pos = v.position();
-            let v_height = v.data().z;
-            let v_norm_grad = v.data().grad;
+            let v_height = f64::from(v.data().z);
+            let v_norm_grad = v.data().grad.map(f64::from);
 
             for neighbor in v.out_edges().map(|e| e.to()) {
                 // get vec from v to neighbor
@@ -152,7 +139,7 @@ impl ContourSet {
                 let diff = [
                     n_pos.x - v_pos.x,
                     n_pos.y - v_pos.y,
-                    neighbor.data().z - v_height,
+                    f64::from(neighbor.data().z) - v_height,
                 ];
 
                 // if z-component is 0 move on
@@ -170,7 +157,10 @@ impl ContourSet {
 
             vertices.push(v.fix());
 
-            let grad = [v_norm_grad[0] * grad_length, v_norm_grad[1] * grad_length];
+            let grad = [
+                (v_norm_grad[0] * grad_length) as f32,
+                (v_norm_grad[1] * grad_length) as f32,
+            ];
             grads.push(grad);
         }
 
@@ -192,14 +182,22 @@ impl ContourSet {
     }
 }
 
+fn normalized_left_gradient(delta: geo::Coord, fallback: [f32; 2]) -> [f32; 2] {
+    let normalized = delta.left().try_normalize().unwrap_or(geo::Coord {
+        x: f64::from(fallback[0]),
+        y: f64::from(fallback[1]),
+    });
+    [normalized.x as f32, normalized.y as f32]
+}
+
 #[derive(Debug, Clone)]
 pub struct ContourLevel {
     pub lines: geo::MultiLineString,
-    pub z: f64,
+    pub z: f32,
 }
 
 impl ContourLevel {
-    pub fn new(lines: geo::MultiLineString, z: f64) -> ContourLevel {
+    pub fn new(lines: geo::MultiLineString, z: f32) -> ContourLevel {
         ContourLevel { lines, z }
     }
 }
@@ -207,8 +205,8 @@ impl ContourLevel {
 #[derive(Debug, Clone)]
 pub struct ContourPoint {
     pub pos: spade::Point2<f64>,
-    pub z: f64,
-    pub grad: [f64; 2], // direction is always normal to the contour line, length must be derived
+    pub z: f32,
+    pub grad: [f32; 2], // direction is always normal to the contour line, length must be derived
 }
 
 impl HasPosition for ContourPoint {

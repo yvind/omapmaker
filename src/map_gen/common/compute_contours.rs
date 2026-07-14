@@ -12,18 +12,17 @@ use std::collections::HashMap;
 const FORMLINE_PRUNE_BUFFER_METERS: f64 = 2.;
 const FORMLINE_RECONNECT_GAP_METERS: f64 = 3.;
 
-fn contour_symbol(elevation: f64, interval: f64) -> LineSymbol {
-    if is_interval_level(elevation, 5. * interval) {
+fn contour_symbol(elevation: f32, interval: f32) -> LineSymbol {
+    let frac = elevation / interval;
+    let index_frac = frac / 5.;
+
+    if (index_frac - index_frac.round()).abs() < 0.05 {
         LineSymbol::IndexContour
-    } else if is_interval_level(elevation, interval) {
+    } else if (frac - frac.round()).abs() < 0.05 {
         LineSymbol::Contour
     } else {
         LineSymbol::FormLine
     }
-}
-
-fn is_interval_level(elevation: f64, interval: f64) -> bool {
-    interval > 0. && (elevation / interval - (elevation / interval).round()).abs() <= 1e-8
 }
 
 struct FormlinePruner {
@@ -98,7 +97,7 @@ impl FormlinePruner {
 
     fn from_importance<T: Clone>(
         importance: &Dfm<T>,
-        threshold: f64,
+        threshold: f32,
         clip_polygon: &geo::Polygon,
         params: &MapParameters,
     ) -> Self {
@@ -322,12 +321,14 @@ fn push_unique_coord(coords: &mut Vec<geo::Coord>, coord: geo::Coord) {
 // used for the naive iterative interpolation error correction contour algorithm
 pub fn compute_naive_contours(
     true_dem: &Dfm<Elevation>,
-    z_range: (f64, f64),
+    z_range: (f32, f32),
     cut_overlay: &geo::Polygon,
-    thresholds: (f64, f64),
+    thresholds: (f32, f32),
     params: &MapParameters,
-) -> crate::Result<(Vec<MapObject>, f64, f64)> {
+) -> crate::Result<(Vec<MapObject>, f32, f32)> {
     let (min_threshold, conv_threshold) = thresholds;
+    let min_threshold = f64::from(min_threshold);
+    let conv_threshold = f64::from(conv_threshold);
 
     let effective_interval = if params.contour.form_lines {
         params.contour.interval / 2.
@@ -335,8 +336,11 @@ pub fn compute_naive_contours(
         params.contour.interval
     };
 
-    let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
-    let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
+    let effective_interval_f64 = f64::from(effective_interval);
+    let min_z = f64::from(z_range.0);
+    let max_z = f64::from(z_range.1);
+    let c_levels = ((max_z - min_z) / effective_interval_f64).ceil() as usize + 1;
+    let start_level = (min_z / effective_interval_f64).floor() * effective_interval_f64;
 
     let mut adjusted_dem = true_dem.smoothen(15., 15, 10);
     let mut interpolated_dem = adjusted_dem.clone();
@@ -363,7 +367,7 @@ pub fn compute_naive_contours(
     loop {
         // extract contour set from adjusted_dem
         for c_index in 0..c_levels {
-            let c_level = c_index as f64 * effective_interval + start_level;
+            let c_level = (c_index as f64 * effective_interval_f64 + start_level) as f32;
 
             let mut c_contours = adjusted_dem
                 .marching_squares(c_level)
@@ -390,7 +394,7 @@ pub fn compute_naive_contours(
         error = true_dem.error(&interpolated_dem);
         energy = contours.energy(1);
 
-        score = error + params.contour.algo_lambda * energy;
+        score = error + f64::from(params.contour.algo_lambda) * energy;
 
         if score <= min_threshold || (score - prev_score).abs() <= conv_threshold {
             break;
@@ -401,7 +405,7 @@ pub fn compute_naive_contours(
             / params.contour.algo_steps as f64
             * 30.) as usize;
         let filter_amplitude =
-            (params.contour.algo_steps - iterations) as f64 / (params.contour.algo_steps as f64);
+            (params.contour.algo_steps - iterations) as f32 / (params.contour.algo_steps as f32);
 
         adjusted_dem.adjust(
             true_dem,
@@ -465,18 +469,18 @@ pub fn compute_naive_contours(
         }
     }
 
-    Ok((objects, error, energy))
+    Ok((objects, error as f32, energy as f32))
 }
 
 // used for raw and smoothed contour extraction, with scoring which complicates it a bit
 // smoothing happens on the DEM level
 pub fn extract_contours(
     true_dem: &Dfm<Elevation>,
-    z_range: (f64, f64),
+    z_range: (f32, f32),
     cut_overlay: &geo::Polygon,
     params: &MapParameters,
     compute_energy: bool,
-) -> crate::Result<(Vec<MapObject>, f64, f64)> {
+) -> crate::Result<(Vec<MapObject>, f32, f32)> {
     let effective_interval = if params.contour.form_lines {
         params.contour.interval / 2.
     } else {
@@ -489,8 +493,11 @@ pub fn extract_contours(
         &true_dem.smoothen(15., 15, params.contour.algo_steps as usize)
     };
 
-    let c_levels = ((z_range.1 - z_range.0) / effective_interval).ceil() as usize + 1;
-    let start_level = (z_range.0 / effective_interval).floor() * effective_interval;
+    let effective_interval_f64 = f64::from(effective_interval);
+    let min_z = f64::from(z_range.0);
+    let max_z = f64::from(z_range.1);
+    let c_levels = ((max_z - min_z) / effective_interval_f64).ceil() as usize + 1;
+    let start_level = (min_z / effective_interval_f64).floor() * effective_interval_f64;
 
     let clip_poly = geo::Polygon::new(
         geo::LineString::new(vec![
@@ -505,7 +512,7 @@ pub fn extract_contours(
     let mut contour_set = ContourSet::with_capacity(c_levels);
 
     for c_index in 0..c_levels {
-        let c_level = c_index as f64 * effective_interval + start_level;
+        let c_level = (c_index as f64 * effective_interval_f64 + start_level) as f32;
 
         let mut contours = dem.marching_squares(c_level);
 
@@ -587,5 +594,5 @@ pub fn extract_contours(
             objects.push(c_object);
         }
     }
-    Ok((objects, error, energy))
+    Ok((objects, error as f32, energy as f32))
 }

@@ -9,16 +9,19 @@ use geo::{BooleanOps, Simplify};
 
 pub fn compute_basemap(
     dem: &Dfm<Elevation>,
-    z_range: (f64, f64),
+    z_range: (f32, f32),
     cut_overlay: &geo::Polygon,
-    basemap_interval: f64,
+    basemap_interval: f32,
 ) -> Vec<MapObject> {
-    let bm_levels = ((z_range.1 - z_range.0) / basemap_interval).ceil() as usize + 1;
-    let start_level = (z_range.0 / basemap_interval).floor() * basemap_interval;
+    let basemap_interval_f64 = f64::from(basemap_interval);
+    let min_z = f64::from(z_range.0);
+    let max_z = f64::from(z_range.1);
+    let bm_levels = ((max_z - min_z) / basemap_interval_f64).ceil() as usize + 1;
+    let start_level = (min_z / basemap_interval_f64).floor() * basemap_interval_f64;
 
     let mut objects = Vec::new();
     for c_index in 0..bm_levels {
-        let bm_level = c_index as f64 * basemap_interval + start_level;
+        let bm_level = (c_index as f64 * basemap_interval_f64 + start_level) as f32;
 
         let mut bm_contours = dem.marching_squares(bm_level);
 

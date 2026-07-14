@@ -67,7 +67,7 @@ impl PointCloud {
             let x_index = x_index as usize;
             let y_index = y_index as usize;
             let index = y_index * TILE_SIZE_PIXELS + x_index;
-            let height_above_ground = (point.0.z - dem[(y_index, x_index)]).max(0.);
+            let height_above_ground = (point.0.z - f64::from(dem[(y_index, x_index)])).max(0.);
 
             sums[index] += height_above_ground.powf(power);
             counts[index] += 1;
@@ -78,7 +78,7 @@ impl PointCloud {
             *value = if count == 0 {
                 0.
             } else {
-                (sums[index] / f64::from(count)).powf(1. / power)
+                (sums[index] / f64::from(count)).powf(1. / power) as f32
             };
         }
 

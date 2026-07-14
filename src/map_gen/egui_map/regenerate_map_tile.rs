@@ -40,8 +40,8 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(LineSymbol::BasemapContour, 0);
     }
 
-    let mut tot_energy = 0.;
-    let mut tot_error = 0.;
+    let mut tot_energy = 0_f64;
+    let mut tot_error = 0_f64;
 
     let outputs = thread_pool.install(|| {
         tiles
@@ -59,8 +59,8 @@ pub fn regenerate_map_tile(
     };
 
     for output in outputs {
-        tot_energy += output.contour_energy;
-        tot_error += output.contour_error;
+        tot_energy += f64::from(output.contour_energy);
+        tot_error += f64::from(output.contour_error);
         for object in output.objects {
             omap.add_object(object);
         }

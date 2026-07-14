@@ -62,7 +62,7 @@ impl DfmPixelBounds {
 
 #[derive(Clone, Debug)]
 pub struct Dfm<T> {
-    pub field: Box<[f64]>,
+    pub field: Box<[f32]>,
     pub tl_coord: geo::Coord,
     pub inner: DfmPixelBounds,
     _t: PhantomData<T>,
@@ -89,7 +89,7 @@ impl<T> Dfm<T> {
 impl<T: Clone> Dfm<T> {
     pub fn new(tl_coord: geo::Coord) -> Dfm<T> {
         Dfm {
-            field: vec![f64::MIN; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS].into_boxed_slice(),
+            field: vec![f32::MIN; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS].into_boxed_slice(),
             tl_coord,
             inner: DfmPixelBounds::full(),
             _t: PhantomData,
@@ -134,7 +134,7 @@ impl<T: Clone> Dfm<T> {
         let mut square_diff = 0.;
         for y in 0..TILE_SIZE_PIXELS {
             for x in 0..TILE_SIZE_PIXELS {
-                square_diff += (self[(y, x)] - other[(y, x)]).powi(2);
+                square_diff += (f64::from(self[(y, x)]) - f64::from(other[(y, x)])).powi(2);
             }
         }
         square_diff / (TILE_SIZE_PIXELS * TILE_SIZE_PIXELS) as f64
@@ -155,7 +155,7 @@ impl<T: Clone> Dfm<T> {
         truth: &Dfm<T>,
         interpolated: &Dfm<T>,
         filter_half_size: usize,
-        amplitude: f64,
+        amplitude: f32,
     ) {
         let diff = truth.difference(interpolated);
         for yi in 0..TILE_SIZE_PIXELS {
@@ -168,12 +168,14 @@ impl<T: Clone> Dfm<T> {
                 let mut adjustment = 0.;
                 for yj in top_i..=bottom_i {
                     for xj in left_i..=right_i {
-                        adjustment += diff[(yj, xj)];
+                        adjustment += f64::from(diff[(yj, xj)]);
                     }
                 }
 
-                self[(yi, xi)] += amplitude * adjustment
-                    / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64;
+                self[(yi, xi)] = (f64::from(self[(yi, xi)])
+                    + f64::from(amplitude) * adjustment
+                        / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64)
+                    as f32;
             }
         }
     }
@@ -188,8 +190,8 @@ impl Dfm<Elevation> {
             pos: self.index2spade(0, 0),
             z: self[(0, 0)],
             grad: [
-                (self[(0, GRAD_CELLS)] - self[(0, 0)]) / GRAD_LENGTH,
-                (self[(0, 0)] - self[(GRAD_CELLS, 0)]) / GRAD_LENGTH,
+                ((f64::from(self[(0, GRAD_CELLS)]) - f64::from(self[(0, 0)])) / GRAD_LENGTH) as f32,
+                ((f64::from(self[(0, 0)]) - f64::from(self[(GRAD_CELLS, 0)])) / GRAD_LENGTH) as f32,
             ],
         };
 
@@ -197,10 +199,12 @@ impl Dfm<Elevation> {
             pos: self.index2spade(0, TILE_SIZE_PIXELS - 1),
             z: self[(0, TILE_SIZE_PIXELS - 1)],
             grad: [
-                (self[(0, TILE_SIZE_PIXELS - 1)] - self[(0, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)])
-                    / GRAD_LENGTH,
-                (self[(0, TILE_SIZE_PIXELS - 1)] - self[(GRAD_CELLS, TILE_SIZE_PIXELS - 1)])
-                    / GRAD_LENGTH,
+                ((f64::from(self[(0, TILE_SIZE_PIXELS - 1)])
+                    - f64::from(self[(0, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)]))
+                    / GRAD_LENGTH) as f32,
+                ((f64::from(self[(0, TILE_SIZE_PIXELS - 1)])
+                    - f64::from(self[(GRAD_CELLS, TILE_SIZE_PIXELS - 1)]))
+                    / GRAD_LENGTH) as f32,
             ],
         };
 
@@ -208,12 +212,12 @@ impl Dfm<Elevation> {
             pos: self.index2spade(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1),
             z: self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)],
             grad: [
-                (self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)]
-                    - self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)])
-                    / GRAD_LENGTH,
-                (self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, TILE_SIZE_PIXELS - 1)]
-                    - self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)])
-                    / GRAD_LENGTH,
+                ((f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)])
+                    - f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)]))
+                    / GRAD_LENGTH) as f32,
+                ((f64::from(self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, TILE_SIZE_PIXELS - 1)])
+                    - f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)]))
+                    / GRAD_LENGTH) as f32,
             ],
         };
 
@@ -221,10 +225,12 @@ impl Dfm<Elevation> {
             pos: self.index2spade(TILE_SIZE_PIXELS - 1, 0),
             z: self[(TILE_SIZE_PIXELS - 1, 0)],
             grad: [
-                (self[(TILE_SIZE_PIXELS - 1, GRAD_CELLS)] - self[(TILE_SIZE_PIXELS - 1, 0)])
-                    / GRAD_LENGTH,
-                (self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, 0)] - self[(TILE_SIZE_PIXELS - 1, 0)])
-                    / GRAD_LENGTH,
+                ((f64::from(self[(TILE_SIZE_PIXELS - 1, GRAD_CELLS)])
+                    - f64::from(self[(TILE_SIZE_PIXELS - 1, 0)]))
+                    / GRAD_LENGTH) as f32,
+                ((f64::from(self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, 0)])
+                    - f64::from(self[(TILE_SIZE_PIXELS - 1, 0)]))
+                    / GRAD_LENGTH) as f32,
             ],
         };
 
@@ -239,7 +245,7 @@ impl Dfm<Elevation> {
             for xi in 0..TILE_SIZE_PIXELS {
                 let (v, h) = self.sobel_gradient(yi, xi);
 
-                slope[(yi, xi)] = (v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt();
+                slope[(yi, xi)] = ((v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt()) as f32;
             }
         }
         slope
@@ -250,11 +256,11 @@ impl Dfm<Elevation> {
     /// The first term is the elevation gradient. The second is the Frobenius
     /// norm of the elevation Hessian, scaled by the contour interval so both
     /// terms are dimensionless and can share one threshold.
-    pub fn terrain_change(&self, contour_interval: f64) -> Dfm<TerrainChange> {
+    pub fn terrain_change(&self, contour_interval: f32) -> Dfm<TerrainChange> {
         let mut terrain_change = Dfm::new_like(self);
         let cell = CELL_SIZE_METERS;
         let cell_squared = cell * cell;
-        let curvature_scale = contour_interval.abs();
+        let curvature_scale = f64::from(contour_interval.abs());
 
         for yi in 0..TILE_SIZE_PIXELS {
             let top = yi.saturating_sub(1);
@@ -264,20 +270,27 @@ impl Dfm<Elevation> {
                 let left = xi.saturating_sub(1);
                 let right = (xi + 1).min(TILE_SIZE_PIXELS - 1);
 
-                let dz_dx = (self[(yi, right)] - self[(yi, left)]) / (2. * cell);
-                let dz_dy = (self[(top, xi)] - self[(bottom, xi)]) / (2. * cell);
-                let d2z_dx2 =
-                    (self[(yi, right)] - 2. * self[(yi, xi)] + self[(yi, left)]) / cell_squared;
-                let d2z_dy2 =
-                    (self[(top, xi)] - 2. * self[(yi, xi)] + self[(bottom, xi)]) / cell_squared;
-                let d2z_dxdy = (self[(top, right)] - self[(top, left)] - self[(bottom, right)]
-                    + self[(bottom, left)])
+                let center = f64::from(self[(yi, xi)]);
+                let dz_dx =
+                    (f64::from(self[(yi, right)]) - f64::from(self[(yi, left)])) / (2. * cell);
+                let dz_dy =
+                    (f64::from(self[(top, xi)]) - f64::from(self[(bottom, xi)])) / (2. * cell);
+                let d2z_dx2 = (f64::from(self[(yi, right)]) - 2. * center
+                    + f64::from(self[(yi, left)]))
+                    / cell_squared;
+                let d2z_dy2 = (f64::from(self[(top, xi)]) - 2. * center
+                    + f64::from(self[(bottom, xi)]))
+                    / cell_squared;
+                let d2z_dxdy = (f64::from(self[(top, right)])
+                    - f64::from(self[(top, left)])
+                    - f64::from(self[(bottom, right)])
+                    + f64::from(self[(bottom, left)]))
                     / (4. * cell_squared);
 
                 let slope = dz_dx.hypot(dz_dy);
                 let curvature = (d2z_dx2.powi(2) + 2. * d2z_dxdy.powi(2) + d2z_dy2.powi(2)).sqrt();
 
-                terrain_change[(yi, xi)] = slope.hypot(curvature_scale * curvature);
+                terrain_change[(yi, xi)] = slope.hypot(curvature_scale * curvature) as f32;
             }
         }
 
@@ -331,10 +344,11 @@ impl<T: Clone> Dfm<T> {
                 let normal_length =
                     (normal_x.powi(2) + normal_y.powi(2) + normal_z * normal_z).sqrt();
 
-                hillshade[(yi, xi)] =
-                    ((normal_x * light_x + normal_y * light_y + normal_z * light_z)
-                        / normal_length)
-                        .max(0.);
+                hillshade[(yi, xi)] = ((normal_x * light_x
+                    + normal_y * light_y
+                    + normal_z * light_z)
+                    / normal_length)
+                    .max(0.) as f32;
             }
         }
 
@@ -348,23 +362,25 @@ impl<T: Clone> Dfm<T> {
         let left_i = xi.saturating_sub(1);
         let right_i = (xi + 1).min(TILE_SIZE_PIXELS - 1);
 
-        let v = (self[(top_i, left_i)] - self[(top_i, right_i)] + 2. * self[(yi, left_i)]
-            - 2. * self[(yi, right_i)]
-            + self[(bottom_i, left_i)]
-            - self[(bottom_i, right_i)])
+        let v = (f64::from(self[(top_i, left_i)]) - f64::from(self[(top_i, right_i)])
+            + 2. * f64::from(self[(yi, left_i)])
+            - 2. * f64::from(self[(yi, right_i)])
+            + f64::from(self[(bottom_i, left_i)])
+            - f64::from(self[(bottom_i, right_i)]))
             / (2. * CELL_SIZE_METERS);
 
-        let h = (self[(top_i, left_i)] - self[(bottom_i, left_i)] + 2. * self[(top_i, xi)]
-            - 2. * self[(bottom_i, xi)]
-            + self[(top_i, right_i)]
-            - self[(bottom_i, right_i)])
+        let h = (f64::from(self[(top_i, left_i)]) - f64::from(self[(bottom_i, left_i)])
+            + 2. * f64::from(self[(top_i, xi)])
+            - 2. * f64::from(self[(bottom_i, xi)])
+            + f64::from(self[(top_i, right_i)])
+            - f64::from(self[(bottom_i, right_i)]))
             / (2. * CELL_SIZE_METERS);
 
         (v, h)
     }
 
     // marching squares algorithm for extracting contours
-    pub fn marching_squares(&self, level: f64) -> geo::MultiLineString {
+    pub fn marching_squares(&self, level: f32) -> geo::MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
         let mut contours: Vec<geo::LineString> = Vec::with_capacity(8);
 
@@ -414,7 +430,7 @@ impl<T: Clone> Dfm<T> {
             [5, 5, 5, 5], // nothing
         ];
 
-        // make a f64::MIN-padded proxy of self to avoid edge problems and close all contours
+        // make an f32::MIN-padded proxy of self to avoid edge problems and close all contours
         let padded = DfmPaddedProxy::new(self);
 
         for yi in 0..TILE_SIZE_PIXELS + 1 {
@@ -565,7 +581,7 @@ impl<T: Clone> Dfm<T> {
     // number of smoothing iterations, min 1
     pub fn smoothen(
         &self,
-        mut max_norm_diff: f64,
+        mut max_norm_diff: f32,
         mut filter_size: usize,
         mut num_iter: usize,
     ) -> Dfm<T> {
@@ -578,7 +594,7 @@ impl<T: Clone> Dfm<T> {
         max_norm_diff = max_norm_diff.abs().min(60.);
 
         // faster to work with the cosine of the angle instead of getting the actual angles
-        let threshold = max_norm_diff.to_radians().cos();
+        let threshold = f64::from(max_norm_diff).to_radians().cos();
 
         // calculate normal vectors
         let mut normal_vecs = vec![(0., 0.); TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
@@ -600,7 +616,7 @@ impl<T: Clone> Dfm<T> {
                 ];
 
                 for i in 0..8 {
-                    z_vals[i] = self[(ys[i], xs[i])];
+                    z_vals[i] = f64::from(self[(ys[i], xs[i])]);
                 }
 
                 let dzdx = -(z_vals[2] - z_vals[4] + 2. * (z_vals[1] - z_vals[5]) + z_vals[0]
@@ -716,12 +732,12 @@ impl<T: Clone> Dfm<T> {
                             sum_weight += weight;
                             z += -(smooth_neighbor_normal.0 * x[n]
                                 + smooth_neighbor_normal.1 * y[n]
-                                - output[(y_neighbor, x_neighbor)])
+                                - f64::from(output[(y_neighbor, x_neighbor)]))
                                 * weight;
                         }
                     }
                     if sum_weight > f64::EPSILON {
-                        output[(yi, xi)] = z / sum_weight;
+                        output[(yi, xi)] = (z / sum_weight) as f32;
                     }
                 }
             }
@@ -737,7 +753,7 @@ fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
 }
 
 impl<T> Index<(usize, usize)> for Dfm<T> {
-    type Output = f64;
+    type Output = f32;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         &self.field[index.0 * TILE_SIZE_PIXELS + index.1]
@@ -773,26 +789,26 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
         e: usize,
         xs: &[usize; 4],
         ys: &[usize; 4],
-        level: f64,
+        level: f32,
     ) -> geo::Coord {
         let a = self[(ys[e], xs[e])];
         let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
+
+        let fraction = (f64::from(level) - f64::from(a)) / (f64::from(b) - f64::from(a));
 
         let a_coord = self.index2coord(ys[e], xs[e]);
 
         geo::Coord {
             x: a_coord.x
-                + CELL_SIZE_METERS * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * (level - a)
-                    / (b - a),
+                + CELL_SIZE_METERS * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * fraction,
             y: a_coord.y
-                + CELL_SIZE_METERS * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * (level - a)
-                    / (b - a),
+                + CELL_SIZE_METERS * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * fraction,
         }
     }
 }
 
 impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
-    type Output = f64;
+    type Output = f32;
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         if index.0 == 0

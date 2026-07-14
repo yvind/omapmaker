@@ -141,7 +141,7 @@ fn water_likelihood(
     plane_slope: f64,
     returns: f64,
     stats: &LidarStats,
-) -> f64 {
+) -> f32 {
     let sparse_density =
         (stats.average_density * SPARSE_DENSITY_PERCENT_OF_AVERAGE).max(f64::EPSILON);
     let density_score = 1. / (1. + (density / sparse_density).powi(2));
@@ -149,8 +149,8 @@ fn water_likelihood(
     let level_score = (-(plane_slope / LEVEL_PLANE_SLOPE).powi(2)).exp();
     let flatness_score = planarity_score * level_score;
 
-    let intensity_scale = stats.intensity.std_dev.max(1.);
-    let weak_boundary = stats.intensity.mean - 0.5 * intensity_scale;
+    let intensity_scale = f64::from(stats.intensity.std_dev).max(1.);
+    let weak_boundary = f64::from(stats.intensity.mean) - 0.5 * intensity_scale;
     let intensity_score = 1. / (1. + ((mean_intensity - weak_boundary) / intensity_scale).exp());
 
     let evidence = 1. - (-(returns - MIN_PLANE_RETURNS + 1.) / MIN_PLANE_RETURNS).exp();
@@ -159,7 +159,7 @@ fn water_likelihood(
     // enough to classify a sloping surface as water.
     (flatness_score.powf(0.70) * density_score.powf(0.15) * intensity_score.powf(0.15))
         .mul_add(evidence, 0.)
-        .clamp(0., 1.)
+        .clamp(0., 1.) as f32
 }
 
 fn summed_area_table(values: &[f64]) -> Vec<f64> {

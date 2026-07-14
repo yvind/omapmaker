@@ -276,7 +276,7 @@ impl MapObject {
         Ok(())
     }
 
-    pub fn add_elevation_tag(&mut self, elevation: f64) {
+    pub fn add_elevation_tag(&mut self, elevation: f32) {
         let key = "Elevation".to_string();
         let value = elevation.to_string();
 

@@ -70,29 +70,29 @@ fn push_unique_area_symbol(symbols: &mut Vec<AreaSymbol>, symbol: AreaSymbol) {
 pub struct ContourParameters {
     pub algorithm: ContourAlgo,
     pub form_line_prune_algorithm: FormlinePruneAlgo,
-    pub basemap_interval: f64,
-    pub interval: f64,
+    pub basemap_interval: f32,
+    pub interval: f32,
     pub dot_knoll_area: (f64, f64),
     pub algo_steps: u8,
-    pub algo_lambda: f64,
+    pub algo_lambda: f32,
     pub basemap_contour: bool,
     pub form_lines: bool,
-    pub form_line_prune_threshold: f64,
-    pub form_line_error_threshold: f64,
+    pub form_line_prune_threshold: f32,
+    pub form_line_error_threshold: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct VegetationParameters {
-    pub green: (f64, f64, f64),
+    pub green: (f32, f32, f32),
     pub weights: VegetationWeights,
-    pub yellow: f64,
+    pub yellow: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VegetationWeights {
-    pub low: f64,
-    pub medium: f64,
-    pub high: f64,
+    pub low: f32,
+    pub medium: f32,
+    pub high: f32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -107,7 +107,7 @@ pub struct GeometryParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterParameters {
-    pub threshold: f64,
+    pub threshold: f32,
 }
 
 impl Default for WaterParameters {
@@ -118,7 +118,7 @@ impl Default for WaterParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CliffParameters {
-    pub cliff: f64,
+    pub cliff: f32,
 }
 
 impl Default for CliffParameters {
@@ -265,8 +265,8 @@ impl Display for FormlinePruneAlgo {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntensityFilter {
-    pub low: f64,
-    pub high: f64,
+    pub low: f32,
+    pub high: f32,
     pub symbol: AreaSymbol,
 }
 

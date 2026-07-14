@@ -37,13 +37,13 @@ pub struct PreparedTile {
     pub rasters: TileRasters,
     pub hull: geo::Polygon,
     pub cut_overlay: geo::Polygon,
-    pub z_range: (f64, f64),
+    pub z_range: (f32, f32),
 }
 
 pub struct PipelineOutput {
     pub objects: Vec<MapObject>,
-    pub contour_error: f64,
-    pub contour_energy: f64,
+    pub contour_error: f32,
+    pub contour_energy: f32,
 }
 
 #[derive(Clone, Copy, Default)]

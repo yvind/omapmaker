@@ -4,13 +4,13 @@ pub mod geotiff;
 pub use self::dfm::Dfm;
 
 pub enum Threshold {
-    Upper(f64),
+    Upper(f32),
     #[allow(dead_code)]
-    Lower(f64),
+    Lower(f32),
 }
 
 impl Threshold {
-    pub fn inner(&self) -> f64 {
+    pub fn inner(&self) -> f32 {
         match self {
             Threshold::Upper(t) => *t,
             Threshold::Lower(t) => *t,

@@ -166,7 +166,7 @@ impl OmapMaker {
             map_controls::render_contour_scores(
                 ui,
                 self.gui_variables.preview.contour_score,
-                self.gui_variables.generation.params.contour.algo_lambda as f32,
+                self.gui_variables.generation.params.contour.algo_lambda,
                 rect,
             );
         }

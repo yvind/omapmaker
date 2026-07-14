@@ -40,7 +40,7 @@ pub fn initialize_map_tile(
         y: ((test_area.min().y + test_area.max().y) / 20.).round() * 10.,
     };
 
-    let mut z_range = (f64::MAX, f64::MIN);
+    let mut z_range = (f32::MAX, f32::MIN);
     let mut all_hulls = Vec::with_capacity(4);
     let mut tiles = Vec::with_capacity(4);
     for (tile_bounds, cut_bounds) in tile_bounds.iter().zip(cut_bounds.iter()) {

@@ -105,12 +105,12 @@ fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
             let target_y = y_offset + y - tile.inner.top;
             for x in tile.inner.left..tile.inner.right {
                 let value = tile[(y, x)];
-                if value == f64::MIN || !value.is_finite() {
+                if value == f32::MIN || !value.is_finite() {
                     continue;
                 }
 
                 let target_x = x_offset + x - tile.inner.left;
-                sums[[target_y, target_x]] += value;
+                sums[[target_y, target_x]] += value as f64;
                 counts[target_y * width + target_x] =
                     counts[target_y * width + target_x].saturating_add(1);
             }

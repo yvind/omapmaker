@@ -13,9 +13,9 @@ use spade::DelaunayTriangulation;
 const CHM_SPIKINESS: f64 = 8.;
 const CHM_HILLSHADE_SUN_ANGLE: f64 = 3. * std::f64::consts::FRAC_PI_4;
 const VEGETATION_DENSITY_RADIUS_METERS: f64 = 2.;
-const GROUND_MAX_HEIGHT_METERS: f64 = 0.2;
-const LOW_VEGETATION_MAX_HEIGHT_METERS: f64 = 1.5;
-const MEDIUM_VEGETATION_MAX_HEIGHT_METERS: f64 = 3.;
+const GROUND_MAX_HEIGHT_METERS: f32 = 0.2;
+const LOW_VEGETATION_MAX_HEIGHT_METERS: f32 = 1.5;
+const MEDIUM_VEGETATION_MAX_HEIGHT_METERS: f32 = 3.;
 
 pub struct ComputedDfms {
     pub dem: Dfm<Elevation>,
@@ -29,7 +29,7 @@ pub struct ComputedDfms {
     pub surface_objects: Dfm<SurfaceObjects>,
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
-    pub z_range: (f64, f64),
+    pub z_range: (f32, f32),
 }
 
 pub fn compute_dfms(
@@ -58,6 +58,7 @@ pub fn compute_dfms(
             z_range.0 = p.0.z;
         }
     }
+    let z_range = (z_range.0 as f32, z_range.1 as f32);
 
     let dt = DelaunayTriangulation::<PointLaz>::bulk_load_stable(ground_cloud.points)?;
     let nn = dt.natural_neighbor();
@@ -69,17 +70,17 @@ pub fn compute_dfms(
             // all points inside the point cloud's convex hull gets interpolated
             // this is problematic if the pc has a hole on a corner, fixed by adding points to the corners of the dem through IDW extrapolation
             if let Some(elev) = nn.interpolate(|p| p.data().0.z, coords) {
-                dem[(y_index, x_index)] = elev;
+                dem[(y_index, x_index)] = elev as f32;
             } else {
                 anyhow::bail!(
                     "Interpolation point ({x_index}, {y_index}) is outside of the point cloud hull"
                 );
             }
             if let Some(rn) = nn.interpolate(|p| p.data().0.return_number as f64, coords) {
-                drm[(y_index, x_index)] = rn;
+                drm[(y_index, x_index)] = rn as f32;
             }
             if let Some(int) = nn.interpolate(|p| p.data().0.intensity as f64, coords) {
-                dim[(y_index, x_index)] = int;
+                dim[(y_index, x_index)] = int as f32;
             }
         }
     }
@@ -156,16 +157,17 @@ fn filter_last_returns(point_cloud: &PointCloud) -> PointCloud {
 fn filter_height_above_ground(
     point_cloud: &PointCloud,
     dem: &Dfm<Elevation>,
-    min_height: f64,
-    max_height: f64,
+    min_height: f32,
+    max_height: f32,
 ) -> PointCloud {
     PointCloud::new(
         point_cloud
             .points
             .iter()
             .filter(|point| {
-                height_above_ground(point, dem)
-                    .is_some_and(|height| height >= min_height && height <= max_height)
+                height_above_ground(point, dem).is_some_and(|height| {
+                    height >= f64::from(min_height) && height <= f64::from(max_height)
+                })
             })
             .cloned()
             .collect(),
@@ -178,11 +180,11 @@ fn compute_vegetation_density_dfms(
     dem: &Dfm<Elevation>,
     radius_meters: f64,
 ) -> VegetationDensityDfms {
-    let mut ground_sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut low_sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut medium_sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut high_sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut total_sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut ground_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut low_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut medium_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut high_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut total_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
 
     let radius_cells = (radius_meters / CELL_SIZE_METERS).ceil() as isize;
     let radius2 = radius_meters.powi(2);
@@ -203,7 +205,7 @@ fn compute_vegetation_density_dfms(
 
         let dem_x = x_center.clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
         let dem_y = y_center.clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
-        let height_above_ground = point.0.z - dem[(dem_y, dem_x)];
+        let height_above_ground = point.0.z - f64::from(dem[(dem_y, dem_x)]);
 
         let y_min = (y_center - radius_cells).max(0) as usize;
         let y_max = (y_center + radius_cells).min(TILE_SIZE_PIXELS as isize - 1) as usize;
@@ -222,11 +224,11 @@ fn compute_vegetation_density_dfms(
                 let index = yi * TILE_SIZE_PIXELS + xi;
                 total_sums[index] += weight;
 
-                if height_above_ground < GROUND_MAX_HEIGHT_METERS {
+                if height_above_ground < f64::from(GROUND_MAX_HEIGHT_METERS) {
                     ground_sums[index] += weight;
-                } else if height_above_ground < LOW_VEGETATION_MAX_HEIGHT_METERS {
+                } else if height_above_ground < f64::from(LOW_VEGETATION_MAX_HEIGHT_METERS) {
                     low_sums[index] += weight;
-                } else if height_above_ground < MEDIUM_VEGETATION_MAX_HEIGHT_METERS {
+                } else if height_above_ground < f64::from(MEDIUM_VEGETATION_MAX_HEIGHT_METERS) {
                     medium_sums[index] += weight;
                 } else {
                     high_sums[index] += weight;
@@ -257,7 +259,7 @@ fn normalize_density_dfm<T: Clone, U>(
         .zip(total_sums.iter())
     {
         *value = if *total > f64::EPSILON {
-            *band / *total
+            (*band / *total) as f32
         } else {
             0.
         };
@@ -276,13 +278,13 @@ pub fn compute_ndvd(
     let mut ndvd = Dfm::<Ndvd>::new_like(ground);
 
     for index in 0..ndvd.field.len() {
-        let g = ground.field[index];
-        let v = weights.low * low.field[index]
-            + weights.medium * medium.field[index]
-            + weights.high * high.field[index];
+        let g = f64::from(ground.field[index]);
+        let v = f64::from(weights.low) * f64::from(low.field[index])
+            + f64::from(weights.medium) * f64::from(medium.field[index])
+            + f64::from(weights.high) * f64::from(high.field[index]);
         let denominator = v + g;
         ndvd.field[index] = if denominator > f64::EPSILON {
-            (((v - g) / denominator) + 1.) / 2.
+            ((((v - g) / denominator) + 1.) / 2.) as f32
         } else {
             0.
         };
@@ -303,5 +305,5 @@ fn height_above_ground(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<f64> {
         return None;
     }
 
-    Some(point.0.z - dem[(y_index as usize, x_index as usize)])
+    Some(point.0.z - f64::from(dem[(y_index as usize, x_index as usize)]))
 }
