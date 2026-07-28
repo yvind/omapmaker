@@ -181,7 +181,8 @@ fn changed_steps(
         || new.geometry.cliffs != old.geometry.cliffs
         || new.cliff.collapse != old.cliff.collapse
         || new.cliff.collapse_amount_small_cliff != old.cliff.collapse_amount_small_cliff
-        || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff;
+        || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff
+        || new.cliff.collapse_linearity != old.cliff.collapse_linearity;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval

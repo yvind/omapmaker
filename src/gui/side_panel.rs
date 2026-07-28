@@ -616,6 +616,17 @@ impl OmapMaker {
                             &mut self.gui_variables.generation.params.cliff.collapse_amount_large_cliff,
                             0.1..=5.0
                         ).text("Collapse amount").show_value(true));
+                        ui.add(
+                            egui::Slider::new(
+                                &mut self.gui_variables.generation.params.cliff.collapse_linearity,
+                                0.0..=10.0,
+                            )
+                            .text("Linearity threshold")
+                            .show_value(true),
+                        )
+                        .on_hover_text(
+                            "Minimum significant centerline branch length as a multiple of the collapse amount. Smaller values also convert more compact polygons. Polygons below the minimum symbol area bypass this threshold.",
+                        );
                     });
                     ui.add_space(20.);
                     ui.label(egui::RichText::new("Cliff Bezier simplification").strong());

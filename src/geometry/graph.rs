@@ -8,6 +8,9 @@ use geo::{Coord, Line};
 /// Distance within which two numerically near-identical Voronoi vertices are
 /// treated as the same graph node.
 const MERGE_TOLERANCE: f64 = 1.0e-6;
+const STRAIGHTNESS_WEIGHT: f64 = 0.55;
+const LENGTH_WEIGHT: f64 = 0.30;
+const THICKNESS_WEIGHT: f64 = 0.15;
 
 fn cell(coord: Coord<f64>) -> (i64, i64) {
     (
@@ -16,15 +19,65 @@ fn cell(coord: Coord<f64>) -> (i64, i64) {
     )
 }
 
+fn normalized(value: f64, maximum: f64) -> f64 {
+    if maximum > 0.0 { value / maximum } else { 0.0 }
+}
+
+fn continuation_straightness(previous: Coord<f64>, junction: Coord<f64>, next: Coord<f64>) -> f64 {
+    let incoming = (junction.x - previous.x, junction.y - previous.y);
+    let outgoing = (next.x - junction.x, next.y - junction.y);
+    let denominator = incoming.0.hypot(incoming.1) * outgoing.0.hypot(outgoing.1);
+    if denominator == 0.0 {
+        return 0.0;
+    }
+
+    let cosine =
+        ((incoming.0 * outgoing.0 + incoming.1 * outgoing.1) / denominator).clamp(-1.0, 1.0);
+    (cosine + 1.0) / 2.0
+}
+
 struct Edge {
     a: usize,
     b: usize,
     weight: f64,
+    thickness: f64,
 }
 
 impl Edge {
     fn other(&self, node: usize) -> usize {
         if self.a == node { self.b } else { self.a }
+    }
+}
+
+struct Branch {
+    nodes: Vec<usize>,
+    length: f64,
+    thickness: f64,
+}
+
+impl Branch {
+    fn touches(&self, node: usize) -> bool {
+        self.nodes.first() == Some(&node) || self.nodes.last() == Some(&node)
+    }
+
+    fn neighbor_from(&self, node: usize) -> Option<usize> {
+        if self.nodes.first() == Some(&node) {
+            self.nodes.get(1).copied()
+        } else if self.nodes.last() == Some(&node) {
+            self.nodes.get(self.nodes.len().checked_sub(2)?).copied()
+        } else {
+            None
+        }
+    }
+
+    fn nodes_from(&self, node: usize) -> Option<Vec<usize>> {
+        if self.nodes.first() == Some(&node) {
+            Some(self.nodes.clone())
+        } else if self.nodes.last() == Some(&node) {
+            Some(self.nodes.iter().rev().copied().collect())
+        } else {
+            None
+        }
     }
 }
 
@@ -65,7 +118,7 @@ impl Graph {
 
     /// Adds a Euclidean-distance-weighted edge. Degenerate and duplicate edges
     /// are ignored.
-    pub(super) fn add_line(&mut self, line: &Line<f64>) {
+    pub(super) fn add_line(&mut self, line: &Line<f64>, thickness: f64) {
         let a = self.node(line.start);
         let b = self.node(line.end);
         if a == b
@@ -82,18 +135,22 @@ impl Graph {
             a,
             b,
             weight: delta.x.hypot(delta.y),
+            thickness: thickness.max(0.0),
         });
         self.adjacency[a].push(edge);
         self.adjacency[b].push(edge);
     }
 
-    /// Removes short terminal spurs and returns every remaining maximal path.
+    /// Removes short terminal spurs and returns the remaining medial axis as
+    /// coherent paths, ordered with the main path first.
     ///
-    /// A maximal path runs between graph leaves/junctions, so a Y-shaped medial
-    /// axis produces three centerlines. Repeated pruning is important: after
-    /// short Voronoi hairs are removed, adjacent degree-two chains coalesce into
-    /// the actual centerline. If no path survives, the source shape is compact
-    /// rather than line-like and should not be collapsed.
+    /// At a junction, the continuation is selected from straightness, branch
+    /// length, and branch thickness. Once the main path is removed, the same
+    /// selection is repeated for the remaining significant branches. Repeated
+    /// pruning is important: after short Voronoi hairs are removed, adjacent
+    /// degree-two chains coalesce into the actual centerline. If no path
+    /// survives, the source shape is compact rather than line-like and should
+    /// not be collapsed.
     pub(super) fn significant_branches(&self, minimum_branch_length: f64) -> Vec<Vec<Coord<f64>>> {
         let Some(component) = self.largest_component() else {
             return vec![];
@@ -128,7 +185,7 @@ impl Graph {
             return vec![];
         }
 
-        self.maximal_paths(&active)
+        self.coherent_paths(&active)
     }
 
     fn prune_terminal_spurs(&self, active: &mut [bool], minimum_branch_length: f64) {
@@ -189,9 +246,128 @@ impl Graph {
         (edges, length)
     }
 
-    fn maximal_paths(&self, active: &[bool]) -> Vec<Vec<Coord<f64>>> {
-        let mut visited = vec![false; self.edges.len()];
+    fn coherent_paths(&self, active: &[bool]) -> Vec<Vec<Coord<f64>>> {
+        let branches = self.maximal_branches(active);
+        let mut remaining = vec![true; branches.len()];
         let mut paths = Vec::new();
+
+        while remaining.iter().any(|remaining| *remaining) {
+            let maximum_length = branches
+                .iter()
+                .zip(&remaining)
+                .filter(|(_, remaining)| **remaining)
+                .map(|(branch, _)| branch.length)
+                .fold(0.0, f64::max);
+            let maximum_thickness = branches
+                .iter()
+                .zip(&remaining)
+                .filter(|(_, remaining)| **remaining)
+                .map(|(branch, _)| branch.thickness)
+                .fold(0.0, f64::max);
+
+            let mut seed = None;
+            let mut seed_score = f64::NEG_INFINITY;
+            for (index, branch) in branches.iter().enumerate() {
+                if !remaining[index] {
+                    continue;
+                }
+                let score = LENGTH_WEIGHT * normalized(branch.length, maximum_length)
+                    + THICKNESS_WEIGHT * normalized(branch.thickness, maximum_thickness);
+                if score > seed_score {
+                    seed = Some(index);
+                    seed_score = score;
+                }
+            }
+
+            let Some(seed) = seed else {
+                break;
+            };
+            remaining[seed] = false;
+            let mut path = branches[seed].nodes.clone();
+            self.extend_path(&branches, &mut remaining, &mut path, true);
+            self.extend_path(&branches, &mut remaining, &mut path, false);
+
+            if path.len() >= 2 {
+                paths.push(path.into_iter().map(|node| self.coords[node]).collect());
+            }
+        }
+
+        paths
+    }
+
+    fn extend_path(
+        &self,
+        branches: &[Branch],
+        remaining: &mut [bool],
+        path: &mut Vec<usize>,
+        at_front: bool,
+    ) {
+        loop {
+            let (junction, previous) = if at_front {
+                (path[0], path[1])
+            } else {
+                let end = path.len() - 1;
+                (path[end], path[end - 1])
+            };
+            let candidates = branches
+                .iter()
+                .enumerate()
+                .filter(|(index, branch)| remaining[*index] && branch.touches(junction))
+                .collect::<Vec<_>>();
+            if candidates.is_empty() {
+                break;
+            }
+
+            let maximum_length = candidates
+                .iter()
+                .map(|(_, branch)| branch.length)
+                .fold(0.0, f64::max);
+            let maximum_thickness = candidates
+                .iter()
+                .map(|(_, branch)| branch.thickness)
+                .fold(0.0, f64::max);
+            let mut selected = None;
+            let mut selected_score = f64::NEG_INFINITY;
+
+            for (index, branch) in candidates {
+                let Some(next) = branch.neighbor_from(junction) else {
+                    continue;
+                };
+                let straightness = continuation_straightness(
+                    self.coords[previous],
+                    self.coords[junction],
+                    self.coords[next],
+                );
+                let score = STRAIGHTNESS_WEIGHT * straightness
+                    + LENGTH_WEIGHT * normalized(branch.length, maximum_length)
+                    + THICKNESS_WEIGHT * normalized(branch.thickness, maximum_thickness);
+                if score > selected_score {
+                    selected = Some(index);
+                    selected_score = score;
+                }
+            }
+
+            let Some(selected) = selected else {
+                break;
+            };
+            remaining[selected] = false;
+            let Some(oriented) = branches[selected].nodes_from(junction) else {
+                break;
+            };
+
+            if at_front {
+                let mut extended = oriented.into_iter().skip(1).rev().collect::<Vec<_>>();
+                extended.append(path);
+                *path = extended;
+            } else {
+                path.extend(oriented.into_iter().skip(1));
+            }
+        }
+    }
+
+    fn maximal_branches(&self, active: &[bool]) -> Vec<Branch> {
+        let mut visited = vec![false; self.edges.len()];
+        let mut branches = Vec::new();
 
         // Trace every path incident to a leaf or junction first.
         for start in 0..self.coords.len() {
@@ -202,7 +378,7 @@ impl Graph {
 
             for &edge in &self.adjacency[start] {
                 if active[edge] && !visited[edge] {
-                    paths.push(self.trace_path(start, edge, active, &mut visited));
+                    branches.push(self.trace_branch(start, edge, active, &mut visited));
                 }
             }
         }
@@ -211,22 +387,23 @@ impl Graph {
         // centerline of a narrow polygon surrounding a hole.
         for edge in 0..self.edges.len() {
             if active[edge] && !visited[edge] {
-                paths.push(self.trace_path(self.edges[edge].a, edge, active, &mut visited));
+                branches.push(self.trace_branch(self.edges[edge].a, edge, active, &mut visited));
             }
         }
 
-        paths.retain(|path| path.len() >= 2);
-        paths
+        branches.retain(|branch| branch.nodes.len() >= 2);
+        branches
     }
 
-    fn trace_path(
+    fn trace_branch(
         &self,
         start: usize,
         first_edge: usize,
         active: &[bool],
         visited: &mut [bool],
-    ) -> Vec<Coord<f64>> {
-        let mut path = vec![self.coords[start]];
+    ) -> Branch {
+        let mut nodes = vec![start];
+        let mut branch_edges = Vec::new();
         let mut current = start;
         let mut edge = first_edge;
 
@@ -236,8 +413,9 @@ impl Graph {
             }
 
             visited[edge] = true;
+            branch_edges.push(edge);
             current = self.edges[edge].other(current);
-            path.push(self.coords[current]);
+            nodes.push(current);
 
             if self.active_degree(current, active) != 2 {
                 break;
@@ -253,7 +431,25 @@ impl Graph {
             edge = next_edge;
         }
 
-        path
+        let length = branch_edges
+            .iter()
+            .map(|&edge| self.edges[edge].weight)
+            .sum::<f64>();
+        let thickness = if length > 0.0 {
+            branch_edges
+                .iter()
+                .map(|&edge| self.edges[edge].thickness * self.edges[edge].weight)
+                .sum::<f64>()
+                / length
+        } else {
+            0.0
+        };
+
+        Branch {
+            nodes,
+            length,
+            thickness,
+        }
     }
 
     fn active_degree(&self, node: usize, active: &[bool]) -> usize {
@@ -308,25 +504,58 @@ mod tests {
         Line::new(coord! { x: a.0, y: a.1 }, coord! { x: b.0, y: b.1 })
     }
 
+    fn add(graph: &mut Graph, a: (f64, f64), b: (f64, f64), thickness: f64) {
+        graph.add_line(&line(a, b), thickness);
+    }
+
     #[test]
-    fn returns_each_significant_branch() {
+    fn joins_the_straightest_branches_into_the_main_line() {
         let mut graph = Graph::new();
-        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
-        graph.add_line(&line((10.0, 0.0), (20.0, 8.0)));
-        graph.add_line(&line((10.0, 0.0), (20.0, -8.0)));
+        add(&mut graph, (0.0, 0.0), (10.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (20.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (10.0, 10.0), 2.0);
 
         let branches = graph.significant_branches(5.0);
 
-        assert_eq!(branches.len(), 3);
-        assert!(branches.iter().all(|branch| branch.len() == 2));
+        assert_eq!(branches.len(), 2);
+        assert_eq!(branches[0].first().unwrap().x, 0.0);
+        assert_eq!(branches[0].last().unwrap().x, 20.0);
+    }
+
+    #[test]
+    fn uses_branch_length_to_choose_between_equally_straight_continuations() {
+        let mut graph = Graph::new();
+        add(&mut graph, (-20.0, 0.0), (0.0, 0.0), 2.0);
+        add(&mut graph, (0.0, 0.0), (10.0, 10.0), 2.0);
+        add(&mut graph, (0.0, 0.0), (15.0, -15.0), 2.0);
+
+        let branches = graph.significant_branches(5.0);
+
+        assert_eq!(branches.len(), 2);
+        assert!(branches[0].contains(&coord! { x: 15.0, y: -15.0 }));
+        assert!(!branches[0].contains(&coord! { x: 10.0, y: 10.0 }));
+    }
+
+    #[test]
+    fn uses_branch_thickness_to_break_an_equal_angle_and_length_tie() {
+        let mut graph = Graph::new();
+        add(&mut graph, (-20.0, 0.0), (0.0, 0.0), 2.0);
+        add(&mut graph, (0.0, 0.0), (10.0, 10.0), 4.0);
+        add(&mut graph, (0.0, 0.0), (10.0, -10.0), 1.0);
+
+        let branches = graph.significant_branches(5.0);
+
+        assert_eq!(branches.len(), 2);
+        assert!(branches[0].contains(&coord! { x: 10.0, y: 10.0 }));
+        assert!(!branches[0].contains(&coord! { x: 10.0, y: -10.0 }));
     }
 
     #[test]
     fn removes_short_spurs_and_coalesces_the_centerline() {
         let mut graph = Graph::new();
-        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
-        graph.add_line(&line((10.0, 0.0), (20.0, 0.0)));
-        graph.add_line(&line((10.0, 0.0), (10.0, 2.0)));
+        add(&mut graph, (0.0, 0.0), (10.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (20.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (10.0, 2.0), 2.0);
 
         let branches = graph.significant_branches(5.0);
 
@@ -342,7 +571,7 @@ mod tests {
     #[test]
     fn rejects_a_graph_without_a_significant_path() {
         let mut graph = Graph::new();
-        graph.add_line(&line((0.0, 0.0), (4.0, 0.0)));
+        add(&mut graph, (0.0, 0.0), (4.0, 0.0), 2.0);
 
         assert!(graph.significant_branches(5.0).is_empty());
     }
@@ -350,10 +579,10 @@ mod tests {
     #[test]
     fn retains_a_degree_two_cycle_as_a_closed_centerline() {
         let mut graph = Graph::new();
-        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
-        graph.add_line(&line((10.0, 0.0), (10.0, 10.0)));
-        graph.add_line(&line((10.0, 10.0), (0.0, 10.0)));
-        graph.add_line(&line((0.0, 10.0), (0.0, 0.0)));
+        add(&mut graph, (0.0, 0.0), (10.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (10.0, 10.0), 2.0);
+        add(&mut graph, (10.0, 10.0), (0.0, 10.0), 2.0);
+        add(&mut graph, (0.0, 10.0), (0.0, 0.0), 2.0);
 
         let branches = graph.significant_branches(5.0);
 
@@ -364,10 +593,10 @@ mod tests {
     #[test]
     fn rejects_a_short_degree_two_cycle() {
         let mut graph = Graph::new();
-        graph.add_line(&line((0.0, 0.0), (1.0, 0.0)));
-        graph.add_line(&line((1.0, 0.0), (1.0, 1.0)));
-        graph.add_line(&line((1.0, 1.0), (0.0, 1.0)));
-        graph.add_line(&line((0.0, 1.0), (0.0, 0.0)));
+        add(&mut graph, (0.0, 0.0), (1.0, 0.0), 2.0);
+        add(&mut graph, (1.0, 0.0), (1.0, 1.0), 2.0);
+        add(&mut graph, (1.0, 1.0), (0.0, 1.0), 2.0);
+        add(&mut graph, (0.0, 1.0), (0.0, 0.0), 2.0);
 
         assert!(graph.significant_branches(5.0).is_empty());
     }

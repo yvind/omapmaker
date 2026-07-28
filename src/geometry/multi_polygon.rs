@@ -1,14 +1,11 @@
 use crate::parameters::BufferRule;
 
 use super::MapLineString;
-use geo::{BooleanOps, Buffer, Contains, Intersects, Simplify};
+use geo::{Area, BooleanOps, Buffer, Contains, Intersects, Simplify};
 
 /// Match the CLI extractor's default while allowing finer sampling when the
 /// collapse threshold itself is smaller.
 const MAX_CENTERLINE_SPACING: f64 = 12.0;
-/// A branch must extend at least one full collapse diameter to distinguish a
-/// line-like arm from the medial-axis spokes of a compact polygon.
-const MINIMUM_BRANCH_LENGTH_FACTOR: f64 = 2.0;
 
 pub trait MapMultiPolygon {
     fn from_contours(
@@ -25,9 +22,16 @@ pub trait MapMultiPolygon {
     /// Returns `(collapsed_centerlines, retained_polygons)`. Portions whose
     /// centerlines intersect the inward buffer remain polygonal; narrow
     /// portions removed by that buffer become centerlines. Polygons that do not
-    /// resemble thick lines remain unchanged. Non-positive/non-finite amounts
-    /// leave all polygons unchanged.
-    fn collapse(self, amount: f64) -> (geo::MultiLineString, geo::MultiPolygon);
+    /// resemble thick lines remain unchanged. `minimum_branch_length` controls
+    /// that line-like-shape criterion; polygons smaller than
+    /// `linearity_exemption_area` bypass it. Invalid values leave all polygons
+    /// unchanged.
+    fn collapse(
+        self,
+        amount: f64,
+        minimum_branch_length: f64,
+        linearity_exemption_area: f64,
+    ) -> (geo::MultiLineString, geo::MultiPolygon);
 }
 
 impl MapMultiPolygon for geo::MultiPolygon {
@@ -88,20 +92,38 @@ impl MapMultiPolygon for geo::MultiPolygon {
         self.buffer(distance).simplify(crate::SIMPLIFICATION_DIST)
     }
 
-    fn collapse(self, amount: f64) -> (geo::MultiLineString, geo::MultiPolygon) {
-        if !amount.is_finite() || amount <= 0.0 {
+    fn collapse(
+        self,
+        amount: f64,
+        minimum_branch_length: f64,
+        linearity_exemption_area: f64,
+    ) -> (geo::MultiLineString, geo::MultiPolygon) {
+        if !amount.is_finite()
+            || amount <= 0.0
+            || !minimum_branch_length.is_finite()
+            || minimum_branch_length < 0.0
+            || !linearity_exemption_area.is_finite()
+            || linearity_exemption_area < 0.0
+        {
             return (geo::MultiLineString::new(vec![]), self);
         }
 
         let centerline_spacing = amount.clamp(crate::SIMPLIFICATION_DIST, MAX_CENTERLINE_SPACING);
-        let minimum_branch_length = MINIMUM_BRANCH_LENGTH_FACTOR * amount;
         let mut lines = Vec::with_capacity(self.0.len());
         let mut polygons = Vec::with_capacity(self.0.len());
 
         for polygon in self {
-            let Some(centerlines) =
-                super::centerline::extract(&polygon, centerline_spacing, minimum_branch_length)
-            else {
+            let polygon_minimum_branch_length =
+                if polygon.unsigned_area() < linearity_exemption_area {
+                    0.0
+                } else {
+                    minimum_branch_length
+                };
+            let Some(centerlines) = super::centerline::extract(
+                &polygon,
+                centerline_spacing,
+                polygon_minimum_branch_length,
+            ) else {
                 // A degenerate polygon or failed triangulation must not make
                 // source geometry disappear. This also retains compact shapes
                 // whose medial axes contain no significant branch.
@@ -164,7 +186,8 @@ mod tests {
     fn collapse_turns_a_narrow_polygon_into_its_centerline() {
         let source = rectangle(0.0, 0.0, 100.0, 4.0);
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![source.clone()]).collapse(3.0);
+        let (lines, polygons) =
+            geo::MultiPolygon::new(vec![source.clone()]).collapse(3.0, 6.0, 0.0);
 
         assert!(polygons.0.is_empty());
         assert_eq!(lines.0.len(), 1);
@@ -183,7 +206,7 @@ mod tests {
         let source = rectangle(0.0, 0.0, 100.0, 10.0);
         let source_area = source.unsigned_area();
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0);
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0, 6.0, 0.0);
 
         assert!(lines.0.is_empty());
         assert_eq!(polygons.0.len(), 1);
@@ -203,10 +226,13 @@ mod tests {
             (x: -2.0, y: -2.0),
         ];
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0);
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0, 6.0, 0.0);
 
         assert!(polygons.0.is_empty());
-        assert_eq!(lines.0.len(), 3);
+        assert_eq!(lines.0.len(), 2);
+        let main_bounds = lines.0[0].bounding_rect().expect("main line has bounds");
+        assert!(main_bounds.width() > 50.0);
+        assert!(main_bounds.height() < 5.0);
     }
 
     #[test]
@@ -214,11 +240,36 @@ mod tests {
         let source = rectangle(0.0, 0.0, 10.0, 10.0);
         let source_area = source.unsigned_area();
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(6.0);
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(6.0, 12.0, 0.0);
 
         assert!(lines.0.is_empty());
         assert_eq!(polygons.0.len(), 1);
         assert_eq!(polygons.unsigned_area(), source_area);
+    }
+
+    #[test]
+    fn linearity_threshold_is_adjustable() {
+        let source = rectangle(0.0, 0.0, 5.0, 5.0);
+
+        let (default_lines, default_polygons) =
+            geo::MultiPolygon::new(vec![source.clone()]).collapse(3.0, 6.0, 0.0);
+        let (permissive_lines, permissive_polygons) =
+            geo::MultiPolygon::new(vec![source]).collapse(3.0, 0.0, 0.0);
+
+        assert!(default_lines.0.is_empty());
+        assert_eq!(default_polygons.0.len(), 1);
+        assert!(!permissive_lines.0.is_empty());
+        assert!(permissive_polygons.0.is_empty());
+    }
+
+    #[test]
+    fn smallest_polygons_bypass_the_linearity_threshold() {
+        let source = rectangle(0.0, 0.0, 5.0, 5.0);
+
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0, 6.0, 26.0);
+
+        assert!(!lines.0.is_empty());
+        assert!(polygons.0.is_empty());
     }
 
     #[test]
@@ -235,7 +286,7 @@ mod tests {
         ];
         let source_area = source.unsigned_area();
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0);
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(3.0, 6.0, 0.0);
 
         assert_eq!(lines.0.len(), 1);
         assert!(!polygons.0.is_empty());
@@ -262,7 +313,7 @@ mod tests {
         let narrow = rectangle(0.0, 0.0, 100.0, 4.0);
         let wide = rectangle(200.0, 0.0, 100.0, 10.0);
 
-        let (lines, polygons) = geo::MultiPolygon::new(vec![narrow, wide]).collapse(3.0);
+        let (lines, polygons) = geo::MultiPolygon::new(vec![narrow, wide]).collapse(3.0, 6.0, 0.0);
 
         assert_eq!(lines.0.len(), 1);
         assert_eq!(polygons.0.len(), 1);
@@ -273,7 +324,7 @@ mod tests {
     fn non_positive_amount_preserves_the_input() {
         let source = geo::MultiPolygon::new(vec![rectangle(0.0, 0.0, 10.0, 4.0)]);
 
-        let (lines, polygons) = source.clone().collapse(0.0);
+        let (lines, polygons) = source.clone().collapse(0.0, 0.0, 0.0);
 
         assert!(lines.0.is_empty());
         assert_eq!(polygons, source);

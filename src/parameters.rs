@@ -122,6 +122,7 @@ pub struct CliffParameters {
     pub collapse: bool,
     pub collapse_amount_small_cliff: f32,
     pub collapse_amount_large_cliff: f32,
+    pub collapse_linearity: f32,
 }
 
 impl Default for CliffParameters {
@@ -131,6 +132,7 @@ impl Default for CliffParameters {
             collapse: true,
             collapse_amount_small_cliff: 1.,
             collapse_amount_large_cliff: 2.,
+            collapse_linearity: 2.,
         }
     }
 }

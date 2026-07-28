@@ -29,16 +29,24 @@ pub fn compute_cliffs(
     cliff_polygons = cut_overlay.intersection(&cliff_polygons);
 
     let (small_cliff_lines, large_cliff_lines, cliff_polygons) = if params.cliff.collapse {
-        let (mut small_cliff_lines, mut cliff_polygons) =
-            cliff_polygons.collapse(params.cliff.collapse_amount_small_cliff as f64);
-        small_cliff_lines =
-            small_cliff_lines.simplify(params.cliff.collapse_amount_small_cliff as f64 / 4.);
+        let linearity = params.cliff.collapse_linearity as f64;
+        let linearity_exemption_area = AreaSymbol::GiganticBoulder.min_size(&params.scale);
+        let small_collapse_amount = params.cliff.collapse_amount_small_cliff as f64;
+        let (mut small_cliff_lines, mut cliff_polygons) = cliff_polygons.collapse(
+            small_collapse_amount,
+            linearity * small_collapse_amount,
+            linearity_exemption_area,
+        );
+        small_cliff_lines = small_cliff_lines.simplify(small_collapse_amount / 4.);
         cliff_polygons = cliff_polygons.simplify(crate::SIMPLIFICATION_DIST);
 
-        let (mut large_cliff_lines, mut cliff_polygons) =
-            cliff_polygons.collapse(params.cliff.collapse_amount_large_cliff as f64);
-        large_cliff_lines =
-            large_cliff_lines.simplify(params.cliff.collapse_amount_large_cliff as f64 / 4.);
+        let large_collapse_amount = params.cliff.collapse_amount_large_cliff as f64;
+        let (mut large_cliff_lines, mut cliff_polygons) = cliff_polygons.collapse(
+            large_collapse_amount,
+            linearity * large_collapse_amount,
+            linearity_exemption_area,
+        );
+        large_cliff_lines = large_cliff_lines.simplify(large_collapse_amount / 4.);
 
         cliff_polygons = cliff_polygons.simplify(crate::SIMPLIFICATION_DIST);
         (small_cliff_lines, large_cliff_lines, cliff_polygons)

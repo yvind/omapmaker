@@ -1,8 +1,8 @@
 //! Medial-axis centerline extraction for projected polygons.
 
 use geo::{
-    Coord, Densify, Euclidean, Line, LineString, MultiLineString, Polygon, PreparedGeometry,
-    Relate, TriangulateDelaunayUnconstrained,
+    Coord, Densify, Distance, Euclidean, Line, LineString, MultiLineString, Point, Polygon,
+    PreparedGeometry, Relate, TriangulateDelaunayUnconstrained,
 };
 use spade::{Triangulation, handles::VoronoiVertex::Inner};
 
@@ -19,7 +19,7 @@ pub(super) fn extract(
         || !densify_spacing.is_finite()
         || densify_spacing <= 0.0
         || !minimum_branch_length.is_finite()
-        || minimum_branch_length <= 0.0
+        || minimum_branch_length < 0.0
     {
         return None;
     }
@@ -46,7 +46,9 @@ pub(super) fn extract(
             Coord { x: to.x, y: to.y },
         );
         if prepared.relate(&edge).is_contains() {
-            graph.add_line(&edge);
+            let thickness =
+                boundary_distance(polygon, edge.start) + boundary_distance(polygon, edge.end);
+            graph.add_line(&edge, thickness);
         }
     }
 
@@ -56,6 +58,14 @@ pub(super) fn extract(
         .map(LineString::new)
         .collect::<Vec<_>>();
     (!branches.is_empty()).then(|| MultiLineString::new(branches))
+}
+
+fn boundary_distance(polygon: &Polygon<f64>, coordinate: Coord<f64>) -> f64 {
+    let point = Point::from(coordinate);
+    std::iter::once(polygon.exterior())
+        .chain(polygon.interiors())
+        .map(|ring| Euclidean.distance(&point, ring))
+        .fold(f64::INFINITY, f64::min)
 }
 
 #[cfg(test)]
