@@ -64,7 +64,8 @@ impl DrawablePolygonObject {
             .map(|c| (c[0] + ref_point.x, c[1] + ref_point.y))
             .collect();
         let obj = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+            let transform =
+                Transform::from_horizontal_components(&crs, &crate::project::get_global_crs())?;
 
             let transformed_points = transform.convert_batch(&vertices)?;
             transformed_points
@@ -211,7 +212,8 @@ impl DrawableLineObject {
         };
 
         let obj = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+            let transform =
+                Transform::from_horizontal_components(&crs, &crate::project::get_global_crs())?;
 
             let line: Vec<(f64, f64)> = line
                 .0
@@ -273,7 +275,8 @@ impl DrawablePointObject {
         crs: Option<CrsDef>,
     ) -> Result<Self> {
         let pos = if let Some(crs) = crs {
-            let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+            let transform =
+                Transform::from_horizontal_components(&crs, &crate::project::get_global_crs())?;
 
             let p = (point.x() + ref_point.x, point.y() + ref_point.y);
             let transformed_p = transform.convert(p)?;

@@ -141,6 +141,7 @@ impl OmapMaker {
                     self.gui_variables.project.save_canopy_height_raster = false;
                     self.gui_variables.project.save_surface_objects_raster = false;
                     self.gui_variables.project.save_ndvd_raster = false;
+                    self.gui_variables.project.save_point_density_raster = false;
                 }
 
                 ui.indent("indented raster checkboxes", |ui| {
@@ -190,6 +191,17 @@ impl OmapMaker {
                             &mut self.gui_variables.project.save_ndvd_raster,
                             "Save NDVD raster",
                         ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_point_density_raster,
+                            "Save lidar point-density raster",
+                        ),
+                    )
+                    .on_hover_text(
+                        "Calculate points per square metre for each cell and scale the merged raster for image viewers.",
                     );
                 });
             });
@@ -593,6 +605,18 @@ impl OmapMaker {
                         .text("Cliff")
                         .show_value(true),
                     );
+                    ui.add_space(10.);
+                    ui.checkbox(&mut self.gui_variables.generation.params.cliff.collapse, "Convert linear polygons to line objects");
+                    ui.add_enabled_ui(self.gui_variables.generation.params.cliff.collapse, |ui| {
+                        ui.add(egui::Slider::new(
+                            &mut self.gui_variables.generation.params.cliff.collapse_amount_small_cliff,
+                            0.1..=5.0
+                        ).text("Collapse amount").show_value(true));
+                        ui.add(egui::Slider::new(
+                            &mut self.gui_variables.generation.params.cliff.collapse_amount_large_cliff,
+                            0.1..=5.0
+                        ).text("Collapse amount").show_value(true));
+                    });
                     ui.add_space(20.);
                     ui.label(egui::RichText::new("Cliff Bezier simplification").strong());
                     Self::render_bezier_parameters(
@@ -607,7 +631,7 @@ impl OmapMaker {
                             .geometry
                             .cliffs
                             .min_size_filter,
-                        "Filter polygons by minimum symbol size.",
+                        "Filter lines/polygons by minimum symbol size.",
                     );
                     ui.add_space(20.);
                     Self::render_buffer_rules(
@@ -1152,7 +1176,7 @@ impl OmapMaker {
                         );
                     });
                 ui.label("Distance: ");
-                ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(1.0..=50.0));
+                ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(0.1..=25.0));
             });
         }
         ui.horizontal(|ui| {

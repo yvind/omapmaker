@@ -69,8 +69,8 @@ impl Backend {
                 BackendTask::ConvertCopc(task) => {
                     let ConvertCopcTask {
                         paths,
-                        in_epsg,
-                        out_epsg,
+                        in_crs,
+                        out_crs,
                         save_location,
                         bounds,
                         polygon,
@@ -81,8 +81,8 @@ impl Backend {
                     crate::convert_copc::convert_copc(
                         self.comms.sender(),
                         paths,
-                        in_epsg,
-                        out_epsg,
+                        in_crs,
+                        out_crs,
                         save_location,
                         bounds,
                         polygon,

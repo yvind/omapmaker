@@ -42,8 +42,8 @@ pub struct InitializeMapTileTask {
 
 pub struct ConvertCopcTask {
     pub paths: Vec<PathBuf>,
-    pub in_epsg: Vec<Option<CrsDef>>,
-    pub out_epsg: Option<CrsDef>,
+    pub in_crs: Vec<Option<CrsDef>>,
+    pub out_crs: Option<CrsDef>,
     pub save_location: PathBuf,
     pub bounds: Vec<[walkers::Position; 4]>,
     pub polygon: geo::LineString,

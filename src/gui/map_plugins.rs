@@ -339,8 +339,7 @@ fn display_to_projected_coord(
         return Ok(coord);
     };
 
-    let global = proj_wkt::parse_crs("4326")?;
-    let transform = Transform::from_crs_defs(&global, crs)?;
+    let transform = Transform::from_horizontal_components(&crate::project::get_global_crs(), crs)?;
     transform
         .convert_geometry(coord)
         .map_err(|e| anyhow::anyhow!(e))
@@ -364,7 +363,8 @@ fn rect_to_display_boundary(
     ];
 
     if let Some(crs) = crs {
-        let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+        let transform =
+            Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
         for corner in &mut corners {
             let transformed = transform.convert((corner.x, corner.y))?;
             corner.x = transformed.0;

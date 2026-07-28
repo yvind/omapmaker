@@ -1,4 +1,6 @@
+pub mod centerline;
 pub mod contour_set;
+pub mod graph;
 pub mod line_string;
 pub mod multi_polygon;
 pub mod point_cloud;

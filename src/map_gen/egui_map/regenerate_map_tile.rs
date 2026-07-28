@@ -101,6 +101,8 @@ pub fn regenerate_map_tile(
     }
     if steps.cliffs {
         omap.reserve_capacity(AreaSymbol::GiganticBoulder, 0);
+        omap.reserve_capacity(LineSymbol::Cliff, 0);
+        omap.reserve_capacity(LineSymbol::ImpassableCliff, 0);
     }
     if steps.water {
         omap.reserve_capacity(AreaSymbol::UncrossableWaterWithBankLine, 0);
@@ -175,7 +177,11 @@ fn changed_steps(
     steps.vegetation = new.vegetation.green != old.vegetation.green
         || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
-    steps.cliffs = new.cliff.cliff != old.cliff.cliff || new.geometry.cliffs != old.geometry.cliffs;
+    steps.cliffs = new.cliff.cliff != old.cliff.cliff
+        || new.geometry.cliffs != old.geometry.cliffs
+        || new.cliff.collapse != old.cliff.collapse
+        || new.cliff.collapse_amount_small_cliff != old.cliff.collapse_amount_small_cliff
+        || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval

@@ -85,8 +85,9 @@ impl DrawableOmap {
     ) -> Result<Self> {
         let ref_point = tmap.ref_point;
 
-        let global_hull = if let Some(epsg) = &tmap.crs {
-            let transform = Transform::from_epsg(epsg.epsg(), 4326)?;
+        let global_hull = if let Some(crs) = &tmap.crs {
+            let transform =
+                Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
 
             let points: Vec<(f64, f64)> = hull
                 .0

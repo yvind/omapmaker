@@ -50,12 +50,12 @@ pub fn initialize_map_tile(
             min: Vector {
                 x: tile_bounds.min().x,
                 y: tile_bounds.min().y,
-                z: f64::MAX,
+                z: (i32::MIN / 1000) as f64,
             },
             max: Vector {
                 x: tile_bounds.max().x,
                 y: tile_bounds.max().y,
-                z: f64::MIN,
+                z: (i32::MAX / 1000) as f64,
             },
         };
         shifted_bounds.max.x -= ref_point.x;
@@ -79,16 +79,19 @@ pub fn initialize_map_tile(
                 min: Vector {
                     x: tile_bounds.min().x,
                     y: tile_bounds.min().y,
-                    z: header_bounds.min.z,
+                    z: (i32::MIN / 1000) as f64,
                 },
                 max: Vector {
                     x: tile_bounds.max().x,
                     y: tile_bounds.max().y,
-                    z: header_bounds.max.z,
+                    z: (i32::MAX / 1000) as f64,
                 },
             };
 
-            for mut p in reader.points(LodSelection::All, BoundsSelection::Within(bounds))? {
+            for mut p in reader
+                .points(LodSelection::All, BoundsSelection::Within(bounds))?
+                .filter_map(std::result::Result::ok)
+            {
                 if p.is_withheld {
                     continue;
                 }

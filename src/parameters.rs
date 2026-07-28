@@ -119,11 +119,19 @@ impl Default for WaterParameters {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CliffParameters {
     pub cliff: f32,
+    pub collapse: bool,
+    pub collapse_amount_small_cliff: f32,
+    pub collapse_amount_large_cliff: f32,
 }
 
 impl Default for CliffParameters {
     fn default() -> Self {
-        Self { cliff: 2.5 }
+        Self {
+            cliff: 0.7,
+            collapse: true,
+            collapse_amount_small_cliff: 1.,
+            collapse_amount_large_cliff: 2.,
+        }
     }
 }
 
@@ -180,7 +188,9 @@ impl GeometryParameters {
             Symbol::Area(AreaSymbol::LightGreen)
             | Symbol::Area(AreaSymbol::MediumGreen)
             | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
-            Symbol::Area(AreaSymbol::GiganticBoulder) => &self.cliffs.bezier,
+            Symbol::Area(AreaSymbol::GiganticBoulder)
+            | Symbol::Line(LineSymbol::Cliff)
+            | Symbol::Line(LineSymbol::ImpassableCliff) => &self.cliffs.bezier,
             Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine) => &self.water.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,
@@ -222,6 +232,7 @@ pub struct FileParameters {
     pub save_canopy_height_raster: bool,
     pub save_surface_objects_raster: bool,
     pub save_ndvd_raster: bool,
+    pub save_point_density_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

@@ -49,6 +49,8 @@ impl DrawOrder for Symbol {
             Symbol::Area(AreaSymbol::ShallowWaterWithSolidBankLine),
             Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine),
             Symbol::Area(AreaSymbol::GiganticBoulder),
+            Symbol::Line(LineSymbol::Cliff),
+            Symbol::Line(LineSymbol::ImpassableCliff),
             Symbol::Area(AreaSymbol::Building),
             Symbol::Point(PointSymbol::SmallBoulder),
             Symbol::Point(PointSymbol::LargeBoulder),
@@ -131,7 +133,7 @@ impl DrawableSymbol for LineSymbol {
         let scale_factor = SCALE_FACTOR * pixels_per_meter;
 
         match self {
-            LineSymbol::Contour => Some((false, Stroke::new(3. * scale_factor, BROWN))),
+            LineSymbol::Contour => Some((false, Stroke::new(3.5 * scale_factor, BROWN))),
             LineSymbol::BasemapContour => {
                 Some((false, Stroke::new(1. * scale_factor, LIGHT_BROWN)))
             }
@@ -140,6 +142,10 @@ impl DrawableSymbol for LineSymbol {
             LineSymbol::FormLine => Some((false, Stroke::new(2. * scale_factor, MEDIUM_BROWN))),
             LineSymbol::SmallCrossableWatercourse => {
                 Some((false, Stroke::new(4. * scale_factor, Color32::BLUE)))
+            }
+            LineSymbol::Cliff => Some((false, Stroke::new(5. * scale_factor, Color32::BLACK))),
+            LineSymbol::ImpassableCliff => {
+                Some((false, Stroke::new(7. * scale_factor, Color32::BLACK)))
             }
         }
     }

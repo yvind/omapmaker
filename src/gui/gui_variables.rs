@@ -42,7 +42,7 @@ pub struct ProjectFiles {
     pub paths: Vec<std::path::PathBuf>,
     pub save_location: std::path::PathBuf,
     pub selected_file: Option<usize>,
-    pub crs_epsg: Vec<Option<CrsDef>>,
+    pub crses: Vec<Option<CrsDef>>,
     pub write_single_copc: bool,
     pub memory_budget_gb: u8,
     pub single_copc_path: Option<std::path::PathBuf>,
@@ -54,6 +54,7 @@ pub struct ProjectFiles {
     pub save_canopy_height_raster: bool,
     pub save_surface_objects_raster: bool,
     pub save_ndvd_raster: bool,
+    pub save_point_density_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -62,7 +63,7 @@ impl Default for ProjectFiles {
             paths: Default::default(),
             save_location: Default::default(),
             selected_file: Default::default(),
-            crs_epsg: Default::default(),
+            crses: Default::default(),
             write_single_copc: Default::default(),
             single_copc_path: Default::default(),
             memory_budget_gb: 8,
@@ -77,6 +78,7 @@ impl Default for ProjectFiles {
             save_canopy_height_raster: Default::default(),
             save_surface_objects_raster: Default::default(),
             save_ndvd_raster: Default::default(),
+            save_point_density_raster: Default::default(),
         }
     }
 }
@@ -105,6 +107,7 @@ impl ProjectFiles {
                 save_last_return_raster: self.save_rasters && self.save_last_return_raster,
                 save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
                 save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
+                save_point_density_raster: self.save_rasters && self.save_point_density_raster,
                 crs_epsg: vec![],
                 save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
             };
@@ -118,7 +121,8 @@ impl ProjectFiles {
             save_last_return_raster: self.save_rasters && self.save_last_return_raster,
             save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
             save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
-            crs_epsg: self.crs_epsg.clone(),
+            save_point_density_raster: self.save_rasters && self.save_point_density_raster,
+            crs_epsg: self.crses.clone(),
             save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
         }
     }
@@ -263,7 +267,7 @@ pub struct GuiVariables {
 impl GuiVariables {
     pub fn get_most_popular_crs(&self) -> Option<CrsDef> {
         let mut crs_tally: Vec<(u32, u16, CrsDef)> = Vec::new();
-        for crs in self.project.crs_epsg.iter().flatten() {
+        for crs in self.project.crses.iter().flatten() {
             let epsg = crs.epsg();
             if let Some((_, count, _)) = crs_tally.iter_mut().find(|(code, _, _)| *code == epsg) {
                 *count += 1;
@@ -279,7 +283,7 @@ impl GuiVariables {
 
     pub fn update_unique_crs(&mut self) {
         self.lidar.unique_crs.clear();
-        for crs in self.project.crs_epsg.iter() {
+        for crs in self.project.crses.iter() {
             if let Some(def) = crs
                 && !self
                     .lidar
@@ -317,7 +321,7 @@ impl GuiVariables {
 
         for drop_file in drop_files {
             self.project.paths.remove(drop_file);
-            self.project.crs_epsg.remove(drop_file);
+            self.project.crses.remove(drop_file);
             self.lidar.boundaries.remove(drop_file);
             self.lidar.boundary_areas.remove(drop_file);
         }
@@ -366,7 +370,8 @@ impl GuiVariables {
                 save_last_return_raster: false,
                 save_surface_objects_raster: false,
                 save_ndvd_raster: false,
-                crs_epsg: self.project.crs_epsg.clone(),
+                save_point_density_raster: false,
+                crs_epsg: self.project.crses.clone(),
                 save_canopy_height_raster: false,
             },
             output_crs: self.generation.params.output.crs.clone(),
@@ -488,7 +493,7 @@ fn boundary_to_projected_polygon(
         return Ok(geo::Polygon::new(line, vec![]));
     };
 
-    let transform = Transform::from_epsg(4326, crs.epsg())?;
+    let transform = Transform::from_horizontal_components(&crate::project::get_global_crs(), crs)?;
     Ok(geo::Polygon::new(transform.convert_geometry(line)?, vec![]))
 }
 
@@ -500,7 +505,7 @@ fn projected_to_display_multipolygon(
         return Ok(multipolygon.clone());
     };
 
-    let transform = Transform::from_epsg(crs.epsg(), 4326)?;
+    let transform = Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
     let mut out = Vec::with_capacity(multipolygon.0.len());
     for polygon in &multipolygon.0 {
         let exterior = transform.convert_geometry(polygon.exterior().clone())?;

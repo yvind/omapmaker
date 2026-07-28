@@ -4,7 +4,7 @@ use crate::{
     CELL_SIZE_METERS, TILE_SIZE_METERS, TILE_SIZE_PIXELS,
     raster::{
         Dfm,
-        dfm::{Elevation, HeightAboveGround},
+        dfm::{Elevation, HeightAboveGround, PointDensity},
     },
 };
 use anyhow::{Context, bail};
@@ -85,6 +85,34 @@ impl PointCloud {
         chm
     }
 
+    pub fn point_density<T>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
+        let mut density = Dfm::<PointDensity>::new_like(grid);
+        let mut counts = vec![0_u32; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+
+        for point in &self.points {
+            let x_index = ((point.x() - grid.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
+            let y_index = ((grid.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+
+            if x_index < 0
+                || y_index < 0
+                || x_index >= TILE_SIZE_PIXELS as isize
+                || y_index >= TILE_SIZE_PIXELS as isize
+            {
+                continue;
+            }
+
+            let index = y_index as usize * TILE_SIZE_PIXELS + x_index as usize;
+            counts[index] += 1;
+        }
+
+        let cell_area = CELL_SIZE_METERS.powi(2);
+        for (value, count) in density.field.iter_mut().zip(counts) {
+            *value = (f64::from(count) / cell_area) as f32;
+        }
+
+        density
+    }
+
     pub fn get_dfm_dimensions(&self) -> Bounds {
         let dx = self.bounds.max.x - self.bounds.min.x;
         let dy = self.bounds.max.y - self.bounds.min.y;
@@ -108,12 +136,12 @@ impl PointCloud {
             min: Vector {
                 x: self.bounds.min.x - stretch_x + offset_x,
                 y: self.bounds.min.y - stretch_y + offset_y,
-                z: self.bounds.min.z,
+                z: (i32::MIN / 1000) as f64,
             },
             max: Vector {
                 x: self.bounds.max.x + stretch_x + offset_x,
                 y: self.bounds.max.y + stretch_y + offset_y,
-                z: self.bounds.max.z,
+                z: (i32::MAX / 1000) as f64,
             },
         }
     }
@@ -268,5 +296,34 @@ mod tests {
             .abs()
                 < 0.01
         );
+    }
+
+    #[test]
+    fn point_density_is_point_count_divided_by_cell_area() {
+        let bounds = Bounds {
+            min: Vector {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            max: Vector {
+                x: TILE_SIZE_METERS,
+                y: TILE_SIZE_METERS,
+                z: 0.,
+            },
+        };
+        let grid = Dfm::<Elevation>::new(geo::Coord { x: 0., y: 10. });
+        let points = vec![
+            PointLaz::new(0.1, 9.9, 0.),
+            PointLaz::new(-0.1, 10.1, 0.),
+            PointLaz::new(CELL_SIZE_METERS, 10., 0.),
+            PointLaz::new(-CELL_SIZE_METERS, 10., 0.),
+        ];
+
+        let density = PointCloud::new(points, bounds).point_density(&grid);
+
+        assert_eq!(density[(0, 0)], (2. / CELL_SIZE_METERS.powi(2)) as f32);
+        assert_eq!(density[(0, 1)], (1. / CELL_SIZE_METERS.powi(2)) as f32);
+        assert_eq!(density[(1, 0)], 0.);
     }
 }

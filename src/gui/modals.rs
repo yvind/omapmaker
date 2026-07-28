@@ -103,7 +103,7 @@ impl OmapMaker {
 
     pub fn set_one_crs_for_each_modal(&mut self, ctx: &egui::Context) {
         let mut crs_less_files = vec![];
-        for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
+        for (i, crs) in self.gui_variables.project.crses.iter().enumerate() {
             if crs.is_none() {
                 crs_less_files.push(i);
             }

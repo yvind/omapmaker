@@ -213,7 +213,7 @@ impl OmapMaker {
             Variable::BoundaryAreas(vec) => self.gui_variables.lidar.boundary_areas = vec,
             Variable::Home(position) => self.home = position,
             Variable::CrsDefs(vec) => {
-                self.gui_variables.project.crs_epsg = vec;
+                self.gui_variables.project.crses = vec;
                 self.gui_variables.update_unique_crs();
             }
             Variable::CrsLessString(num) => {
@@ -277,7 +277,7 @@ impl OmapMaker {
                 if self.gui_variables.generation.params.output.crs.is_some() {
                     let _ = self.comms.send(BackendTask::MapSpatialLidarRelations(
                         self.gui_variables.project.paths.clone(),
-                        Some(self.gui_variables.project.crs_epsg.clone()),
+                        Some(self.gui_variables.project.crses.clone()),
                     ));
                 } else {
                     let _ = self.comms.send(BackendTask::MapSpatialLidarRelations(
@@ -378,8 +378,8 @@ impl OmapMaker {
                     .comms
                     .send(BackendTask::ConvertCopc(Box::new(ConvertCopcTask {
                         paths: ready.file_params.paths,
-                        in_epsg: ready.file_params.crs_epsg,
-                        out_epsg: ready.output_crs,
+                        in_crs: ready.file_params.crs_epsg,
+                        out_crs: ready.output_crs,
                         save_location: ready.save_location,
                         bounds: ready.boundaries,
                         polygon: ready.polygon_filter,
@@ -479,7 +479,7 @@ impl OmapMaker {
                     return;
                 };
 
-                for crs in self.gui_variables.project.crs_epsg.iter_mut() {
+                for crs in self.gui_variables.project.crses.iter_mut() {
                     if crs.is_none() {
                         *crs = Some(parsed_crs.clone());
                     }
@@ -488,7 +488,7 @@ impl OmapMaker {
             SetCrs::SetEachCrs => {
                 let mut drop_list = vec![];
                 let mut crs_less_indecies = vec![];
-                for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.project.crses.iter().enumerate() {
                     if crs.is_none() {
                         crs_less_indecies.push(i);
                     }
@@ -514,18 +514,18 @@ impl OmapMaker {
                                 return;
                             }
                         };
-                        self.gui_variables.project.crs_epsg[crs_less_indecies[i]] = crs;
+                        self.gui_variables.project.crses[crs_less_indecies[i]] = crs;
                     }
                 }
                 drop_list.sort_by(|a: &usize, b: &usize| b.cmp(a));
                 for i in drop_list {
                     self.gui_variables.project.paths.remove(i);
-                    self.gui_variables.project.crs_epsg.remove(i);
+                    self.gui_variables.project.crses.remove(i);
                 }
             }
             SetCrs::Default => {
                 let mut default_crs = None;
-                for a in self.gui_variables.project.crs_epsg.iter() {
+                for a in self.gui_variables.project.crses.iter() {
                     if a.is_some() {
                         default_crs = a.clone();
                         break;
@@ -536,12 +536,12 @@ impl OmapMaker {
                     "Default crs button available but should not have been"
                 );
 
-                self.gui_variables.project.crs_epsg =
+                self.gui_variables.project.crses =
                     vec![default_crs; self.gui_variables.project.paths.len()];
             }
             SetCrs::DropAll => {
                 let mut drop_list = vec![];
-                for (i, crs) in self.gui_variables.project.crs_epsg.iter().enumerate() {
+                for (i, crs) in self.gui_variables.project.crses.iter().enumerate() {
                     if crs.is_none() {
                         drop_list.push(i);
                     }
@@ -549,15 +549,13 @@ impl OmapMaker {
                 drop_list.sort_by(|a: &usize, b: &usize| b.cmp(a));
                 for i in drop_list {
                     self.gui_variables.project.paths.remove(i);
-                    self.gui_variables.project.crs_epsg.remove(i);
+                    self.gui_variables.project.crses.remove(i);
                 }
             }
             _ => (),
         }
 
-        assert!(
-            self.gui_variables.project.paths.len() == self.gui_variables.project.crs_epsg.len()
-        );
+        assert!(self.gui_variables.project.paths.len() == self.gui_variables.project.crses.len());
 
         if self.gui_variables.project.paths.is_empty() {
             self.on_frontend_task(FrontendTask::Error(

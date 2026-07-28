@@ -70,8 +70,9 @@ fn read_boundaries(
             && let Some(crs) = &crs_defs[i]
         {
             // transform bounds to lat lon
-            let transform = Transform::from_epsg(crs.epsg(), 4326)
-                .with_context(|| format!("Failed to create transform from EPSG {}", crs.epsg()))?;
+            let transform =
+                Transform::from_horizontal_components(crs, &crate::project::get_global_crs())
+                    .with_context(|| format!("Failed to create transform from {:?}", crs))?;
 
             points[0] = transform.convert(points[0])?;
             points[1] = transform.convert(points[1])?;

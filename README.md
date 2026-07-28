@@ -76,5 +76,5 @@ The generation process is on the order of minutes, depending on point density an
 ![Map in OOmapper](./readme_images/omapper.png)
 
 ### Writes geo-referenced geotiffs
-OmapMaker writes geotiffs for the rasters that are checked on the welcome screen
+OmapMaker writes viewer-scaled geotiffs for the rasters that are checked on the welcome screen.
 ![Hillshade in OOmapper](./readme_images/hillshade.png)

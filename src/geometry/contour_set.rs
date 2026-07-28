@@ -31,7 +31,7 @@ impl ContourSet {
                 if let Some(elev) = nn.interpolate_gradient(
                     |p| f64::from(p.data().z),
                     |p| p.data().grad.map(f64::from),
-                    1.,
+                    0.5,
                     coords,
                 ) {
                     if elev.is_nan() {

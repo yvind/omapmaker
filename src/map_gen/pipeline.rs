@@ -10,7 +10,8 @@ use crate::{
         Dfm, Threshold,
         dfm::{
             Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
-            LowVegetation, MediumVegetation, Ndvd, Returns, Slope, SurfaceObjects, Water,
+            LowVegetation, MediumVegetation, Ndvd, PointDensity, Returns, Slope, SurfaceObjects,
+            Water,
         },
     },
     statistics::LidarStats,
@@ -31,6 +32,7 @@ pub struct TileRasters {
     pub surface_objects: Dfm<SurfaceObjects>,
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
+    pub point_density: Dfm<PointDensity>,
 }
 
 pub struct PreparedTile {
@@ -71,6 +73,7 @@ impl PreparedTile {
             surface_objects,
             water,
             canopy_height,
+            point_density,
             z_range,
         } = dfms;
 
@@ -88,6 +91,7 @@ impl PreparedTile {
                 surface_objects,
                 water,
                 canopy_height,
+                point_density,
             },
             hull,
             cut_overlay,

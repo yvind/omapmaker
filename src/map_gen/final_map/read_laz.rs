@@ -30,9 +30,7 @@ pub fn read_laz(
 ) -> Result<(PointCloud, PointCloud, geo::Polygon)> {
     let mut las_reader = CopcReader::from_path(&las_paths[neighbor_map.center])?;
 
-    let header = las_reader.header();
-
-    let query_bounds = tile_bounds.into_bounds(header.bounds().min.z, header.bounds().max.z);
+    let query_bounds = tile_bounds.into_bounds();
     let mut rel_bounds = query_bounds;
     rel_bounds.max.x -= ref_point.x;
     rel_bounds.min.x -= ref_point.x;
@@ -44,6 +42,7 @@ pub fn read_laz(
             copc_rs::LodSelection::All,
             copc_rs::BoundsSelection::Within(query_bounds),
         )?
+        .filter_map(std::result::Result::ok)
         .filter_map(|mut p| {
             (!p.is_withheld).then(|| {
                 jitter_point(&mut p, ref_point);
@@ -108,6 +107,7 @@ pub fn read_laz(
                 copc_rs::LodSelection::All,
                 copc_rs::BoundsSelection::Within(query_bounds),
             )?
+            .filter_map(std::result::Result::ok)
             .filter_map(|mut p| {
                 (!p.is_withheld).then(|| {
                     jitter_point(&mut p, ref_point);

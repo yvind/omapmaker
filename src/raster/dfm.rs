@@ -36,6 +36,8 @@ pub struct SurfaceObjects;
 pub struct Water;
 #[derive(Clone, Copy, Debug)]
 pub struct Ndvd;
+#[derive(Clone, Copy, Debug)]
+pub struct PointDensity;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DfmPixelBounds {
@@ -367,14 +369,14 @@ impl<T: Clone> Dfm<T> {
             - 2. * f64::from(self[(yi, right_i)])
             + f64::from(self[(bottom_i, left_i)])
             - f64::from(self[(bottom_i, right_i)]))
-            / (2. * CELL_SIZE_METERS);
+            / (8. * CELL_SIZE_METERS);
 
         let h = (f64::from(self[(top_i, left_i)]) - f64::from(self[(bottom_i, left_i)])
             + 2. * f64::from(self[(top_i, xi)])
             - 2. * f64::from(self[(bottom_i, xi)])
             + f64::from(self[(top_i, right_i)])
             - f64::from(self[(bottom_i, right_i)]))
-            / (2. * CELL_SIZE_METERS);
+            / (8. * CELL_SIZE_METERS);
 
         (v, h)
     }

@@ -1,0 +1,374 @@
+//! Weighted graph used to turn a polygon's medial axis into significant
+//! centerline branches.
+
+use std::collections::{HashMap, VecDeque};
+
+use geo::{Coord, Line};
+
+/// Distance within which two numerically near-identical Voronoi vertices are
+/// treated as the same graph node.
+const MERGE_TOLERANCE: f64 = 1.0e-6;
+
+fn cell(coord: Coord<f64>) -> (i64, i64) {
+    (
+        (coord.x / MERGE_TOLERANCE).floor() as i64,
+        (coord.y / MERGE_TOLERANCE).floor() as i64,
+    )
+}
+
+struct Edge {
+    a: usize,
+    b: usize,
+    weight: f64,
+}
+
+impl Edge {
+    fn other(&self, node: usize) -> usize {
+        if self.a == node { self.b } else { self.a }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct Graph {
+    coords: Vec<Coord<f64>>,
+    adjacency: Vec<Vec<usize>>,
+    edges: Vec<Edge>,
+    cells: HashMap<(i64, i64), Vec<usize>>,
+}
+
+impl Graph {
+    pub(super) fn new() -> Self {
+        Self::default()
+    }
+
+    fn node(&mut self, coord: Coord<f64>) -> usize {
+        let (cell_x, cell_y) = cell(coord);
+        for delta_x in -1..=1 {
+            for delta_y in -1..=1 {
+                if let Some(ids) = self.cells.get(&(cell_x + delta_x, cell_y + delta_y)) {
+                    for &id in ids {
+                        let existing = self.coords[id];
+                        if (existing.x - coord.x).hypot(existing.y - coord.y) <= MERGE_TOLERANCE {
+                            return id;
+                        }
+                    }
+                }
+            }
+        }
+
+        let id = self.coords.len();
+        self.coords.push(coord);
+        self.adjacency.push(Vec::new());
+        self.cells.entry((cell_x, cell_y)).or_default().push(id);
+        id
+    }
+
+    /// Adds a Euclidean-distance-weighted edge. Degenerate and duplicate edges
+    /// are ignored.
+    pub(super) fn add_line(&mut self, line: &Line<f64>) {
+        let a = self.node(line.start);
+        let b = self.node(line.end);
+        if a == b
+            || self.adjacency[a]
+                .iter()
+                .any(|&edge| self.edges[edge].other(a) == b)
+        {
+            return;
+        }
+
+        let delta = line.delta();
+        let edge = self.edges.len();
+        self.edges.push(Edge {
+            a,
+            b,
+            weight: delta.x.hypot(delta.y),
+        });
+        self.adjacency[a].push(edge);
+        self.adjacency[b].push(edge);
+    }
+
+    /// Removes short terminal spurs and returns every remaining maximal path.
+    ///
+    /// A maximal path runs between graph leaves/junctions, so a Y-shaped medial
+    /// axis produces three centerlines. Repeated pruning is important: after
+    /// short Voronoi hairs are removed, adjacent degree-two chains coalesce into
+    /// the actual centerline. If no path survives, the source shape is compact
+    /// rather than line-like and should not be collapsed.
+    pub(super) fn significant_branches(&self, minimum_branch_length: f64) -> Vec<Vec<Coord<f64>>> {
+        let Some(component) = self.largest_component() else {
+            return vec![];
+        };
+
+        let mut in_component = vec![false; self.coords.len()];
+        for node in component {
+            in_component[node] = true;
+        }
+
+        let mut active = self
+            .edges
+            .iter()
+            .map(|edge| in_component[edge.a] && in_component[edge.b])
+            .collect::<Vec<_>>();
+        self.prune_terminal_spurs(&mut active, minimum_branch_length);
+
+        // A pure degree-two component is a closed centerline. Unlike terminal
+        // paths it has no leaf from which pruning can start, so apply the same
+        // significance threshold to the cycle as a whole.
+        let is_cycle = (0..self.coords.len())
+            .filter(|&node| self.active_degree(node, &active) > 0)
+            .all(|node| self.active_degree(node, &active) == 2);
+        let active_length = self
+            .edges
+            .iter()
+            .zip(&active)
+            .filter(|(_, active)| **active)
+            .map(|(edge, _)| edge.weight)
+            .sum::<f64>();
+        if is_cycle && active_length < minimum_branch_length {
+            return vec![];
+        }
+
+        self.maximal_paths(&active)
+    }
+
+    fn prune_terminal_spurs(&self, active: &mut [bool], minimum_branch_length: f64) {
+        loop {
+            let leaves = (0..self.coords.len())
+                .filter(|&node| self.active_degree(node, active) == 1)
+                .collect::<Vec<_>>();
+            let mut remove = vec![false; self.edges.len()];
+
+            for leaf in leaves {
+                let (terminal_path, length) = self.terminal_path(leaf, active);
+                if length < minimum_branch_length {
+                    for edge in terminal_path {
+                        remove[edge] = true;
+                    }
+                }
+            }
+
+            let mut changed = false;
+            for (edge, should_remove) in active.iter_mut().zip(remove) {
+                if *edge && should_remove {
+                    *edge = false;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+
+    /// Walks from a leaf through degree-two nodes to the next leaf or junction.
+    fn terminal_path(&self, start: usize, active: &[bool]) -> (Vec<usize>, f64) {
+        let mut edges = Vec::new();
+        let mut length = 0.0;
+        let mut current = start;
+        let mut previous_edge = None;
+
+        loop {
+            let Some(edge) = self.adjacency[current]
+                .iter()
+                .copied()
+                .find(|&edge| active[edge] && Some(edge) != previous_edge)
+            else {
+                break;
+            };
+
+            edges.push(edge);
+            length += self.edges[edge].weight;
+            current = self.edges[edge].other(current);
+            previous_edge = Some(edge);
+
+            if self.active_degree(current, active) != 2 {
+                break;
+            }
+        }
+
+        (edges, length)
+    }
+
+    fn maximal_paths(&self, active: &[bool]) -> Vec<Vec<Coord<f64>>> {
+        let mut visited = vec![false; self.edges.len()];
+        let mut paths = Vec::new();
+
+        // Trace every path incident to a leaf or junction first.
+        for start in 0..self.coords.len() {
+            let degree = self.active_degree(start, active);
+            if degree == 0 || degree == 2 {
+                continue;
+            }
+
+            for &edge in &self.adjacency[start] {
+                if active[edge] && !visited[edge] {
+                    paths.push(self.trace_path(start, edge, active, &mut visited));
+                }
+            }
+        }
+
+        // Any edges not reached above form degree-two cycles, such as the
+        // centerline of a narrow polygon surrounding a hole.
+        for edge in 0..self.edges.len() {
+            if active[edge] && !visited[edge] {
+                paths.push(self.trace_path(self.edges[edge].a, edge, active, &mut visited));
+            }
+        }
+
+        paths.retain(|path| path.len() >= 2);
+        paths
+    }
+
+    fn trace_path(
+        &self,
+        start: usize,
+        first_edge: usize,
+        active: &[bool],
+        visited: &mut [bool],
+    ) -> Vec<Coord<f64>> {
+        let mut path = vec![self.coords[start]];
+        let mut current = start;
+        let mut edge = first_edge;
+
+        loop {
+            if visited[edge] {
+                break;
+            }
+
+            visited[edge] = true;
+            current = self.edges[edge].other(current);
+            path.push(self.coords[current]);
+
+            if self.active_degree(current, active) != 2 {
+                break;
+            }
+
+            let Some(next_edge) = self.adjacency[current]
+                .iter()
+                .copied()
+                .find(|&candidate| active[candidate] && !visited[candidate])
+            else {
+                break;
+            };
+            edge = next_edge;
+        }
+
+        path
+    }
+
+    fn active_degree(&self, node: usize, active: &[bool]) -> usize {
+        self.adjacency[node]
+            .iter()
+            .filter(|&&edge| active[edge])
+            .count()
+    }
+
+    fn largest_component(&self) -> Option<Vec<usize>> {
+        let mut seen = vec![false; self.coords.len()];
+        let mut largest = None;
+
+        for start in 0..self.coords.len() {
+            if seen[start] || self.adjacency[start].is_empty() {
+                continue;
+            }
+
+            let mut queue = VecDeque::from([start]);
+            let mut component = Vec::new();
+            seen[start] = true;
+
+            while let Some(node) = queue.pop_front() {
+                component.push(node);
+                for &edge in &self.adjacency[node] {
+                    let neighbor = self.edges[edge].other(node);
+                    if !seen[neighbor] {
+                        seen[neighbor] = true;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+
+            if largest
+                .as_ref()
+                .is_none_or(|best: &Vec<usize>| component.len() > best.len())
+            {
+                largest = Some(component);
+            }
+        }
+
+        largest
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geo::coord;
+
+    fn line(a: (f64, f64), b: (f64, f64)) -> Line<f64> {
+        Line::new(coord! { x: a.0, y: a.1 }, coord! { x: b.0, y: b.1 })
+    }
+
+    #[test]
+    fn returns_each_significant_branch() {
+        let mut graph = Graph::new();
+        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
+        graph.add_line(&line((10.0, 0.0), (20.0, 8.0)));
+        graph.add_line(&line((10.0, 0.0), (20.0, -8.0)));
+
+        let branches = graph.significant_branches(5.0);
+
+        assert_eq!(branches.len(), 3);
+        assert!(branches.iter().all(|branch| branch.len() == 2));
+    }
+
+    #[test]
+    fn removes_short_spurs_and_coalesces_the_centerline() {
+        let mut graph = Graph::new();
+        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
+        graph.add_line(&line((10.0, 0.0), (20.0, 0.0)));
+        graph.add_line(&line((10.0, 0.0), (10.0, 2.0)));
+
+        let branches = graph.significant_branches(5.0);
+
+        assert_eq!(branches.len(), 1);
+        let mut ends = [
+            branches[0].first().unwrap().x,
+            branches[0].last().unwrap().x,
+        ];
+        ends.sort_by(f64::total_cmp);
+        assert_eq!(ends, [0.0, 20.0]);
+    }
+
+    #[test]
+    fn rejects_a_graph_without_a_significant_path() {
+        let mut graph = Graph::new();
+        graph.add_line(&line((0.0, 0.0), (4.0, 0.0)));
+
+        assert!(graph.significant_branches(5.0).is_empty());
+    }
+
+    #[test]
+    fn retains_a_degree_two_cycle_as_a_closed_centerline() {
+        let mut graph = Graph::new();
+        graph.add_line(&line((0.0, 0.0), (10.0, 0.0)));
+        graph.add_line(&line((10.0, 0.0), (10.0, 10.0)));
+        graph.add_line(&line((10.0, 10.0), (0.0, 10.0)));
+        graph.add_line(&line((0.0, 10.0), (0.0, 0.0)));
+
+        let branches = graph.significant_branches(5.0);
+
+        assert_eq!(branches.len(), 1);
+        assert_eq!(branches[0].first(), branches[0].last());
+    }
+
+    #[test]
+    fn rejects_a_short_degree_two_cycle() {
+        let mut graph = Graph::new();
+        graph.add_line(&line((0.0, 0.0), (1.0, 0.0)));
+        graph.add_line(&line((1.0, 0.0), (1.0, 1.0)));
+        graph.add_line(&line((1.0, 1.0), (0.0, 1.0)));
+        graph.add_line(&line((0.0, 1.0), (0.0, 0.0)));
+
+        assert!(graph.significant_branches(5.0).is_empty());
+    }
+}

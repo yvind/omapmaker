@@ -917,11 +917,10 @@ dependencies = [
 
 [[package]]
 name = "copc-rs"
-version = "0.6.0"
-source = "git+https://github.com/pka/copc-rs#89aa04cf9ea951d012b7ae656ac8414a3e4afa34"
+version = "0.8.0"
 dependencies = [
  "byteorder",
- "las",
+ "las 0.10.0",
  "laz",
  "log",
  "thiserror 2.0.18",
@@ -939,7 +938,7 @@ dependencies = [
  "crs-definitions",
  "dashmap",
  "indicatif",
- "las",
+ "las 0.9.11",
  "laz",
  "lz4_flex",
  "mimalloc",
@@ -2634,6 +2633,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "las"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62f1a1abaa9217530731d35a08a5e37828b2f6158196cdd61252c017bbdace95"
+dependencies = [
+ "byteorder",
+ "chrono",
+ "laz",
+ "log",
+ "num-traits",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "laz"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3400,7 +3414,7 @@ dependencies = [
  "egui_double_slider",
  "geo",
  "geotiff-writer",
- "las",
+ "las 0.10.0",
  "linestring2bezier",
  "log",
  "ndarray",

@@ -10,7 +10,9 @@ use crate::{
     parameters::{FileParameters, MapParameters},
     raster::{
         Dfm,
-        dfm::{HeightAboveGround, Hillshade, LastReturn, Ndvd, Slope, SurfaceObjects},
+        dfm::{
+            HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity, Slope, SurfaceObjects,
+        },
     },
     statistics::LidarStats,
 };
@@ -67,6 +69,9 @@ pub fn make_map(
     let saved_ndvd_rasters = file_params
         .save_ndvd_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<Ndvd>>::new())));
+    let saved_point_density_rasters = file_params
+        .save_point_density_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<PointDensity>>::new())));
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {
@@ -237,6 +242,17 @@ pub fn make_map(
                 {
                     return;
                 }
+
+                if let Some(saved_rasters) = &saved_point_density_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.point_density.clone(),
+                        "Lidar point-density",
+                        &sender,
+                    )
+                {
+                    return;
+                }
                 {
                     if let Ok(mut map) = map.lock() {
                         for object in objects {
@@ -349,6 +365,15 @@ pub fn make_map(
         saved_ndvd_rasters,
         "NDVD",
         "ndvd",
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_point_density_rasters,
+        "lidar point density",
+        "point_density",
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),

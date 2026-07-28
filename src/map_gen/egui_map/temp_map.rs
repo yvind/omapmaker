@@ -135,6 +135,8 @@ pub enum LineSymbol {
     IndexContour,
     NegBasemapContour,
     SmallCrossableWatercourse,
+    Cliff,
+    ImpassableCliff,
 }
 
 impl LineSymbol {
@@ -146,6 +148,8 @@ impl LineSymbol {
             LineSymbol::IndexContour => omap::Code::new(102, 0, 0),
             LineSymbol::NegBasemapContour => omap::Code::new(101, 3, 0),
             LineSymbol::SmallCrossableWatercourse => omap::Code::new(305, 0, 0),
+            LineSymbol::Cliff => omap::Code::new(202, 0, 0),
+            LineSymbol::ImpassableCliff => omap::Code::new(201, 0, 0),
         }
     }
 
@@ -168,6 +172,8 @@ impl LineSymbol {
             }
             LineSymbol::NegBasemapContour => 3.,
             LineSymbol::SmallCrossableWatercourse => 15.,
+            LineSymbol::Cliff => 9.,
+            LineSymbol::ImpassableCliff => 9.,
         };
         let multiplier = match scale {
             Scale::S10_000 => 2. / 3.,
