@@ -293,8 +293,8 @@ impl<T: RasterMarker> Dfm<T> {
         );
         for y in 0..self.height() {
             for x in 0..self.width() {
-                let (vertical, horizontal) = self.sobel_gradient(y, x);
-                let normal = (vertical, -horizontal, 1.);
+                let (normal_x, normal_y) = self.surface_normal_xy(y, x);
+                let normal = (normal_x, normal_y, 1.);
                 let length = (normal.0.powi(2) + normal.1.powi(2) + 1.).sqrt();
                 output[(y, x)] =
                     ((normal.0 * light.0 + normal.1 * light.1 + light.2) / length).max(0.) as f32;
@@ -303,6 +303,11 @@ impl<T: RasterMarker> Dfm<T> {
         output
     }
 
+    /// Sobel-estimated elevation gradient in map coordinates.
+    ///
+    /// The first component is `dz/dx` for east-positive x and the second is
+    /// `dz/dy` for north-positive y. Raster rows increase in the opposite
+    /// direction to map y, which accounts for the different stencil signs.
     #[inline]
     fn sobel_gradient(&self, y: usize, x: usize) -> (f64, f64) {
         let top = y.saturating_sub(1);
@@ -311,11 +316,11 @@ impl<T: RasterMarker> Dfm<T> {
         let right = (x + 1).min(self.width() - 1);
         let cell = self.grid.cell_size_m;
         (
-            (f64::from(self[(top, left)]) - f64::from(self[(top, right)])
-                + 2. * f64::from(self[(y, left)])
-                - 2. * f64::from(self[(y, right)])
-                + f64::from(self[(bottom, left)])
-                - f64::from(self[(bottom, right)]))
+            (f64::from(self[(top, right)]) - f64::from(self[(top, left)])
+                + 2. * f64::from(self[(y, right)])
+                - 2. * f64::from(self[(y, left)])
+                + f64::from(self[(bottom, right)])
+                - f64::from(self[(bottom, left)]))
                 / (8. * cell),
             (f64::from(self[(top, left)]) - f64::from(self[(bottom, left)])
                 + 2. * f64::from(self[(top, x)])
@@ -324,6 +329,12 @@ impl<T: RasterMarker> Dfm<T> {
                 - f64::from(self[(bottom, right)]))
                 / (8. * cell),
         )
+    }
+
+    #[inline]
+    fn surface_normal_xy(&self, y: usize, x: usize) -> (f64, f64) {
+        let (gradient_x, gradient_y) = self.sobel_gradient(y, x);
+        (-gradient_x, -gradient_y)
     }
 
     pub fn smoothen(
@@ -342,7 +353,7 @@ impl<T: RasterMarker> Dfm<T> {
         let mut normals = vec![(0., 0.); width * height];
         for y in 0..height {
             for x in 0..width {
-                normals[y * width + x] = self.sobel_gradient(y, x);
+                normals[y * width + x] = self.surface_normal_xy(y, x);
             }
         }
 
@@ -944,6 +955,19 @@ mod tests {
             (raster.sample_bilinear(point).unwrap() - (2. * 6.25 - 3. * 7.5 + 7.) as f32).abs()
                 < 1e-5
         );
+    }
+
+    #[test]
+    fn sobel_gradient_and_surface_normal_use_map_coordinate_signs() {
+        let raster = plane(DfmGrid::new(5, 5, 1., geo::coord! { x: 0., y: 4. }).unwrap());
+
+        let gradient = raster.sobel_gradient(2, 2);
+        assert!((gradient.0 - 2.).abs() < 1e-9);
+        assert!((gradient.1 + 3.).abs() < 1e-9);
+
+        let normal = raster.surface_normal_xy(2, 2);
+        assert!((normal.0 + 2.).abs() < 1e-9);
+        assert!((normal.1 - 3.).abs() < 1e-9);
     }
 
     #[test]
