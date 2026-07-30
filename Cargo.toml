@@ -23,8 +23,8 @@ rfd = "0.17.2"
 walkers = { git = "https://github.com/yvind/walkers" }
 
 # projections
-proj-wkt = "0.8.0"
-proj-core = "0.8.0"
+proj-wkt = "0.10.0"
+proj-core = "0.10.0"
 
 # delaunay and interpolation
 spade = "2.15.1"
