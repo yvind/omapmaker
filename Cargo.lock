@@ -2746,6 +2746,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "linestring2bezier"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "415d96d19df33b05c779c0b79f3b63048b6f8797b5c25f463e10d54a76e75db8"
+dependencies = [
+ "geo-types",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3395,15 +3405,13 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6407b128b50ebe1558760800dbb52c1a1be5df47d2114947a44383123e370ae"
+version = "0.11.0"
 dependencies = [
  "chrono",
  "geo-types",
- "linestring2bezier",
- "proj-core 0.8.0",
- "proj-wkt 0.8.0",
+ "linestring2bezier 0.8.0",
+ "proj-core",
+ "proj-wkt",
  "quick-xml 0.41.0",
  "thiserror 2.0.18",
  "world_magnetic_model",
@@ -3421,12 +3429,12 @@ dependencies = [
  "geo",
  "geotiff-writer",
  "las 0.11.0",
- "linestring2bezier",
+ "linestring2bezier 0.5.2",
  "log",
  "ndarray",
  "omap",
- "proj-core 0.10.0",
- "proj-wkt 0.10.0",
+ "proj-core",
+ "proj-wkt",
  "rayon",
  "rfd",
  "rstar 0.13.0",
@@ -3792,19 +3800,6 @@ checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
 
 [[package]]
 name = "proj-core"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da3c8a5c6ef8439ebda96ac6c21390c3990fb5a5f46ed137bcbdcc90d0622808"
-dependencies = [
- "geo-types",
- "rayon",
- "rustix 1.1.4",
- "smallvec",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "proj-core"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3086074d839c8a1e6ff2c7b9c0addd5f92ed9b2bbc082c2787bd79d4560da450"
@@ -3827,23 +3822,11 @@ checksum = "9665706e204d99026365b2a1cdc47edb8f8adf98c8ace8a5f1beff95b910c3a1"
 
 [[package]]
 name = "proj-wkt"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e40042c4904daeac3138df0c80709eb50ebd967b7dfb8beee395b87bad86be5"
-dependencies = [
- "proj-core 0.8.0",
- "serde_json",
- "smallvec",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "proj-wkt"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62a6615b526310271e9362e4215f0b24b6e49285bfcc08f0f07801636cac059f"
 dependencies = [
- "proj-core 0.10.0",
+ "proj-core",
  "serde_json",
  "smallvec",
  "thiserror 2.0.18",

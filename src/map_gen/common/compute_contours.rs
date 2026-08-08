@@ -1028,6 +1028,23 @@ pub(crate) fn produce_scalar_contour_field(
     })
 }
 
+pub(crate) fn produce_scalar_contour_field_from_fitted(
+    true_dem: &Dfm<Elevation>,
+    params: &MapParameters,
+    fitted: &super::contour_field::FittedTerrain,
+) -> crate::Result<ProducedContourField> {
+    let (adjusted, diagnostics) = super::contour_field::optimize_contour_field_with_fitted(
+        true_dem,
+        params.contour.interval,
+        &params.contour.contour_field,
+        fitted,
+    )?;
+    Ok(ProducedContourField {
+        adjusted: Arc::new(adjusted),
+        diagnostics: Arc::new(diagnostics),
+    })
+}
+
 pub(crate) fn compute_scalar_field_contours_from_produced(
     true_dem: &Dfm<Elevation>,
     z_range: (f32, f32),

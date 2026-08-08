@@ -109,8 +109,12 @@ pub fn compute_dfms(
         .canopy_height_model(&dem, CHM_SPIKINESS)
         .hillshade_as::<LastReturn>(CHM_HILLSHADE_SUN_ANGLE);
 
-    let surface_object_cloud =
-        filter_height_above_ground(all_point_cloud, &dem, -1., LOW_VEGETATION_MAX_HEIGHT_METERS);
+    let surface_object_cloud = filter_height_above_ground(
+        &last_return_cloud,
+        &dem,
+        -1.,
+        MEDIUM_VEGETATION_MAX_HEIGHT_METERS,
+    );
     let surface_objects = surface_object_cloud
         .canopy_height_model(&dem, -CHM_SPIKINESS)
         .hillshade_as::<SurfaceObjects>(CHM_HILLSHADE_SUN_ANGLE);

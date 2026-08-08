@@ -224,15 +224,11 @@ impl Graph {
         let mut current = start;
         let mut previous_edge = None;
 
-        loop {
-            let Some(edge) = self.adjacency[current]
-                .iter()
-                .copied()
-                .find(|&edge| active[edge] && Some(edge) != previous_edge)
-            else {
-                break;
-            };
-
+        while let Some(edge) = self.adjacency[current]
+            .iter()
+            .copied()
+            .find(|&edge| active[edge] && Some(edge) != previous_edge)
+        {
             edges.push(edge);
             length += self.edges[edge].weight;
             current = self.edges[edge].other(current);

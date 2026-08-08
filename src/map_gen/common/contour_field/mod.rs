@@ -17,6 +17,8 @@ use crate::raster::dfm::{
 
 use std::time::{Duration, Instant};
 
+pub(crate) use quadratic::FittedTerrain;
+
 pub(super) const MAX_VERTICAL_ADJUSTMENT_FRACTION: f32 = 0.25;
 
 pub(super) fn adjustment_bound(regular_interval: f32) -> f32 {
@@ -158,6 +160,31 @@ pub fn optimize_contour_field(
     regular_interval: f32,
     params: &ContourFieldParameters,
 ) -> crate::Result<(Dfm<AdjustedElevation>, ContourFieldDiagnostics)> {
+    optimize_contour_field_impl(source, regular_interval, params, None)
+}
+
+pub(crate) fn fit_terrain(
+    source: &Dfm<Elevation>,
+    params: &ContourFieldParameters,
+) -> crate::Result<FittedTerrain> {
+    quadratic::fit(source, params)
+}
+
+pub(crate) fn optimize_contour_field_with_fitted(
+    source: &Dfm<Elevation>,
+    regular_interval: f32,
+    params: &ContourFieldParameters,
+    fitted: &FittedTerrain,
+) -> crate::Result<(Dfm<AdjustedElevation>, ContourFieldDiagnostics)> {
+    optimize_contour_field_impl(source, regular_interval, params, Some(fitted))
+}
+
+fn optimize_contour_field_impl(
+    source: &Dfm<Elevation>,
+    regular_interval: f32,
+    params: &ContourFieldParameters,
+    fitted: Option<&FittedTerrain>,
+) -> crate::Result<(Dfm<AdjustedElevation>, ContourFieldDiagnostics)> {
     let params = ValidatedParameters::new(params, regular_interval)?.inner;
     anyhow::ensure!(
         (source.grid.cell_size_m - STANDARD_CELL_SIZE_METERS).abs() <= 1e-9,
@@ -186,7 +213,14 @@ pub fn optimize_contour_field(
     );
     timings.target_persistence = stage_started.elapsed();
     let stage_started = Instant::now();
-    let derivatives = quadratic::calculate(source, regular_interval, params)?;
+    let fitted_owned;
+    let fitted = if let Some(fitted) = fitted {
+        fitted
+    } else {
+        fitted_owned = quadratic::fit(source, params)?;
+        &fitted_owned
+    };
+    let derivatives = quadratic::calculate_from_fitted(source, fitted, regular_interval, params)?;
     timings.derivatives = stage_started.elapsed();
     let stage_started = Instant::now();
     let weights = salience::calculate(&derivatives, params)?;
@@ -525,7 +559,9 @@ mod tests {
         };
         let (first, diagnostics) = optimize_contour_field(&source, 1., &params).unwrap();
         params.collect_debug_rasters = false;
-        let (second, _) = optimize_contour_field(&source, 1., &params).unwrap();
+        let fitted = fit_terrain(&source, &params).unwrap();
+        let (second, _) =
+            optimize_contour_field_with_fitted(&source, 1., &params, &fitted).unwrap();
         assert_eq!(first.field, second.field);
         assert!(
             first

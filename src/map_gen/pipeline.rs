@@ -5,7 +5,7 @@ use crate::{
         common::ComputedDfms,
         egui_map::{AreaSymbol, MapObject},
     },
-    parameters::{ContourAlgo, MapParameters, VegetationWeights},
+    parameters::{CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights},
     raster::{
         D8Flow, Dfm, Threshold,
         dfm::{
@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex};
 
 const CONTOUR_FIELD_CACHE_ENTRIES_PER_TILE: usize = 2;
+const TERRAIN_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
@@ -49,7 +50,29 @@ pub struct PreparedTile {
     pub cut_overlay: geo::Polygon,
     pub z_range: (f32, f32),
     revision: u64,
+    terrain_fit_cache: Mutex<TerrainFitCache>,
     contour_field_cache: Mutex<ContourFieldCache>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TerrainFitCacheKey {
+    tile_revision: u64,
+    slope_radius_bits: u64,
+    curvature_radius_bits: u64,
+}
+
+impl TerrainFitCacheKey {
+    fn new(tile_revision: u64, params: &MapParameters) -> Self {
+        Self {
+            tile_revision,
+            slope_radius_bits: params.contour.contour_field.slope_fit_radius_m.to_bits(),
+            curvature_radius_bits: params
+                .contour
+                .contour_field
+                .curvature_fit_radius_m
+                .to_bits(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,6 +89,44 @@ impl ContourFieldCacheKey {
             interval_bits: params.contour.interval.to_bits(),
             contour_field_fingerprint: params.contour.contour_field.fingerprint(),
         }
+    }
+}
+
+#[derive(Default)]
+struct TerrainFitCache {
+    entries: VecDeque<(
+        TerrainFitCacheKey,
+        Arc<map_gen::common::contour_field::FittedTerrain>,
+    )>,
+}
+
+impl TerrainFitCache {
+    fn get(
+        &mut self,
+        key: TerrainFitCacheKey,
+    ) -> Option<Arc<map_gen::common::contour_field::FittedTerrain>> {
+        let position = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| *candidate == key)?;
+        let entry = self
+            .entries
+            .remove(position)
+            .expect("cache position exists");
+        let artifact = Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(artifact)
+    }
+
+    fn insert(
+        &mut self,
+        key: TerrainFitCacheKey,
+        artifact: Arc<map_gen::common::contour_field::FittedTerrain>,
+    ) {
+        if self.entries.len() == TERRAIN_FIT_CACHE_ENTRIES_PER_TILE {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, artifact));
     }
 }
 
@@ -168,6 +229,7 @@ impl PreparedTile {
             cut_overlay,
             z_range,
             revision: NEXT_TILE_REVISION.fetch_add(1, AtomicOrdering::Relaxed),
+            terrain_fit_cache: Mutex::new(TerrainFitCache::default()),
             contour_field_cache: Mutex::new(ContourFieldCache::default()),
         }
     }
@@ -207,12 +269,34 @@ impl PreparedTile {
         if let Some(artifact) = cache.get(key) {
             return Ok(artifact);
         }
-        let artifact = Arc::new(map_gen::common::produce_scalar_contour_field(
+        let fitted = self.fitted_terrain(params)?;
+        let artifact = Arc::new(map_gen::common::produce_scalar_contour_field_from_fitted(
             &self.rasters.dem,
             params,
+            &fitted,
         )?);
         cache.insert(key, Arc::clone(&artifact));
         Ok(artifact)
+    }
+
+    fn fitted_terrain(
+        &self,
+        params: &MapParameters,
+    ) -> crate::Result<Arc<map_gen::common::contour_field::FittedTerrain>> {
+        let key = TerrainFitCacheKey::new(self.revision, params);
+        let mut cache = self
+            .terrain_fit_cache
+            .lock()
+            .expect("terrain-fit cache poisoned");
+        if let Some(fitted) = cache.get(key) {
+            return Ok(fitted);
+        }
+        let fitted = Arc::new(map_gen::common::contour_field::fit_terrain(
+            &self.rasters.dem,
+            &params.contour.contour_field,
+        )?);
+        cache.insert(key, Arc::clone(&fitted));
+        Ok(fitted)
     }
 }
 
@@ -314,13 +398,26 @@ pub fn compute_tile(
     }
 
     if steps.cliffs {
-        objects.extend(map_gen::common::compute_cliffs(
-            &tile.rasters.slope,
-            &tile.hull,
-            &tile.cut_overlay,
-            params,
-            &params.geometry.cliffs.buffer_rules,
-        ));
+        let cliffs = match params.cliff.algorithm {
+            CliffAlgorithm::SobelSlope => map_gen::common::compute_cliffs(
+                &tile.rasters.slope,
+                &tile.hull,
+                &tile.cut_overlay,
+                params,
+                &params.geometry.cliffs.buffer_rules,
+            ),
+            CliffAlgorithm::PolynomialFit => {
+                let fitted = tile.fitted_terrain(params)?;
+                map_gen::common::compute_cliffs(
+                    &fitted.cliff_strength,
+                    &tile.hull,
+                    &tile.cut_overlay,
+                    params,
+                    &params.geometry.cliffs.buffer_rules,
+                )
+            }
+        };
+        objects.extend(cliffs);
     }
 
     if steps.water {
@@ -427,6 +524,30 @@ mod tests {
         interval_change.contour.interval += 1.;
         assert_ne!(ContourFieldCacheKey::new(7, &interval_change), expected);
         assert_ne!(ContourFieldCacheKey::new(8, &params), expected);
+    }
+
+    #[test]
+    fn terrain_fit_key_tracks_only_polynomial_fit_inputs() {
+        let params = MapParameters::default();
+        let expected = TerrainFitCacheKey::new(7, &params);
+
+        let mut downstream = params.clone();
+        downstream.cliff.cliff += 1.;
+        downstream.contour.interval += 1.;
+        downstream.contour.contour_field.slope_epsilon += 1.;
+        assert_eq!(TerrainFitCacheKey::new(7, &downstream), expected);
+
+        let mut slope_radius = params.clone();
+        slope_radius.contour.contour_field.slope_fit_radius_m += 1.;
+        assert_ne!(TerrainFitCacheKey::new(7, &slope_radius), expected);
+
+        let mut curvature_radius = params.clone();
+        curvature_radius
+            .contour
+            .contour_field
+            .curvature_fit_radius_m += 1.;
+        assert_ne!(TerrainFitCacheKey::new(7, &curvature_radius), expected);
+        assert_ne!(TerrainFitCacheKey::new(8, &params), expected);
     }
 
     #[test]

@@ -168,13 +168,15 @@ impl Backend {
                     ) {
                         Ok(_) => self
                             .comms
-                            .send(FrontendTask::TaskComplete(TaskDone::MakeMap)),
+                            .send(FrontendTask::TaskComplete(TaskComplete::MakeMap)),
                         Err(e) => self.comms.send(FrontendTask::Error(e.to_string(), true)),
                     };
                 }
                 BackendTask::Reset => {
                     self.reset();
-                    let _ = self.comms.send(FrontendTask::TaskComplete(TaskDone::Reset));
+                    let _ = self
+                        .comms
+                        .send(FrontendTask::TaskComplete(TaskComplete::Reset));
                 }
             }
         }

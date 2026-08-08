@@ -4,19 +4,19 @@ use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::{AreaSymbol, LineSymbol, MapObject},
     parameters::{BufferRule, MapParameters},
-    raster::{Dfm, dfm::Slope},
+    raster::Dfm,
 };
 
 use geo::{BooleanOps, Simplify};
 
-pub fn compute_cliffs(
-    slope: &Dfm<Slope>,
+pub fn compute_cliffs<T>(
+    cliff_strength: &Dfm<T>,
     convex_hull: &geo::Polygon,
     cut_overlay: &geo::Polygon,
     params: &MapParameters,
     buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
-    let cliff_contours = slope.marching_squares(params.cliff.cliff);
+    let cliff_contours = cliff_strength.marching_squares(params.cliff.cliff);
 
     let mut cliff_polygons = geo::MultiPolygon::from_contours(cliff_contours, convex_hull, false);
 

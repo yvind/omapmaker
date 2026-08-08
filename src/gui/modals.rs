@@ -33,13 +33,10 @@ impl OmapMaker {
                 |_ui| {},
                 |ui| {
                     if ui.button("No, go back!").clicked() {
-                        self.open_modal = OmapModal::ManualSetCRS;
+                        self.start_task(Task::OpenModal(OmapModal::ManualSetCRS));
                     };
                     if ui.button("Yes, drop the files!").clicked() {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
-                            SetCrs::DropAll,
-                        )));
+                        self.start_task(Task::SetCrs(SetCrs::DropAll));
                     }
                 },
             );
@@ -53,10 +50,7 @@ impl OmapMaker {
         single_epsg_modal.show(ctx, |ui| {
             ui.heading("Choose CRS by EPSG code");
             ui.separator();
-            ui.label(
-                "Select a CRS by EPSG code from the list.\n\
-            The wkt-definition of the chosen CRS will be displayed below.",
-            );
+            ui.label("Select a CRS by EPSG code, every CRS-less file will be assigned this CRS.");
 
             ui.horizontal(|ui| {
                 ui.label("Choose CRS by EPSG code (4 or 5 digits)");
@@ -88,13 +82,10 @@ impl OmapMaker {
                         .add_enabled(crs_set, egui::Button::new("Save choice of CRS"))
                         .clicked()
                     {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
-                            SetCrs::SetAllEpsg,
-                        )));
+                        self.start_task(Task::SetCrs(SetCrs::SetAllEpsg));
                     };
                     if ui.button("Go back").clicked() {
-                        self.open_modal = OmapModal::ManualSetCRS;
+                        self.start_task(Task::OpenModal(OmapModal::ManualSetCRS));
                     }
                 },
             );
@@ -166,13 +157,10 @@ impl OmapMaker {
                 |_ui| {},
                 |ui| {
                     if ui.add_enabled(crs_set, egui::Button::new("Done")).clicked() {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(
-                            SetCrs::SetEachCrs,
-                        )));
+                        self.start_task(Task::SetCrs(SetCrs::SetEachCrs));
                     }
                     if ui.button("Go back").clicked() {
-                        self.open_modal = OmapModal::ManualSetCRS;
+                        self.start_task(Task::OpenModal(OmapModal::ManualSetCRS));
                     }
                 },
             );
@@ -187,7 +175,7 @@ impl OmapMaker {
             ui.separator();
             ui.label(
                 "No CRS was detected for one or more files.\n\
-            For georeferencing purposes all files need to be associated with a CRS.\n\
+            For georeferencing purposes either all files need to have a CRS or none can have a CRS.\n\
             Assign CRS or drop files by clicking the buttons.\n\n\
             Hover over the different buttons for an explanation of what they do. \n\n\
             Depending on the number of unique CRS's detected among the files, different options are presented.",
@@ -202,8 +190,7 @@ impl OmapMaker {
                         The output map will not be georefrenced, but everything should work fine regardless.")
                         .clicked()
                         {
-                            self.open_modal = OmapModal::None;
-                            self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(SetCrs::Local)));
+                            self.start_task(Task::SetCrs(SetCrs::Local));
                         }
                 } else if self.gui_variables.lidar.unique_crs.len() == 1 {
                     #[allow(clippy::collapsible_if)]
@@ -212,26 +199,25 @@ impl OmapMaker {
                         This button assosciates all CRS-less files with that unique CRS.")
                         .clicked()
                     {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::SetCrs(SetCrs::Default)));
+                        self.start_task(Task::SetCrs(SetCrs::Default));
                     }
                 }
 
                 if ui.button("Choose one EPSG code for all").on_hover_text("Choose a CRS by EPSG code and associate all CRS-less files with that CRS.")
                 .clicked() {
-                    self.open_modal = OmapModal::SetOneCrsForAll;
+                    self.start_task(Task::OpenModal(OmapModal::SetOneCrsForAll));
                 }
                 if ui
                     .button("Choose EPSG code or drop file for each")
                     .on_hover_text("Choose wether to set a CRS by EPSG code or to drop the file for each CRS-less file.")
-                    .clicked()
+                .clicked()
                 {
-                    self.open_modal = OmapModal::SetOneCrsForEach;
+                    self.start_task(Task::OpenModal(OmapModal::SetOneCrsForEach));
                 }
                 if ui.button("Drop all non-CRS files")
                 .on_hover_text("Remove all CRS-less files from the list of lidar files.")
                 .clicked() {
-                    self.open_modal = OmapModal::ConfirmDropAll;
+                    self.start_task(Task::OpenModal(OmapModal::ConfirmDropAll));
                 }
             });
         });
@@ -248,7 +234,7 @@ impl OmapMaker {
             This will lead to the fewest (maybe none) time consuming file transformations. \
             It makes sense to choose another CRS if your files are in imperial units, but it's discouraged otherwise. \
             Only files not already in the output CRS will be transformed. \
-            New files will be written and so any transform will not affect the origin file. \
+            New files will be written and so any transform will not affect the original file. \
             The transformations are done at a later stage.");
             ui.label("Choose new CRS by EPSG code:");
             ui.horizontal(|ui| {
@@ -274,13 +260,11 @@ impl OmapMaker {
                 |ui| {
                 if ui.button(format!("Majority Vote (EPSG: {})", majority_crs.epsg())).clicked() {
                     self.gui_variables.generation.params.output.crs = Some(majority_crs);
-                    self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
+                    self.start_task(Task::OutputCrsSelected);
                 }
                 if ui.add_enabled(transform_crs.is_some(), egui::Button::new("Select the given CRS")).clicked() {
                     self.gui_variables.generation.params.output.crs = transform_crs;
-                    self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontendTask::TaskComplete(TaskDone::OutputCrs));
+                    self.start_task(Task::OutputCrsSelected);
                 }
             });
         });
@@ -298,13 +282,11 @@ impl OmapMaker {
                 );
             } else {
                 ui.label(
-                    "Multiple graph components have been detected in the lidar neighbor graph. \
-                Only the largest will be kept.",
+                    "Multiple graph components have been detected in the lidar neighbor graph.",
                 );
                 ui.vertical_centered(|ui| {
                     if ui.button("Show components").clicked() {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::ShowComponents));
+                        self.start_task(Task::ShowComponents);
                     }
                 });
             }
@@ -314,8 +296,7 @@ impl OmapMaker {
                 |_ui| {},
                 |ui| {
                     if ui.button("Start over").clicked() {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
+                        self.start_task(Task::Reset);
                     };
                     if ui
                         .add_enabled(
@@ -324,8 +305,7 @@ impl OmapMaker {
                         )
                         .clicked()
                     {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::DropComponents));
+                        self.start_task(Task::DropComponents);
                     }
                 },
             );
@@ -349,7 +329,7 @@ impl OmapMaker {
                 };
                 if ui.button("Yes, let's make that map!").clicked() {
                     self.open_modal = OmapModal::None;
-                    self.on_frontend_task(FrontendTask::NextState);
+                    self.start_task(Task::NextState);
                 }
             });
         });
@@ -370,8 +350,7 @@ impl OmapMaker {
                         self.open_modal = OmapModal::None;
                     };
                     if ui.button("Yes, start over!").clicked() {
-                        self.open_modal = OmapModal::None;
-                        self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
+                        self.start_task(Task::Reset);
                     }
                 },
             );

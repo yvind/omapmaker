@@ -5,7 +5,7 @@ use crate::{
         egui_map::{AreaSymbol, LineSymbol, PointSymbol, TempMap},
         pipeline::{self, PipelineSteps, PreparedTile},
     },
-    parameters::MapParameters,
+    parameters::{CliffAlgorithm, MapParameters},
 };
 
 use rayon::{ThreadPool, prelude::*};
@@ -150,7 +150,9 @@ pub fn regenerate_map_tile(
         job_id,
         Box::new(map),
     )));
-    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::RegenerateMap(job_id)));
+    let _ = sender.send(FrontendTask::TaskComplete(TaskComplete::RegenerateMap(
+        job_id,
+    )));
 }
 
 fn changed_steps(
@@ -158,12 +160,9 @@ fn changed_steps(
     old: Option<&MapParameters>,
     scope: RegenerationScope,
 ) -> PipelineSteps {
-    let mut steps = PipelineSteps {
-        contours: true,
-        ..PipelineSteps::default()
-    };
+    let mut steps = PipelineSteps::default();
+
     let Some(old) = old else {
-        steps.basemap = new.contour.basemap_contour;
         force_scope(&mut steps, scope);
         return steps;
     };
@@ -181,12 +180,19 @@ fn changed_steps(
     steps.vegetation = new.vegetation.green != old.vegetation.green
         || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
-    steps.cliffs = new.cliff.cliff != old.cliff.cliff
+    let polynomial_fit_changed = new.cliff.algorithm == CliffAlgorithm::PolynomialFit
+        && (new.contour.contour_field.slope_fit_radius_m
+            != old.contour.contour_field.slope_fit_radius_m
+            || new.contour.contour_field.curvature_fit_radius_m
+                != old.contour.contour_field.curvature_fit_radius_m);
+    steps.cliffs = new.cliff.algorithm != old.cliff.algorithm
+        || new.cliff.cliff != old.cliff.cliff
         || new.geometry.cliffs != old.geometry.cliffs
         || new.cliff.collapse != old.cliff.collapse
         || new.cliff.collapse_amount_small_cliff != old.cliff.collapse_amount_small_cliff
         || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff
-        || new.cliff.collapse_linearity != old.cliff.collapse_linearity;
+        || new.cliff.collapse_linearity != old.cliff.collapse_linearity
+        || polynomial_fit_changed;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
     steps.streams = steps.water;
 
@@ -222,5 +228,37 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
             steps.streams = true;
         }
         RegenerationScope::Section(MapPreviewSection::Intensity) => steps.intensity = true,
+        RegenerationScope::Section(MapPreviewSection::Contours) => {
+            steps.contours = true;
+            steps.basemap = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changing_cliff_algorithm_regenerates_cliffs() {
+        let old = MapParameters::default();
+        assert_eq!(old.cliff.algorithm, CliffAlgorithm::PolynomialFit);
+        let mut new = old.clone();
+        new.cliff.algorithm = CliffAlgorithm::SobelSlope;
+
+        assert!(changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
+    }
+
+    #[test]
+    fn polynomial_fit_changes_do_not_regenerate_sobel_cliffs() {
+        let mut old = MapParameters::default();
+        old.cliff.algorithm = CliffAlgorithm::SobelSlope;
+        let mut new = old.clone();
+        new.contour.contour_field.curvature_fit_radius_m += 1.;
+
+        assert!(!changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
+
+        new.cliff.algorithm = CliffAlgorithm::PolynomialFit;
+        assert!(changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
     }
 }

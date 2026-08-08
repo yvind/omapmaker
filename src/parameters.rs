@@ -258,6 +258,7 @@ impl Default for WaterParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CliffParameters {
+    pub algorithm: CliffAlgorithm,
     pub cliff: f32,
     pub collapse: bool,
     pub collapse_amount_small_cliff: f32,
@@ -268,11 +269,28 @@ pub struct CliffParameters {
 impl Default for CliffParameters {
     fn default() -> Self {
         Self {
+            algorithm: Default::default(),
             cliff: 0.7,
             collapse: true,
             collapse_amount_small_cliff: 1.,
             collapse_amount_large_cliff: 2.,
             collapse_linearity: 2.,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum CliffAlgorithm {
+    SobelSlope,
+    #[default]
+    PolynomialFit,
+}
+
+impl Display for CliffAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SobelSlope => f.write_str("Sobel slope"),
+            Self::PolynomialFit => f.write_str("Polynomial fit"),
         }
     }
 }

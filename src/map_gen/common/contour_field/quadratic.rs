@@ -1,8 +1,8 @@
 use crate::parameters::ContourFieldParameters;
 use crate::raster::Dfm;
 use crate::raster::dfm::{
-    DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY, ProfileChange,
-    Slope, TangentChange,
+    CliffStrength, DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY,
+    ProfileChange, Slope, TangentChange,
 };
 
 use rayon::prelude::*;
@@ -17,6 +17,18 @@ pub(super) struct TerrainDerivatives {
     pub(super) fit_confidence: Dfm<FitConfidence>,
     pub(super) isoline_tangent_x: Dfm<IsolineTangentX>,
     pub(super) isoline_tangent_y: Dfm<IsolineTangentY>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct FittedTerrainCell {
+    gradient: [f32; 2],
+    hessian: [f32; 3],
+    curvature_rmse: f32,
+}
+
+pub(crate) struct FittedTerrain {
+    cells: Box<[FittedTerrainCell]>,
+    pub(crate) cliff_strength: Dfm<CliffStrength>,
 }
 
 struct FitKernel {
@@ -223,11 +235,22 @@ impl AddressedGradientKernel {
     }
 }
 
-pub(super) fn calculate(
+pub(crate) fn fit(
     source: &Dfm<Elevation>,
-    interval: f32,
     params: &ContourFieldParameters,
-) -> crate::Result<TerrainDerivatives> {
+) -> crate::Result<FittedTerrain> {
+    for (name, radius) in [
+        ("slope fit radius", params.slope_fit_radius_m),
+        ("curvature fit radius", params.curvature_fit_radius_m),
+    ] {
+        anyhow::ensure!(
+            radius.is_finite() && radius > 0.,
+            "{name} must be positive and finite"
+        );
+    }
+    let compact_radius = (params.slope_fit_radius_m / 3.).max(source.grid.cell_size_m);
+    let compact_kernel =
+        FitKernel::cached(source.grid.cell_size_m, compact_radius, compact_radius / 2.)?;
     let slope_kernel = FitKernel::cached(
         source.grid.cell_size_m,
         params.slope_fit_radius_m,
@@ -239,8 +262,50 @@ pub(super) fn calculate(
         params.curvature_fit_radius_m / 2.,
     )?;
     let width = source.width();
+    let compact_kernel = compact_kernel.addressed_gradient(width);
     let slope_kernel = slope_kernel.addressed_gradient(width);
     let curvature_kernel = curvature_kernel.addressed_fit(width);
+    let slope_fit_diameter = 2. * params.slope_fit_radius_m;
+    let mut cells = vec![FittedTerrainCell::default(); source.field.len()].into_boxed_slice();
+    let mut cliff_strength = Dfm::new_like(source);
+    cells
+        .par_iter_mut()
+        .zip(cliff_strength.field.par_iter_mut())
+        .enumerate()
+        .for_each(|(index, (output, cliff_output))| {
+            let y = index / width;
+            let x = index % width;
+            let compact_gradient = compact_kernel.apply(source, y, x);
+            let gradient = slope_kernel.apply(source, y, x);
+            let (curvature, rmse) = curvature_kernel.apply(source, y, x);
+            let background_gradient = [curvature[1], curvature[2]];
+            let hessian = [2. * curvature[3], curvature[4], 2. * curvature[5]];
+            *output = FittedTerrainCell {
+                gradient: gradient.map(|value| value as f32),
+                hessian: hessian.map(|value| value as f32),
+                curvature_rmse: rmse as f32,
+            };
+            *cliff_output = adaptive_cliff_strength(
+                compact_gradient,
+                gradient,
+                background_gradient,
+                slope_fit_diameter,
+            ) as f32;
+        });
+
+    Ok(FittedTerrain {
+        cells,
+        cliff_strength,
+    })
+}
+
+pub(super) fn calculate_from_fitted(
+    source: &Dfm<Elevation>,
+    fitted: &FittedTerrain,
+    interval: f32,
+    params: &ContourFieldParameters,
+) -> crate::Result<TerrainDerivatives> {
+    source.grid.ensure_compatible(&fitted.cliff_strength.grid)?;
     let mut slope = Dfm::new_like(source);
     let mut profile_change = Dfm::new_like(source);
     let mut tangent_change = Dfm::new_like(source);
@@ -257,10 +322,9 @@ pub(super) fn calculate(
         .zip(fit_confidence.field.par_iter_mut())
         .zip(isoline_tangent_x.field.par_iter_mut())
         .zip(isoline_tangent_y.field.par_iter_mut())
-        .enumerate()
+        .zip(fitted.cells.par_iter())
         .for_each(
             |(
-                index,
                 (
                     (
                         (
@@ -271,13 +335,10 @@ pub(super) fn calculate(
                     ),
                     tangent_y_output,
                 ),
+                fitted,
             )| {
-                let y = index / width;
-                let x = index % width;
-                let slope_fit = slope_kernel.apply(source, y, x);
-                let (curvature, rmse) = curvature_kernel.apply(source, y, x);
-                let gx = slope_fit[0];
-                let gy = slope_fit[1];
+                let gx = f64::from(fitted.gradient[0]);
+                let gy = f64::from(fitted.gradient[1]);
                 let slope = gx.hypot(gy);
                 let epsilon = f64::from(params.slope_epsilon);
                 let direction_confidence = slope * slope / (slope * slope + epsilon * epsilon);
@@ -287,15 +348,18 @@ pub(super) fn calculate(
                     (0., 0.)
                 };
                 let (tx, ty) = (-ny, nx);
-                let hxx = 2. * curvature[3];
-                let hxy = curvature[4];
-                let hyy = 2. * curvature[5];
+                let hxx = f64::from(fitted.hessian[0]);
+                let hxy = f64::from(fitted.hessian[1]);
+                let hyy = f64::from(fitted.hessian[2]);
                 let scale = f64::from(interval.abs());
                 let profile =
                     (nx * (hxx * nx + hxy * ny) + ny * (hxy * nx + hyy * ny)).abs() * scale;
                 let tangent =
                     (tx * (hxx * tx + hxy * ty) + ty * (hxy * tx + hyy * ty)).abs() * scale;
-                let fit_confidence = (-(rmse / f64::from(params.rmse_reference)).powi(2)).exp();
+                let fit_confidence = (-(f64::from(fitted.curvature_rmse)
+                    / f64::from(params.rmse_reference))
+                .powi(2))
+                .exp();
                 *slope_output = slope as f32;
                 *profile_output = profile as f32;
                 *tangent_output = tangent as f32;
@@ -317,6 +381,48 @@ pub(super) fn calculate(
         isoline_tangent_x,
         isoline_tangent_y,
     })
+}
+
+fn adaptive_cliff_strength(
+    compact_gradient: [f64; 2],
+    local_gradient: [f64; 2],
+    background_gradient: [f64; 2],
+    local_fit_diameter: f64,
+) -> f64 {
+    const NON_CLIFF_SLOPE_ALLOWANCE: f64 = 1.;
+    const MINIMUM_COMPACT_SUPPORT: f64 = 0.9;
+
+    let slope = |[gx, gy]: [f64; 2]| gx.hypot(gy);
+    let local_slope = slope(local_gradient);
+    let background_slope = slope(background_gradient);
+    if local_slope <= f64::EPSILON {
+        return 0.;
+    }
+
+    let local_direction = [
+        local_gradient[0] / local_slope,
+        local_gradient[1] / local_slope,
+    ];
+    let along_local =
+        |gradient: [f64; 2]| gradient[0] * local_direction[0] + gradient[1] * local_direction[1];
+    let compact_along = along_local(compact_gradient);
+    let background_along = along_local(background_gradient);
+    if compact_along < MINIMUM_COMPACT_SUPPORT * local_slope || background_along <= 0. {
+        return 0.;
+    }
+
+    let supported_local_slope = local_slope.min(compact_along);
+    // A real cliff strengthens or remains stable as the fit gets more local.
+    // This fine-to-local term captures narrow faces without accepting the
+    // weaker mirrored lobes produced across ridges and spurs.
+    let fine_prominence =
+        local_fit_diameter * (compact_along - local_slope).max(0.) / (1. + background_slope);
+    // A wide cliff face can occupy both fit windows, leaving little multiscale
+    // prominence. Let very steep fitted faces qualify directly, while the
+    // allowance keeps ordinary and moderately steep planar terrain below the
+    // same threshold.
+    let steep_face = (supported_local_slope - NON_CLIFF_SLOPE_ALLOWANCE).max(0.);
+    fine_prominence.max(steep_face)
 }
 
 fn invert(mut matrix: [[f64; 6]; 6]) -> crate::Result<[[f64; 6]; 6]> {
@@ -396,6 +502,77 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_cliff_strength_is_face_centered_and_slope_aware() {
+        fn fitted_ramp(base_slope: f64, cliff_height: f64, cliff_width: f64) -> FittedTerrain {
+            let grid = DfmGrid::new(41, 41, 0.5, geo::coord! { x: -10., y: 10. }).unwrap();
+            let mut source = Dfm::<Elevation>::new(grid);
+            for y in 0..source.height() {
+                for x in 0..source.width() {
+                    let coordinate = source.index2coord(y, x);
+                    let cliff = ((coordinate.x + cliff_width / 2.) / cliff_width).clamp(0., 1.);
+                    source[(y, x)] = (base_slope * coordinate.x + cliff_height * cliff) as f32;
+                }
+            }
+            let params = ContourFieldParameters {
+                slope_fit_radius_m: 3.,
+                curvature_fit_radius_m: 5.,
+                ..Default::default()
+            };
+            fit(&source, &params).unwrap()
+        }
+
+        let flat = fitted_ramp(0., 3., 1.);
+        let tall = fitted_ramp(0., 30., 1.);
+        let wide_tall = fitted_ramp(0., 30., 10.);
+        let steep_plane = fitted_ramp(1.5, 0., 1.);
+        let width = flat.cliff_strength.width();
+        let face = 20 * width + 20;
+        let upper_shoulder = 20 * width + 12;
+        let lower_shoulder = 20 * width + 28;
+
+        assert!(flat.cliff_strength.field[face] > 0.7);
+        assert!(flat.cliff_strength.field[upper_shoulder] < 1e-5);
+        assert!(flat.cliff_strength.field[lower_shoulder] < 1e-5);
+        assert!(
+            tall.cliff_strength.field[face] > flat.cliff_strength.field[face],
+            "cliff strength must not decrease for a 30 m cliff"
+        );
+        assert!(tall.cliff_strength.field[face] > 0.7);
+        assert!(wide_tall.cliff_strength.field[face] > 0.7);
+        assert!(steep_plane.cliff_strength.field[face] < 0.7);
+    }
+
+    #[test]
+    fn compact_fit_rejects_a_cliff_echo_across_a_spur() {
+        let grid = DfmGrid::new(41, 41, 0.5, geo::coord! { x: -10., y: 10. }).unwrap();
+        let mut source = Dfm::<Elevation>::new(grid);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let coordinate = source.index2coord(y, x);
+                source[(y, x)] = if coordinate.x < -1. {
+                    (-3. + 0.15 * (coordinate.x + 1.)) as f32
+                } else if coordinate.x < 0. {
+                    (3. * coordinate.x) as f32
+                } else {
+                    (-0.3 * coordinate.x) as f32
+                };
+            }
+        }
+        let fitted = fit(&source, &ContourFieldParameters::default()).unwrap();
+        let row = 20;
+        let cliff_face = row * source.width() + 19;
+        assert!(fitted.cliff_strength.field[cliff_face] > 0.7);
+
+        let opposite_side_max = (21..=28)
+            .map(|x| fitted.cliff_strength.field[row * source.width() + x])
+            .fold(0_f32, f32::max);
+        assert!(
+            opposite_side_max < 0.7,
+            "smooth side of spur scored {opposite_side_max}"
+        );
+    }
+
+    #[test]
     fn stored_isoline_tangent_matches_raster_gradient_coordinates() {
         let grid = DfmGrid::new(21, 21, 0.5, geo::coord! { x: -5., y: 5. }).unwrap();
         let mut source = Dfm::<Elevation>::new(grid);
@@ -410,7 +587,8 @@ mod tests {
             curvature_fit_radius_m: 2.,
             ..Default::default()
         };
-        let derivatives = calculate(&source, 1., &params).unwrap();
+        let fitted = fit(&source, &params).unwrap();
+        let derivatives = calculate_from_fitted(&source, &fitted, 1., &params).unwrap();
         let (y, x) = (10, 10);
         let index = y * source.width() + x;
         let cell = source.grid.cell_size_m as f32;

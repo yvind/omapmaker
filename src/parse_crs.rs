@@ -1,7 +1,4 @@
-use crate::{
-    comms::{FrontendSender, messages::*},
-    gui::modals::OmapModal,
-};
+use crate::comms::{FrontendSender, messages::*};
 
 use std::path::PathBuf;
 
@@ -89,9 +86,5 @@ pub fn parse_crs(sender: FrontendSender, mut paths: Vec<PathBuf>) {
         num_crs_less,
     )));
 
-    if num_crs_less == 0 {
-        let _ = sender.send(FrontendTask::TaskComplete(TaskDone::ParseCrs(SetCrs::Auto)));
-    } else {
-        let _ = sender.send(FrontendTask::OpenModal(OmapModal::ManualSetCRS));
-    }
+    let _ = sender.send(FrontendTask::TaskComplete(TaskComplete::ParseCrs));
 }

@@ -5,6 +5,7 @@ pub mod map_plugins;
 pub mod modals;
 pub mod side_panel;
 pub mod terminal_like;
+pub mod tile_sources;
 
 pub use gui_variables::GuiVariables;
 

@@ -42,7 +42,7 @@ las = { version = "0.11.0", features = ["laz-parallel"] }
 copc_converter = "0.11.0"
 
 # write omap files
-omap = { version = "0.8.0", features = ["geo_ref"] }
+omap = { path = "../omap-rs", features = ["geo_ref"] }
 
 # better errors
 thiserror = "2"

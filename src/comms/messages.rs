@@ -10,18 +10,20 @@ use std::path::PathBuf;
 
 pub type JobId = u64;
 
+/// Notifications produced by backend work and applied by the frontend.
+///
+/// These messages carry status or data only; they never specify a modal, state
+/// transition, or follow-up operation. Workflow decisions belong to [`Task`]
+/// and are made by `OmapMaker::start_task`.
 pub enum FrontendTask {
     ProgressBar(ProgressBar),
     Log(String),
     UpdateVariable(Variable),
-    DelegateTask(Task),
-    TaskComplete(TaskDone),
-    OpenModal(OmapModal),
-    NextState,
-    PrevState,
+    TaskComplete(TaskComplete),
     Error(String, bool),
 }
 
+/// Work requests executed by the backend worker.
 pub enum BackendTask {
     ClearParams,
     SetWorkerThreads(usize),
@@ -58,15 +60,30 @@ pub struct MakeMapTask {
     pub stats: LidarStats,
 }
 
+/// Frontend workflow commands handled by `OmapMaker::start_task`.
+///
+/// GUI events should send the narrowest applicable variant and let
+/// `start_task` gather application state, construct backend jobs, and decide
+/// subsequent workflow steps.
 pub enum Task {
-    RegenerateMap,
-    Reset,
+    FrontendTask(FrontendTask),
+    SetWorkerThreads,
+    ParseCrs(Vec<PathBuf>),
     SetCrs(SetCrs),
-    ShowComponents,
-    QueryDropComponents,
-    DropComponents,
     GetOutputCRS,
+    OutputCrsSelected,
     DoConnectedComponentAnalysis,
+    QueryDropComponents,
+    ShowComponents,
+    DropComponents,
+    ConvertCopc,
+    InitializeMapTile,
+    RegenerateMap(RegenerationScope),
+    MakeMap,
+    OpenModal(OmapModal),
+    NextState,
+    PrevState,
+    Reset,
 }
 
 pub enum ProgressBar {
@@ -81,6 +98,7 @@ pub enum RegenerationScope {
 }
 
 pub enum MapPreviewSection {
+    Contours,
     Openness,
     Vegetation,
     Cliffs,
@@ -88,20 +106,17 @@ pub enum MapPreviewSection {
     Intensity,
 }
 
-pub enum TaskDone {
+pub enum TaskComplete {
     InitializeMapTile,
-    ParseCrs(SetCrs),
+    ParseCrs,
     MapSpatialLidarRelations,
-    DropComponents,
     ConvertCopc,
-    OutputCrs,
     RegenerateMap(JobId),
     Reset,
     MakeMap,
 }
 
 pub enum SetCrs {
-    Auto,
     SetAllEpsg,
     SetEachCrs,
     Local,

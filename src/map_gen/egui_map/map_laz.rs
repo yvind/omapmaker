@@ -36,7 +36,7 @@ pub fn map_laz(sender: FrontendSender, paths: Vec<PathBuf>, crs_defs: Option<Vec
         components,
     )));
     let _ = sender.send(FrontendTask::TaskComplete(
-        TaskDone::MapSpatialLidarRelations,
+        TaskComplete::MapSpatialLidarRelations,
     ));
 }
 

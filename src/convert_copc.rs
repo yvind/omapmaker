@@ -117,7 +117,7 @@ fn try_convert_copc(
 
             stats.push(
                 LidarStats::calculate_statistics(&new_paths[pi]).with_context(|| {
-                    format!("Failed to calculate statistics for {:?}", &new_paths[pi])
+                    format!("Failed to calculate statistics for {:?}", new_paths[pi])
                 })?,
             );
         }
@@ -165,7 +165,7 @@ fn try_convert_copc(
 
     let _ = sender.send(FrontendTask::UpdateVariable(Variable::Paths(new_paths)));
 
-    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::ConvertCopc));
+    let _ = sender.send(FrontendTask::TaskComplete(TaskComplete::ConvertCopc));
 
     Ok(())
 }

@@ -165,7 +165,7 @@ impl ContourSet {
             grads.push(grad);
         }
 
-        for (v, g) in vertices.into_iter().zip(grads.into_iter()) {
+        for (v, g) in vertices.into_iter().zip(grads) {
             tri.vertex_data_mut(v).grad = g;
         }
 

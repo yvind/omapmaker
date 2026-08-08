@@ -359,14 +359,9 @@ pub fn make_map(
 
     let _ = sender.send(FrontendTask::Log("Writing Omap file...".to_string()));
 
-    let bezier_line_error = map_params.geometry.contours.enabled.then(|| {
-        map_params
-            .scale
-            .meters_to_paper_mm(map_params.geometry.contours.error)
-    });
-    let omap = map.into_omap(masl, bezier_line_error)?;
+    let mut omap = map.into_omap(masl, &map_params.geometry)?;
 
-    omap.write_to_file(file_params.save_location.clone())?;
+    omap.to_file(file_params.save_location.clone())?;
 
     write_saved_rasters(
         &sender,

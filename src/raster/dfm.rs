@@ -14,6 +14,8 @@ pub struct TargetElevation;
 #[derive(Clone, Copy, Debug)]
 pub struct Slope;
 #[derive(Clone, Copy, Debug)]
+pub struct CliffStrength;
+#[derive(Clone, Copy, Debug)]
 pub struct ProfileChange;
 #[derive(Clone, Copy, Debug)]
 pub struct TangentChange;
@@ -105,6 +107,7 @@ continuous_raster_markers!(
     AdjustedElevation,
     TargetElevation,
     Slope,
+    CliffStrength,
     ProfileChange,
     TangentChange,
     FitConfidence,

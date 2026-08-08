@@ -3,7 +3,8 @@ use crate::{
     drawable::DrawOrder,
     map_gen::egui_map::AreaSymbol,
     parameters::{
-        BezierParameters, BufferDirection, BufferRule, ContourAlgo, FormlinePruneAlgo, Scale,
+        BezierParameters, BufferDirection, BufferRule, CliffAlgorithm, ContourAlgo,
+        FormlinePruneAlgo, Scale,
     },
 };
 
@@ -260,7 +261,7 @@ impl OmapMaker {
             )
             .clicked()
         {
-            self.on_frontend_task(FrontendTask::NextState);
+            self.start_task(Task::NextState);
         }
 
         egui::Window::new("text size")
@@ -351,7 +352,7 @@ impl OmapMaker {
             });
 
         if ui.button("Go back").clicked() {
-            self.on_frontend_task(FrontendTask::PrevState);
+            self.start_task(Task::PrevState);
         }
     }
 
@@ -443,7 +444,7 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.horizontal(|ui| {
             if ui.button("Start over").clicked() {
-                self.open_modal = OmapModal::ConfirmStartOver;
+                self.start_task(Task::OpenModal(OmapModal::ConfirmStartOver));
             }
             let polygon_ready = !self.gui_variables.area.drawing_polygon
                 && (self.gui_variables.area.polygon_filter.0.is_empty()
@@ -452,7 +453,7 @@ impl OmapMaker {
                 .add_enabled(polygon_ready, egui::Button::new("Next step"))
                 .clicked()
             {
-                self.on_frontend_task(FrontendTask::NextState);
+                self.start_task(Task::NextState);
             }
         });
     }
@@ -467,7 +468,7 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.horizontal(|ui| {
             if ui.button("Start over").clicked() {
-                self.open_modal = OmapModal::ConfirmStartOver;
+                self.start_task(Task::OpenModal(OmapModal::ConfirmStartOver));
             }
             if ui
                 .add_enabled(
@@ -476,7 +477,7 @@ impl OmapMaker {
                 )
                 .clicked()
             {
-                self.on_frontend_task(FrontendTask::NextState);
+                self.start_task(Task::NextState);
             }
         });
     }
@@ -611,6 +612,35 @@ impl OmapMaker {
                     );
                 }
                 ProcessStage::AdjustCliffs => {
+                    ui.horizontal(|ui| {
+                        ui.label("Cliff algorithm:");
+                        egui::ComboBox::from_id_salt("Cliff algorithm")
+                            .selected_text(
+                                self.gui_variables.generation.params.cliff.algorithm.to_string(),
+                            )
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self
+                                        .gui_variables
+                                        .generation
+                                        .params
+                                        .cliff
+                                        .algorithm,
+                                    CliffAlgorithm::PolynomialFit,
+                                    "Polynomial fit (adaptive)",
+                                );
+                                ui.selectable_value(
+                                    &mut self
+                                        .gui_variables
+                                        .generation
+                                        .params
+                                        .cliff
+                                        .algorithm,
+                                    CliffAlgorithm::SobelSlope,
+                                    "Sobel slope (legacy)",
+                                );
+                            });
+                    });
                     ui.label(egui::RichText::new("Cliff threshold").strong());
                     ui.add(
                         egui::Slider::new(
@@ -803,7 +833,7 @@ impl OmapMaker {
             )
             .clicked()
         {
-            self.on_frontend_task(FrontendTask::DelegateTask(Task::RegenerateMap));
+            self.start_task(Task::RegenerateMap(RegenerationScope::Changed));
         }
 
         ui.add_space(20.);
@@ -811,13 +841,13 @@ impl OmapMaker {
         ui.add_enabled_ui(!self.gui_variables.preview.generating_map_tile, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Prev step").clicked() {
-                    self.on_frontend_task(FrontendTask::PrevState);
+                    self.start_task(Task::PrevState);
                 }
                 if ui.button("Next step").clicked() {
                     if self.state == ProcessStage::AdjustIntensity {
-                        self.open_modal = OmapModal::ConfirmMakeMap;
+                        self.start_task(Task::OpenModal(OmapModal::ConfirmMakeMap));
                     } else {
-                        self.on_frontend_task(FrontendTask::NextState);
+                        self.start_task(Task::NextState);
                     }
                 }
             });
@@ -1393,7 +1423,7 @@ impl OmapMaker {
 
         ui.add_space(20.);
         if ui.button("Start a new map").clicked() {
-            self.on_frontend_task(FrontendTask::DelegateTask(Task::Reset));
+            self.start_task(Task::Reset);
         }
     }
 }

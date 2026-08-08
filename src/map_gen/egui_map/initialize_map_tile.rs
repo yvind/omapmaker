@@ -202,7 +202,7 @@ pub fn initialize_map_tile(
     )?;
 
     let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
-    let _ = sender.send(FrontendTask::TaskComplete(TaskDone::InitializeMapTile));
+    let _ = sender.send(FrontendTask::TaskComplete(TaskComplete::InitializeMapTile));
 
     Ok(InitializedMapTile {
         tiles,
