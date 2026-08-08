@@ -4,12 +4,12 @@ use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::{AreaSymbol, LineSymbol, MapObject},
     parameters::{BufferRule, MapParameters},
-    raster::Dfm,
+    raster::{Dfm, dfm::RasterMarker},
 };
 
 use geo::{BooleanOps, Simplify};
 
-pub fn compute_cliffs<T>(
+pub fn compute_cliffs<T: RasterMarker>(
     cliff_strength: &Dfm<T>,
     convex_hull: &geo::Polygon,
     cut_overlay: &geo::Polygon,
