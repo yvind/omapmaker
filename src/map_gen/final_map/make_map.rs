@@ -11,8 +11,8 @@ use crate::{
     raster::{
         D8Flow, Dfm,
         dfm::{
-            FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity, Slope,
-            SurfaceObjects,
+            FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity,
+            RasterMarker, Slope, SurfaceObjects,
         },
     },
     statistics::LidarStats,
@@ -437,7 +437,7 @@ pub fn make_map(
     Ok(())
 }
 
-fn push_saved_raster<T>(
+fn push_saved_raster<T: RasterMarker>(
     saved_rasters: &Arc<Mutex<Vec<Dfm<T>>>>,
     raster: Dfm<T>,
     label: &str,
@@ -455,7 +455,7 @@ fn push_saved_raster<T>(
     }
 }
 
-fn write_saved_rasters<T>(
+fn write_saved_rasters<T: RasterMarker>(
     sender: &FrontendSender,
     saved_rasters: Option<Arc<Mutex<Vec<Dfm<T>>>>>,
     naming: (&str, &str),

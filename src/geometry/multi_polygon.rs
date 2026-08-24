@@ -171,6 +171,7 @@ impl MapMultiPolygon for geo::MultiPolygon {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raster::{Dfm, DfmGrid, dfm::Elevation};
     use geo::{Area, BoundingRect, Contains, Point, polygon};
 
     fn rectangle(x: f64, y: f64, width: f64, height: f64) -> geo::Polygon {
@@ -180,6 +181,24 @@ mod tests {
             (x: x + width, y: y + height),
             (x: x, y: y + height),
         ]
+    }
+
+    #[test]
+    fn contour_winding_builds_a_polygon_with_a_low_island_hole() {
+        let grid = DfmGrid::new(7, 7, 1., geo::coord! { x: 0., y: 6. }).unwrap();
+        let mut raster = Dfm::<Elevation>::new(grid);
+        raster.field.fill(2.);
+        raster[(3, 3)] = 0.;
+        let domain = geo::Rect::new(geo::coord! { x: -1., y: -1. }, geo::coord! { x: 7., y: 7. })
+            .to_polygon();
+
+        let polygons =
+            geo::MultiPolygon::from_contours(raster.marching_squares(1.), &domain, false);
+
+        assert_eq!(polygons.0.len(), 1);
+        assert_eq!(polygons.0[0].interiors().len(), 1);
+        assert!(polygons.0[0].contains(&geo::Point::new(1., 1.)));
+        assert!(!polygons.0[0].contains(&geo::Point::new(3., 3.)));
     }
 
     #[test]

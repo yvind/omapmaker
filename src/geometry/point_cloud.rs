@@ -4,7 +4,7 @@ use crate::{
     CELL_SIZE_METERS, TILE_SIZE_METERS,
     raster::{
         Dfm,
-        dfm::{Elevation, HeightAboveGround, PointDensity},
+        dfm::{Elevation, HeightAboveGround, PointDensity, RasterMarker},
     },
 };
 use anyhow::{Context, bail};
@@ -87,7 +87,7 @@ impl PointCloud {
         chm
     }
 
-    pub fn point_density<T>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
+    pub fn point_density<T: RasterMarker>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
         let mut density = Dfm::<PointDensity>::new_like(grid);
         let mut counts = vec![0_u32; grid.width() * grid.height()];
 

@@ -76,11 +76,6 @@ fn try_convert_copc(
             polygon.exterior().0.is_empty() || polygon.intersects(&boundary_polygon(bounds));
 
         if relevant {
-            stats.push(
-                LidarStats::calculate_statistics(&path)
-                    .with_context(|| format!("Failed to calculate statistics for {path:?}"))?,
-            );
-
             let transform_needed =
                 if let (Some(input), Some(output)) = (&input_crs[pi], &output_crs) {
                     input.epsg() != output.epsg()
@@ -119,6 +114,12 @@ fn try_convert_copc(
             if write_single_copc {
                 relevant_paths.push(new_paths[pi].clone());
             }
+
+            stats.push(
+                LidarStats::calculate_statistics(&new_paths[pi]).with_context(|| {
+                    format!("Failed to calculate statistics for {:?}", &new_paths[pi])
+                })?,
+            );
         }
 
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));

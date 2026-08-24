@@ -1,7 +1,8 @@
 use crate::parameters::ContourFieldParameters;
 use crate::raster::Dfm;
 use crate::raster::dfm::{
-    DirectionConfidence, Elevation, FitConfidence, ProfileChange, Slope, TangentChange,
+    DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY, ProfileChange,
+    Slope, TangentChange,
 };
 
 use rayon::prelude::*;
@@ -14,12 +15,47 @@ pub(super) struct TerrainDerivatives {
     pub(super) tangent_change: Dfm<TangentChange>,
     pub(super) direction_confidence: Dfm<DirectionConfidence>,
     pub(super) fit_confidence: Dfm<FitConfidence>,
+    pub(super) isoline_tangent_x: Dfm<IsolineTangentX>,
+    pub(super) isoline_tangent_y: Dfm<IsolineTangentY>,
 }
 
 struct FitKernel {
-    radius: isize,
-    inverse: [[f64; 6]; 6],
-    samples: Vec<([f64; 6], [f64; 6], f64)>,
+    radius: usize,
+    samples: Vec<FitSample>,
+}
+
+struct FitSample {
+    dy: isize,
+    dx: isize,
+    weighted_design: [f64; 6],
+    coefficients: [f64; 6],
+    weight: f64,
+}
+
+struct AddressedFitKernel {
+    radius: usize,
+    samples: Vec<AddressedFitSample>,
+}
+
+struct AddressedFitSample {
+    dy: isize,
+    dx: isize,
+    linear_offset: isize,
+    weighted_design: [f64; 6],
+    coefficients: [f64; 6],
+    weight: f64,
+}
+
+struct AddressedGradientKernel {
+    radius: usize,
+    samples: Vec<AddressedGradientSample>,
+}
+
+struct AddressedGradientSample {
+    dy: isize,
+    dx: isize,
+    linear_offset: isize,
+    coefficients: [f64; 2],
 }
 
 impl FitKernel {
@@ -38,25 +74,30 @@ impl FitKernel {
                         normal[row][column] += weight * design[row] * design[column];
                     }
                 }
-                raw.push((design.map(|value| value * weight), weight));
+                raw.push((dy, dx, design.map(|value| value * weight), weight));
             }
         }
         let inverse = invert(normal)?;
         let samples = raw
             .into_iter()
-            .map(|(weighted_design, weight)| {
+            .map(|(dy, dx, weighted_design, weight)| {
                 let mut coefficients = [0.; 6];
                 for row in 0..6 {
                     coefficients[row] = (0..6)
                         .map(|column| inverse[row][column] * weighted_design[column])
                         .sum();
                 }
-                (weighted_design, coefficients, weight)
+                FitSample {
+                    dy,
+                    dx,
+                    weighted_design,
+                    coefficients,
+                    weight,
+                }
             })
             .collect();
         Ok(Self {
-            radius,
-            inverse,
+            radius: radius as usize,
             samples,
         })
     }
@@ -83,47 +124,68 @@ impl FitKernel {
         Ok(kernel)
     }
 
-    fn gradient(&self, source: &Dfm<Elevation>, y: usize, x: usize) -> [f64; 2] {
-        let mut gradient = [0.; 2];
-        for (sample_index, (_, kernel, _)) in self.samples.iter().enumerate() {
-            let side = (2 * self.radius + 1) as usize;
-            let dy = sample_index / side;
-            let dx = sample_index % side;
-            let row = (y as isize + dy as isize - self.radius)
-                .clamp(0, source.height() as isize - 1) as usize;
-            let column = (x as isize + dx as isize - self.radius)
-                .clamp(0, source.width() as isize - 1) as usize;
-            let value = f64::from(source[(row, column)]);
-            gradient[0] += kernel[1] * value;
-            gradient[1] += kernel[2] * value;
+    fn addressed_fit(&self, width: usize) -> AddressedFitKernel {
+        AddressedFitKernel {
+            radius: self.radius,
+            samples: self
+                .samples
+                .iter()
+                .map(|sample| AddressedFitSample {
+                    dy: sample.dy,
+                    dx: sample.dx,
+                    linear_offset: sample.dy * width as isize + sample.dx,
+                    weighted_design: sample.weighted_design,
+                    coefficients: sample.coefficients,
+                    weight: sample.weight,
+                })
+                .collect(),
         }
-        gradient
     }
 
-    fn fit(&self, source: &Dfm<Elevation>, y: usize, x: usize) -> ([f64; 6], f64) {
+    fn addressed_gradient(&self, width: usize) -> AddressedGradientKernel {
+        AddressedGradientKernel {
+            radius: self.radius,
+            samples: self
+                .samples
+                .iter()
+                .map(|sample| AddressedGradientSample {
+                    dy: sample.dy,
+                    dx: sample.dx,
+                    linear_offset: sample.dy * width as isize + sample.dx,
+                    coefficients: [sample.coefficients[1], sample.coefficients[2]],
+                })
+                .collect(),
+        }
+    }
+}
+
+impl AddressedFitKernel {
+    fn apply(&self, source: &Dfm<Elevation>, y: usize, x: usize) -> ([f64; 6], f64) {
         let mut right_hand_side = [0.; 6];
+        let mut coefficients = [0.; 6];
         let mut weighted_squares = 0.;
         let mut weight_sum = 0.;
-        for (sample_index, (weighted_design, _, weight)) in self.samples.iter().enumerate() {
-            let side = (2 * self.radius + 1) as usize;
-            let dy = sample_index / side;
-            let dx = sample_index % side;
-            let row = (y as isize + dy as isize - self.radius)
-                .clamp(0, source.height() as isize - 1) as usize;
-            let column = (x as isize + dx as isize - self.radius)
-                .clamp(0, source.width() as isize - 1) as usize;
-            let value = f64::from(source[(row, column)]);
+        let interior = y >= self.radius
+            && y + self.radius < source.height()
+            && x >= self.radius
+            && x + self.radius < source.width();
+        let center = y * source.width() + x;
+        for sample in &self.samples {
+            let index = if interior {
+                (center as isize + sample.linear_offset) as usize
+            } else {
+                let row = (y as isize + sample.dy).clamp(0, source.height() as isize - 1) as usize;
+                let column =
+                    (x as isize + sample.dx).clamp(0, source.width() as isize - 1) as usize;
+                row * source.width() + column
+            };
+            let value = f64::from(source.field[index]);
             for i in 0..6 {
-                right_hand_side[i] += weighted_design[i] * value;
+                right_hand_side[i] += sample.weighted_design[i] * value;
+                coefficients[i] += sample.coefficients[i] * value;
             }
-            weighted_squares += weight * value * value;
-            weight_sum += weight;
-        }
-        let mut coefficients = [0.; 6];
-        for (row, coefficient) in coefficients.iter_mut().enumerate() {
-            *coefficient = (0..6)
-                .map(|column| self.inverse[row][column] * right_hand_side[column])
-                .sum();
+            weighted_squares += sample.weight * value * value;
+            weight_sum += sample.weight;
         }
         let residual = (weighted_squares
             - coefficients
@@ -133,6 +195,31 @@ impl FitKernel {
                 .sum::<f64>())
         .max(0.);
         (coefficients, (residual / weight_sum).sqrt())
+    }
+}
+
+impl AddressedGradientKernel {
+    fn apply(&self, source: &Dfm<Elevation>, y: usize, x: usize) -> [f64; 2] {
+        let interior = y >= self.radius
+            && y + self.radius < source.height()
+            && x >= self.radius
+            && x + self.radius < source.width();
+        let center = y * source.width() + x;
+        let mut gradient = [0.; 2];
+        for sample in &self.samples {
+            let index = if interior {
+                (center as isize + sample.linear_offset) as usize
+            } else {
+                let row = (y as isize + sample.dy).clamp(0, source.height() as isize - 1) as usize;
+                let column =
+                    (x as isize + sample.dx).clamp(0, source.width() as isize - 1) as usize;
+                row * source.width() + column
+            };
+            let value = f64::from(source.field[index]);
+            gradient[0] += sample.coefficients[0] * value;
+            gradient[1] += sample.coefficients[1] * value;
+        }
+        gradient
     }
 }
 
@@ -151,61 +238,84 @@ pub(super) fn calculate(
         params.curvature_fit_radius_m,
         params.curvature_fit_radius_m / 2.,
     )?;
-    let mut values = vec![(0_f32, 0_f32, 0_f32, 0_f32, 0_f32); source.field.len()];
     let width = source.width();
-    values
-        .par_iter_mut()
-        .enumerate()
-        .for_each(|(index, output)| {
-            let y = index / width;
-            let x = index % width;
-            let gradient = slope_kernel.gradient(source, y, x);
-            let (curvature, rmse) = curvature_kernel.fit(source, y, x);
-            let gx = gradient[0];
-            let gy = gradient[1];
-            let slope = gx.hypot(gy);
-            let epsilon = f64::from(params.slope_epsilon);
-            let direction_confidence = slope * slope / (slope * slope + epsilon * epsilon);
-            let (nx, ny) = if slope > epsilon {
-                (gx / slope, gy / slope)
-            } else {
-                (0., 0.)
-            };
-            let (tx, ty) = (-ny, nx);
-            let hxx = 2. * curvature[3];
-            let hxy = curvature[4];
-            let hyy = 2. * curvature[5];
-            let scale = f64::from(interval.abs());
-            let profile = (nx * (hxx * nx + hxy * ny) + ny * (hxy * nx + hyy * ny)).abs() * scale;
-            let tangent = (tx * (hxx * tx + hxy * ty) + ty * (hxy * tx + hyy * ty)).abs() * scale;
-            let fit_confidence = (-(rmse / f64::from(params.rmse_reference)).powi(2)).exp();
-            *output = (
-                slope as f32,
-                profile as f32,
-                tangent as f32,
-                direction_confidence as f32,
-                fit_confidence as f32,
-            );
-        });
-
+    let slope_kernel = slope_kernel.addressed_gradient(width);
+    let curvature_kernel = curvature_kernel.addressed_fit(width);
     let mut slope = Dfm::new_like(source);
     let mut profile_change = Dfm::new_like(source);
     let mut tangent_change = Dfm::new_like(source);
     let mut direction_confidence = Dfm::new_like(source);
     let mut fit_confidence = Dfm::new_like(source);
-    for (index, &(s, profile, tangent, direction, fit)) in values.iter().enumerate() {
-        slope.field[index] = s;
-        profile_change.field[index] = profile;
-        tangent_change.field[index] = tangent;
-        direction_confidence.field[index] = direction;
-        fit_confidence.field[index] = fit;
-    }
+    let mut isoline_tangent_x = Dfm::new_like(source);
+    let mut isoline_tangent_y = Dfm::new_like(source);
+    slope
+        .field
+        .par_iter_mut()
+        .zip(profile_change.field.par_iter_mut())
+        .zip(tangent_change.field.par_iter_mut())
+        .zip(direction_confidence.field.par_iter_mut())
+        .zip(fit_confidence.field.par_iter_mut())
+        .zip(isoline_tangent_x.field.par_iter_mut())
+        .zip(isoline_tangent_y.field.par_iter_mut())
+        .enumerate()
+        .for_each(
+            |(
+                index,
+                (
+                    (
+                        (
+                            (((slope_output, profile_output), tangent_output), direction_output),
+                            fit_output,
+                        ),
+                        tangent_x_output,
+                    ),
+                    tangent_y_output,
+                ),
+            )| {
+                let y = index / width;
+                let x = index % width;
+                let slope_fit = slope_kernel.apply(source, y, x);
+                let (curvature, rmse) = curvature_kernel.apply(source, y, x);
+                let gx = slope_fit[0];
+                let gy = slope_fit[1];
+                let slope = gx.hypot(gy);
+                let epsilon = f64::from(params.slope_epsilon);
+                let direction_confidence = slope * slope / (slope * slope + epsilon * epsilon);
+                let (nx, ny) = if slope > epsilon {
+                    (gx / slope, gy / slope)
+                } else {
+                    (0., 0.)
+                };
+                let (tx, ty) = (-ny, nx);
+                let hxx = 2. * curvature[3];
+                let hxy = curvature[4];
+                let hyy = 2. * curvature[5];
+                let scale = f64::from(interval.abs());
+                let profile =
+                    (nx * (hxx * nx + hxy * ny) + ny * (hxy * nx + hyy * ny)).abs() * scale;
+                let tangent =
+                    (tx * (hxx * tx + hxy * ty) + ty * (hxy * tx + hyy * ty)).abs() * scale;
+                let fit_confidence = (-(rmse / f64::from(params.rmse_reference)).powi(2)).exp();
+                *slope_output = slope as f32;
+                *profile_output = profile as f32;
+                *tangent_output = tangent as f32;
+                *direction_output = direction_confidence as f32;
+                *fit_output = fit_confidence as f32;
+                *tangent_x_output = tx as f32;
+                // Solver gradients use increasing raster-row coordinates,
+                // opposite to the fitted surface's world-Y coordinate.
+                *tangent_y_output = -ty as f32;
+            },
+        );
+
     Ok(TerrainDerivatives {
         slope,
         profile_change,
         tangent_change,
         direction_confidence,
         fit_confidence,
+        isoline_tangent_x,
+        isoline_tangent_y,
     })
 }
 
@@ -260,10 +370,60 @@ mod tests {
             }
         }
         let kernel = FitKernel::new(0.5, 3., 1.5).unwrap();
-        let (fit, rmse) = kernel.fit(&source, 10, 10);
+        let (fit, rmse) = kernel.addressed_fit(source.width()).apply(&source, 10, 10);
         for (actual, expected) in fit.iter().zip([3., 2., -1., 0.4, 0.3, -0.2]) {
             assert!((actual - expected).abs() < 1e-5);
         }
         assert!(rmse < 1e-5);
+    }
+
+    #[test]
+    fn specialized_gradient_matches_full_fit_at_interior_and_boundaries() {
+        let grid = DfmGrid::new(17, 13, 0.5, geo::coord! { x: -4., y: 3. }).unwrap();
+        let mut source = Dfm::new(grid);
+        for (index, value) in source.field.iter_mut().enumerate() {
+            *value = (index as f32 * 0.37).sin();
+        }
+        let kernel = FitKernel::new(0.5, 2., 1.).unwrap();
+        let fit = kernel.addressed_fit(source.width());
+        let gradient = kernel.addressed_gradient(source.width());
+        for (y, x) in [(0, 0), (0, 8), (6, 0), (12, 16), (6, 8)] {
+            let (full, _) = fit.apply(&source, y, x);
+            let specialized = gradient.apply(&source, y, x);
+            assert!((full[1] - specialized[0]).abs() < 1e-12);
+            assert!((full[2] - specialized[1]).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn stored_isoline_tangent_matches_raster_gradient_coordinates() {
+        let grid = DfmGrid::new(21, 21, 0.5, geo::coord! { x: -5., y: 5. }).unwrap();
+        let mut source = Dfm::<Elevation>::new(grid);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                let coordinate = source.index2coord(y, x);
+                source[(y, x)] = (2. * coordinate.x - coordinate.y) as f32;
+            }
+        }
+        let params = ContourFieldParameters {
+            slope_fit_radius_m: 2.,
+            curvature_fit_radius_m: 2.,
+            ..Default::default()
+        };
+        let derivatives = calculate(&source, 1., &params).unwrap();
+        let (y, x) = (10, 10);
+        let index = y * source.width() + x;
+        let cell = source.grid.cell_size_m as f32;
+        let raster_gradient = [
+            (source.field[index + 1] - source.field[index]) / cell,
+            (source.field[index + source.width()] - source.field[index]) / cell,
+        ];
+        let tangent = [
+            derivatives.isoline_tangent_x.field[index],
+            derivatives.isoline_tangent_y.field[index],
+        ];
+
+        assert!((tangent[0] * raster_gradient[0] + tangent[1] * raster_gradient[1]).abs() < 1e-5);
+        assert!((tangent[0].hypot(tangent[1]) - 1.).abs() < 1e-5);
     }
 }

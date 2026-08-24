@@ -1,3 +1,4 @@
+use crate::raster::dfm::{ContinuousRasterMarker, MaskRasterMarker};
 use crate::raster::{Dfm, DfmGrid, DfmPixelBounds};
 
 #[allow(dead_code)]
@@ -8,7 +9,7 @@ pub enum MaskRestriction {
     All,
 }
 
-impl<T> Dfm<T> {
+impl<T: ContinuousRasterMarker + Copy> Dfm<T> {
     /// Area-weight a continuous cell-centred raster onto an aligned coarse grid.
     pub fn restrict_to(&self, coarse_grid: &DfmGrid) -> crate::Result<Self> {
         let ratio = self.grid.aligned_ratio_to(coarse_grid)?;
@@ -52,7 +53,9 @@ impl<T> Dfm<T> {
         }
         Ok(fine)
     }
+}
 
+impl<T: MaskRasterMarker> Dfm<T> {
     /// Restrict a zero/nonzero mask using an explicit categorical policy.
     #[allow(dead_code)]
     pub fn restrict_mask_to(

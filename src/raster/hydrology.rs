@@ -3,7 +3,7 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
+use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS, raster::dfm::RasterMarker};
 
 use super::{
     Dfm,
@@ -496,7 +496,7 @@ fn priority_flood_fill(dem: &Dfm<Elevation>) -> Dfm<HydroCorrected> {
     corrected
 }
 
-fn push_outlet<T>(
+fn push_outlet<T: RasterMarker>(
     dem: &Dfm<T>,
     visited: &mut [bool],
     queue: &mut BinaryHeap<HeapCell>,

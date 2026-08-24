@@ -117,6 +117,7 @@ pub fn regenerate_map_tile(
     }
 
     if steps.contours {
+        omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
@@ -201,12 +202,7 @@ fn changed_steps(
         || new.contour.form_line_prune_algorithm != old.contour.form_line_prune_algorithm
         || new.contour.form_line_prune_threshold != old.contour.form_line_prune_threshold
         || new.contour.form_line_error_threshold != old.contour.form_line_error_threshold
-        || new.contour.form_line_min_open_length_m != old.contour.form_line_min_open_length_m
-        || new.contour.form_line_min_closed_length_m != old.contour.form_line_min_closed_length_m
-        || new.contour.form_line_reconnect_gap_m != old.contour.form_line_reconnect_gap_m
-        || new.contour.form_line_closed_seed_length_m != old.contour.form_line_closed_seed_length_m
-        || new.contour.form_line_closed_all_or_none_max_length_m
-            != old.contour.form_line_closed_all_or_none_max_length_m
+        || new.contour.form_line_geometry != old.contour.form_line_geometry
         || new.contour.interval != old.contour.interval
         || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;

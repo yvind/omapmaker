@@ -228,6 +228,7 @@ pub enum MapObject {
 }
 
 const PRESERVE_CONTOUR_GEOMETRY_TAG: &str = "_omapmaker_preserve_contour_geometry";
+const STABLE_CONTOUR_SEAM_TAG: &str = "_omapmaker_stable_contour_seam";
 
 impl MapObject {
     pub fn get_symbol(&self) -> Symbol {
@@ -319,6 +320,12 @@ impl MapObject {
             tags.insert(PRESERVE_CONTOUR_GEOMETRY_TAG.to_string(), String::new());
         }
     }
+
+    pub fn stabilize_contour_seam(&mut self) {
+        if let MapObject::Line { tags, .. } = self {
+            tags.insert(STABLE_CONTOUR_SEAM_TAG.to_string(), String::new());
+        }
+    }
 }
 
 pub struct TempMap {
@@ -355,15 +362,13 @@ impl RTreeObject for IndexedPolygonEnvelope {
 }
 
 impl MergeLine {
-    fn elevation_key(&self) -> Option<i64> {
-        self.tags
-            .get("Elevation")
-            .and_then(|elevation| elevation.parse::<f64>().ok())
-            .map(|elevation| (elevation * 100.).round() as i64)
+    fn elevation_key(&self) -> Option<String> {
+        self.tags.get("Elevation").cloned()
     }
 
-    fn preserves_contour_geometry(&self) -> bool {
+    fn requires_exact_contour_merge(&self) -> bool {
         self.tags.contains_key(PRESERVE_CONTOUR_GEOMETRY_TAG)
+            || self.tags.contains_key(STABLE_CONTOUR_SEAM_TAG)
     }
 
     fn start_point(&self) -> [f64; 2] {
@@ -588,6 +593,7 @@ impl TempMap {
                     } => {
                         let preserve_geometry =
                             tags.remove(PRESERVE_CONTOUR_GEOMETRY_TAG).is_some();
+                        tags.remove(STABLE_CONTOUR_SEAM_TAG);
                         let object = object.map_coords(|c| c + self.ref_point);
                         let mut line = LineObject::new(
                             WeakLinePathSymbol::try_from(
@@ -818,26 +824,23 @@ impl TempMap {
                 }
             }
 
-            let mut unclosed_object_groups = HashMap::<(Option<i64>, bool), Vec<MergeLine>>::new();
+            let mut unclosed_object_groups =
+                HashMap::<(Option<String>, bool), Vec<MergeLine>>::new();
             for unclosed_object in unclosed_objects {
                 unclosed_object_groups
                     .entry((
                         unclosed_object.elevation_key(),
-                        unclosed_object.preserves_contour_geometry(),
+                        unclosed_object.requires_exact_contour_merge(),
                     ))
                     .or_default()
                     .push(unclosed_object);
             }
 
-            for ((_, preserve_geometry), mut unclosed_objects) in unclosed_object_groups {
-                let merge_delta =
-                    if preserve_geometry && matches!(key, Symbol::Line(LineSymbol::FormLine)) {
-                        -1.
-                    } else if preserve_geometry {
-                        1e-16
-                    } else {
-                        delta
-                    };
+            for ((_, exact_contour_merge), mut unclosed_objects) in unclosed_object_groups {
+                // Preserved contour geometry may only join at effectively
+                // identical endpoints. This stitches exact tile cuts without
+                // bridging a deliberately pruned form-line gap.
+                let merge_delta = if exact_contour_merge { 1e-16 } else { delta };
                 let (line_ends, line_starts): (Vec<_>, Vec<_>) = unclosed_objects
                     .iter()
                     .enumerate()
@@ -1150,4 +1153,121 @@ fn polygon_envelope(polygon: &geo::Polygon) -> Option<AABB<[f64; 2]>> {
         [rect.min().x, rect.min().y],
         [rect.max().x, rect.max().y],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn seam_stable_formline_at(points: Vec<geo::Coord>, elevation: f32) -> MapObject {
+        let mut object = MapObject::Line {
+            object: geo::LineString::new(points),
+            symbol: LineSymbol::FormLine,
+            tags: HashMap::new(),
+        };
+        object.add_elevation_tag(elevation);
+        object.stabilize_contour_seam();
+        object
+    }
+
+    fn seam_stable_formline(points: Vec<geo::Coord>) -> MapObject {
+        seam_stable_formline_at(points, 2.5)
+    }
+
+    #[test]
+    fn seam_stable_formlines_merge_only_at_identical_endpoints() {
+        let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(seam_stable_formline(vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: 1., y: 0. },
+        ]));
+        map.add_object(seam_stable_formline(vec![
+            geo::coord! { x: 1., y: 0. },
+            geo::coord! { x: 2., y: 0. },
+        ]));
+        map.add_object(seam_stable_formline(vec![
+            geo::coord! { x: 2.001, y: 0. },
+            geo::coord! { x: 3., y: 0. },
+        ]));
+
+        map.merge_lines(10.);
+
+        let lines = &map.objects[&Symbol::Line(LineSymbol::FormLine)];
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().any(|object| {
+            matches!(
+                object,
+                MapObject::Line { object, .. }
+                    if object.0 == vec![
+                        geo::coord! { x: 0., y: 0. },
+                        geo::coord! { x: 1., y: 0. },
+                        geo::coord! { x: 2., y: 0. },
+                    ]
+            )
+        }));
+    }
+
+    #[test]
+    fn exact_contour_stitching_is_independent_of_tile_order() {
+        let stitch = |reverse: bool| {
+            let mut segments = vec![
+                vec![geo::coord! { x: 0., y: 0. }, geo::coord! { x: 1., y: 0. }],
+                vec![geo::coord! { x: 1., y: 0. }, geo::coord! { x: 2., y: 0. }],
+                vec![geo::coord! { x: 2., y: 0. }, geo::coord! { x: 3., y: 0. }],
+            ];
+            if reverse {
+                segments.reverse();
+            }
+            let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+            for segment in segments {
+                map.add_object(seam_stable_formline(segment));
+            }
+            map.merge_lines(10.);
+            let [MapObject::Line { object, .. }] =
+                map.objects[&Symbol::Line(LineSymbol::FormLine)].as_slice()
+            else {
+                panic!("expected one stitched line");
+            };
+            object.clone()
+        };
+
+        assert_eq!(stitch(false), stitch(true));
+    }
+
+    #[test]
+    fn contour_merge_requires_exact_elevation_and_matching_orientation() {
+        let line = |points, elevation| seam_stable_formline_at(points, elevation);
+
+        let mut different_elevations =
+            TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        different_elevations.add_object(line(
+            vec![geo::coord! { x: 0., y: 0. }, geo::coord! { x: 1., y: 0. }],
+            2.501,
+        ));
+        different_elevations.add_object(line(
+            vec![geo::coord! { x: 1., y: 0. }, geo::coord! { x: 2., y: 0. }],
+            2.504,
+        ));
+        different_elevations.merge_lines(10.);
+        assert_eq!(
+            different_elevations.objects[&Symbol::Line(LineSymbol::FormLine)].len(),
+            2
+        );
+
+        let mut opposite_orientation =
+            TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        opposite_orientation.add_object(line(
+            vec![geo::coord! { x: 0., y: 0. }, geo::coord! { x: 1., y: 0. }],
+            2.5,
+        ));
+        opposite_orientation.add_object(line(
+            vec![geo::coord! { x: 2., y: 0. }, geo::coord! { x: 1., y: 0. }],
+            2.5,
+        ));
+        opposite_orientation.merge_lines(10.);
+        assert_eq!(
+            opposite_orientation.objects[&Symbol::Line(LineSymbol::FormLine)].len(),
+            2
+        );
+    }
 }

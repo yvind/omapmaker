@@ -1,6 +1,9 @@
 use crate::{
     geometry::MapLineString,
-    raster::{Dfm, dfm::Elevation},
+    raster::{
+        Dfm,
+        dfm::{Elevation, RasterMarker},
+    },
 };
 
 use geo::Vector2DOps;
@@ -10,14 +13,10 @@ use spade::{DelaunayTriangulation, HasPosition, Triangulation};
 #[derive(Debug, Clone)]
 pub struct ContourSet(pub Vec<ContourLevel>);
 impl ContourSet {
-    pub fn with_capacity(num_levels: usize) -> ContourSet {
-        ContourSet(Vec::with_capacity(num_levels))
-    }
-
-    pub fn interpolate(
+    pub fn interpolate<T: RasterMarker>(
         &self,
         interpolated_dem: &mut Dfm<Elevation>,
-        adjusted_dem: &Dfm<Elevation>,
+        adjusted_dem: &Dfm<T>,
     ) -> crate::Result<()> {
         let tri = self.triangulate(adjusted_dem)?;
         let nn = tri.natural_neighbor();
@@ -49,9 +48,9 @@ impl ContourSet {
         Ok(())
     }
 
-    fn triangulate(
+    fn triangulate<T: RasterMarker>(
         &self,
-        dem: &Dfm<Elevation>,
+        dem: &Dfm<T>,
     ) -> crate::Result<DelaunayTriangulation<ContourPoint>> {
         // coarse estimate of number of nodes in triangulation
         // 3 * number of levels * number of lines in first level * number of points in first line of first level

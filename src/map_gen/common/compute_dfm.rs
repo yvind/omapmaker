@@ -3,7 +3,7 @@ use crate::parameters::VegetationWeights;
 use crate::raster::Dfm;
 use crate::raster::dfm::{
     Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn, LowVegetation,
-    MediumVegetation, Ndvd, PointDensity, Returns, SurfaceObjects, Water,
+    MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns, SurfaceObjects, Water,
 };
 use crate::statistics::LidarStats;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
@@ -110,9 +110,9 @@ pub fn compute_dfms(
         .hillshade_as::<LastReturn>(CHM_HILLSHADE_SUN_ANGLE);
 
     let surface_object_cloud =
-        filter_height_above_ground(all_point_cloud, &dem, 0., LOW_VEGETATION_MAX_HEIGHT_METERS);
+        filter_height_above_ground(all_point_cloud, &dem, -1., LOW_VEGETATION_MAX_HEIGHT_METERS);
     let surface_objects = surface_object_cloud
-        .canopy_height_model(&dem, CHM_SPIKINESS)
+        .canopy_height_model(&dem, -CHM_SPIKINESS)
         .hillshade_as::<SurfaceObjects>(CHM_HILLSHADE_SUN_ANGLE);
 
     let vegetation_density =
@@ -248,7 +248,7 @@ fn compute_vegetation_density_dfms(
     }
 }
 
-fn normalize_density_dfm<T: Clone, U>(
+fn normalize_density_dfm<T: RasterMarker, U: RasterMarker>(
     source: &Dfm<U>,
     band_sums: &[f64],
     total_sums: &[f64],

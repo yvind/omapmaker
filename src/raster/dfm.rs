@@ -24,6 +24,12 @@ pub struct DirectionConfidence;
 #[derive(Clone, Copy, Debug)]
 pub struct TerrainSalience;
 #[derive(Clone, Copy, Debug)]
+pub struct IsolineTangentX;
+#[derive(Clone, Copy, Debug)]
+pub struct IsolineTangentY;
+#[derive(Clone, Copy, Debug)]
+pub struct AlignmentConfidence;
+#[derive(Clone, Copy, Debug)]
 pub struct ContourCost;
 #[derive(Clone, Copy, Debug)]
 pub struct SmoothnessWeight;
@@ -68,19 +74,80 @@ pub struct FloodFill;
 #[derive(Clone, Copy, Debug)]
 pub struct FlowAccumulation;
 
+/// Zero sized marker trait for strict typing on Dfm
+pub trait RasterMarker: Copy {}
+
+/// Marker for rasters whose values may be averaged and bilinearly interpolated.
+pub trait ContinuousRasterMarker: RasterMarker {}
+
+/// Marker for categorical zero/nonzero rasters that require an explicit
+/// restriction policy.
+pub trait MaskRasterMarker: RasterMarker {}
+
+macro_rules! mask_raster_markers {
+    ($($marker:ty),+ $(,)?) => {
+        $(impl RasterMarker for $marker {})+
+        $(impl MaskRasterMarker for $marker {})+
+    };
+}
+
+mask_raster_markers!(FloodFill, AdjustmentBoundMask);
+
+macro_rules! continuous_raster_markers {
+    ($($marker:ty),+ $(,)?) => {
+        $(impl RasterMarker for $marker {})+
+        $(impl ContinuousRasterMarker for $marker {})+
+    };
+}
+
+continuous_raster_markers!(
+    Elevation,
+    AdjustedElevation,
+    TargetElevation,
+    Slope,
+    ProfileChange,
+    TangentChange,
+    FitConfidence,
+    DirectionConfidence,
+    TerrainSalience,
+    IsolineTangentX,
+    IsolineTangentY,
+    AlignmentConfidence,
+    ContourCost,
+    SmoothnessWeight,
+    VerticalAdjustment,
+    TerrainChange,
+    InterpolationErrorImprovement,
+    Hillshade,
+    HydroCorrected,
+    Returns,
+    Intensity,
+    HeightAboveGround,
+    LastReturn,
+    Ground,
+    LowVegetation,
+    MediumVegetation,
+    HighVegetation,
+    SurfaceObjects,
+    Water,
+    Ndvd,
+    PointDensity,
+    FlowAccumulation
+);
+
 #[derive(Clone, Debug)]
-pub struct Dfm<T> {
+pub struct Dfm<T: RasterMarker> {
     pub field: Box<[f32]>,
     pub grid: DfmGrid,
     _marker: PhantomData<T>,
 }
 
-impl<T> Dfm<T> {
+impl<T: RasterMarker> Dfm<T> {
     pub fn new(grid: DfmGrid) -> Self {
         Self {
             field: vec![f32::MIN; grid.width * grid.height].into_boxed_slice(),
             grid,
-            _marker: PhantomData,
+            _marker: PhantomData::<T>,
         }
     }
 
@@ -95,7 +162,7 @@ impl<T> Dfm<T> {
         Self::new(grid)
     }
 
-    pub fn new_like<U>(other: &Dfm<U>) -> Self {
+    pub fn new_like<U: RasterMarker>(other: &Dfm<U>) -> Self {
         Self::new(other.grid.clone())
     }
 
@@ -123,6 +190,27 @@ impl<T> Dfm<T> {
         }
     }
 
+    pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
+        let step = 5.min(self.width().min(self.height()) - 1);
+        let length = step as f64 * self.grid.cell_size_m;
+        let last_x = self.width() - 1;
+        let last_y = self.height() - 1;
+        let point = |y: usize, x: usize, x0: usize, x1: usize, y0: usize, y1: usize| ContourPoint {
+            pos: self.index2spade(y, x),
+            z: self[(y, x)],
+            grad: [
+                ((f64::from(self[(y, x1)]) - f64::from(self[(y, x0)])) / length) as f32,
+                ((f64::from(self[(y0, x)]) - f64::from(self[(y1, x)])) / length) as f32,
+            ],
+        };
+        [
+            point(0, 0, 0, step, 0, step),
+            point(0, last_x, last_x - step, last_x, 0, step),
+            point(last_y, 0, 0, step, last_y - step, last_y),
+            point(last_y, last_x, last_x - step, last_x, last_y - step, last_y),
+        ]
+    }
+
     #[allow(dead_code)]
     pub fn sample_bilinear(&self, coordinate: geo::Coord) -> Option<f32> {
         let x = (coordinate.x - self.grid.top_left.x) / self.grid.cell_size_m;
@@ -143,9 +231,7 @@ impl<T> Dfm<T> {
                 + self[(bottom, right)] * tx * ty,
         )
     }
-}
 
-impl<T: Clone> Dfm<T> {
     pub fn error(&self, other: &Self) -> f64 {
         self.grid
             .ensure_compatible(&other.grid)
@@ -197,7 +283,7 @@ impl<T: Clone> Dfm<T> {
         }
     }
 
-    pub fn hillshade_as<U>(&self, sun_angle: f64) -> Dfm<U> {
+    pub fn hillshade_as<U: RasterMarker>(&self, sun_angle: f64) -> Dfm<U> {
         let mut output = Dfm::new_like(self);
         let sun_elevation = std::f64::consts::FRAC_PI_4;
         let light = (
@@ -332,27 +418,6 @@ impl<T: Clone> Dfm<T> {
 }
 
 impl Dfm<Elevation> {
-    pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
-        let step = 5.min(self.width().min(self.height()) - 1);
-        let length = step as f64 * self.grid.cell_size_m;
-        let last_x = self.width() - 1;
-        let last_y = self.height() - 1;
-        let point = |y: usize, x: usize, x0: usize, x1: usize, y0: usize, y1: usize| ContourPoint {
-            pos: self.index2spade(y, x),
-            z: self[(y, x)],
-            grad: [
-                ((f64::from(self[(y, x1)]) - f64::from(self[(y, x0)])) / length) as f32,
-                ((f64::from(self[(y0, x)]) - f64::from(self[(y1, x)])) / length) as f32,
-            ],
-        };
-        [
-            point(0, 0, 0, step, 0, step),
-            point(0, last_x, last_x - step, last_x, 0, step),
-            point(last_y, 0, 0, step, last_y - step, last_y),
-            point(last_y, last_x, last_x - step, last_x, last_y - step, last_y),
-        ]
-    }
-
     pub fn slope(&self) -> Dfm<Slope> {
         let mut output = Dfm::new_like(self);
         for y in 0..self.height() {
@@ -418,7 +483,7 @@ impl Dfm<Elevation> {
     }
 }
 
-impl<T: Clone> Dfm<T> {
+impl<T: RasterMarker> Dfm<T> {
     // marching squares algorithm for extracting contours
     pub fn marching_squares(&self, level: f32) -> geo::MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
@@ -715,7 +780,7 @@ fn cosine_between_normals(a: (f64, f64), b: (f64, f64)) -> f64 {
         / ((a.0 * a.0 + a.1 * a.1 + 1.) * (b.0 * b.0 + b.1 * b.1 + 1.)).sqrt()
 }
 
-impl<T> Index<(usize, usize)> for Dfm<T> {
+impl<T: RasterMarker> Index<(usize, usize)> for Dfm<T> {
     type Output = f32;
 
     #[inline]
@@ -724,18 +789,18 @@ impl<T> Index<(usize, usize)> for Dfm<T> {
     }
 }
 
-impl<T> IndexMut<(usize, usize)> for Dfm<T> {
+impl<T: RasterMarker> IndexMut<(usize, usize)> for Dfm<T> {
     #[inline]
     fn index_mut(&mut self, (row, column): (usize, usize)) -> &mut Self::Output {
         &mut self.field[row * self.grid.width + column]
     }
 }
 
-struct DfmPaddedProxy<'a, T> {
+struct DfmPaddedProxy<'a, T: RasterMarker> {
     inner: &'a Dfm<T>,
 }
 
-impl<'a, T> DfmPaddedProxy<'a, T> {
+impl<'a, T: RasterMarker> DfmPaddedProxy<'a, T> {
     fn new(inner: &'a Dfm<T>) -> Self {
         Self { inner }
     }
@@ -771,7 +836,7 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
     }
 }
 
-impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
+impl<T: RasterMarker> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
     type Output = f32;
 
     fn index(&self, (row, column): (usize, usize)) -> &Self::Output {
@@ -968,5 +1033,40 @@ mod tests {
 
         assert!(outside_water.field.iter().all(|value| *value == 0.));
         assert!(invalid_tolerance.field.iter().all(|value| *value == 0.));
+    }
+
+    #[test]
+    fn contour_coordinates_support_portrait_grids_and_common_resolutions() {
+        for &(width, height) in &[(7, 5), (5, 7)] {
+            for &cell_size in &[0.5, 1., 2.] {
+                let mut raster = Dfm::<Elevation>::new(
+                    DfmGrid::new(width, height, cell_size, geo::coord! { x: 100., y: 200. })
+                        .unwrap(),
+                );
+                raster.field.fill(0.);
+                let (row, column) = (height / 2, width / 2);
+                raster[(row, column)] = 2.;
+                let center = raster.index2coord(row, column);
+                let bounds = raster.marching_squares(1.).bounding_rect().unwrap();
+                assert!(
+                    (bounds.min().x - (center.x - cell_size / 2.)).abs() < 1e-9
+                        && (bounds.max().x - (center.x + cell_size / 2.)).abs() < 1e-9
+                        && (bounds.min().y - (center.y - cell_size / 2.)).abs() < 1e-9
+                        && (bounds.max().y - (center.y + cell_size / 2.)).abs() < 1e-9
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn padding_closes_boundary_touching_contours() {
+        let grid = DfmGrid::new(5, 4, 1., geo::coord! { x: 0., y: 3. }).unwrap();
+        let mut raster = Dfm::<Elevation>::new(grid);
+        raster.field.fill(0.);
+        raster[(0, 0)] = 2.;
+        raster[(0, 1)] = 2.;
+        let contours = raster.marching_squares(1.);
+        assert!(!contours.0.is_empty());
+        assert!(contours.iter().all(geo::LineString::is_closed));
     }
 }

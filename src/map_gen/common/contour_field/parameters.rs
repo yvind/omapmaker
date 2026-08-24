@@ -32,6 +32,10 @@ impl<'a> ValidatedParameters<'a> {
             anyhow::ensure!(value.is_finite() && value > 0., "{name} must be positive");
         }
         anyhow::ensure!(
+            inner.alignment_weight.is_finite() && inner.alignment_weight >= 0.,
+            "isoline-alignment weight must be nonnegative"
+        );
+        anyhow::ensure!(
             inner.minimum_contour_cost <= 1.,
             "minimum contour cost must not exceed one"
         );

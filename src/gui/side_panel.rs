@@ -913,7 +913,7 @@ impl OmapMaker {
             );
             ui.horizontal(|ui| {
                 use crate::parameters::ContourGeneralization;
-                ui.label("Generalization:");
+                ui.label("Terrain attraction/generalization:");
                 egui::ComboBox::from_id_salt("Contour generalization")
                     .selected_text(
                         self.gui_variables
@@ -1078,7 +1078,9 @@ impl OmapMaker {
                         );
                     }
                     FormlinePruneAlgo::None => {
-                        ui.label("All generated form lines are retained.");
+                        ui.label(
+                            "All form lines are important; shared length and ring rules still apply.",
+                        );
                     }
                 }
                 ui.horizontal(|ui| {
@@ -1090,7 +1092,8 @@ impl OmapMaker {
                                 .generation
                                 .params
                                 .contour
-                                .form_line_min_open_length_m,
+                                .form_line_geometry
+                                .minimum_open_length_m,
                         )
                         .speed(0.5)
                         .range(0.0..=100.0),
@@ -1102,7 +1105,8 @@ impl OmapMaker {
                                 .generation
                                 .params
                                 .contour
-                                .form_line_min_closed_length_m,
+                                .form_line_geometry
+                                .minimum_closed_length_m,
                         )
                         .speed(0.5)
                         .range(0.0..=100.0),
@@ -1117,7 +1121,8 @@ impl OmapMaker {
                                 .generation
                                 .params
                                 .contour
-                                .form_line_reconnect_gap_m,
+                                .form_line_geometry
+                                .reconnect_gap_m,
                         )
                         .speed(0.25)
                         .range(0.0..=20.0),

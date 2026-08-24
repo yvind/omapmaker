@@ -8,13 +8,16 @@ use geotiff_writer::GeoTiffBuilder;
 use ndarray::Array2;
 use proj_core::CrsDef;
 
-use crate::{CELL_SIZE_METERS, raster::Dfm};
+use crate::{
+    CELL_SIZE_METERS,
+    raster::{Dfm, dfm::RasterMarker},
+};
 
 const NODATA_VALUE: f64 = -9999.;
 const RENDERED_NODATA_VALUE: u8 = 0;
 const RENDERED_NODATA_TEXT: &str = "0";
 
-pub fn write_merged_dfm_geotiff<T>(
+pub fn write_merged_dfm_geotiff<T: RasterMarker>(
     save_location: &Path,
     suffix: &str,
     tiles: &[Dfm<T>],
@@ -67,7 +70,7 @@ fn raster_output_path(save_location: &Path, suffix: &str) -> PathBuf {
     save_location.with_file_name(file_name)
 }
 
-fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
+fn merge_dfms<T: RasterMarker>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
     let mut inner_tiles = tiles.iter().filter(|tile| !tile.grid.inner.is_empty());
     let first = inner_tiles.next()?;
     let first_top_left = first.index2coord(first.grid.inner.top, first.grid.inner.left);
