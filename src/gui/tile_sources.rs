@@ -1,22 +1,31 @@
 use eframe::egui;
 use walkers::{HttpTiles, MercatorProjection, sources};
 
-pub struct ArcGisSource;
+#[expect(dead_code)]
+#[derive(Debug, Default, Clone, Copy)]
+pub enum GoogleServer {
+    #[default]
+    A = 1,
+    B = 2,
+    C = 3,
+}
 
-impl walkers::sources::TileSource for ArcGisSource {
+pub struct GoogleSatelliteSource(pub GoogleServer);
+
+impl walkers::sources::TileSource for GoogleSatelliteSource {
     type Projection = walkers::MercatorProjection;
 
     fn tile_url(&self, tile_id: walkers::TileId) -> String {
         format!(
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{}/{}/{}",
-            tile_id.zoom, tile_id.y, tile_id.x
+            "https://mt{}.google.com/vt/lyrs=s&x={}&y={}&z={}",
+            self.0 as u8, tile_id.x, tile_id.y, tile_id.zoom
         )
     }
 
     fn attribution(&self) -> sources::Attribution {
         sources::Attribution {
-            text: "nope",
-            url: "lol",
+            text: "Google Map Data",
+            url: "https://www.google.com/maps/",
             logo_light: None,
             logo_dark: None,
         }
@@ -40,6 +49,6 @@ pub fn get_tile_sources(
             sources::OpenTopoMap(sources::OpenTopoServer::C),
             ctx.clone(),
         ),
-        HttpTiles::new(ArcGisSource, ctx.clone()),
+        HttpTiles::new(GoogleSatelliteSource(GoogleServer::C), ctx.clone()),
     )
 }

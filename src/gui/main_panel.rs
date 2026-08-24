@@ -72,7 +72,7 @@ impl OmapMaker {
             let http_tiles = match self.gui_variables.map_view.tile_provider {
                 super::gui_variables::TileProvider::OpenStreetMap => &mut self.http_tiles.0,
                 super::gui_variables::TileProvider::OpenTopoMap => &mut self.http_tiles.1,
-                super::gui_variables::TileProvider::ArcGIS => &mut self.http_tiles.2,
+                super::gui_variables::TileProvider::GoogleSatellite => &mut self.http_tiles.2,
             };
 
             map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
@@ -88,8 +88,8 @@ impl OmapMaker {
                 super::gui_variables::TileProvider::OpenTopoMap => {
                     "If you see this the OTM background-map did not load."
                 }
-                super::gui_variables::TileProvider::ArcGIS => {
-                    "If you see this the ArcGIS background-map did not load."
+                super::gui_variables::TileProvider::GoogleSatellite => {
+                    "If you see this the Google background-map did not load."
                 }
             };
 

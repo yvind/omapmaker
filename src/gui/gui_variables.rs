@@ -34,7 +34,7 @@ pub enum TileProvider {
     #[default]
     OpenStreetMap,
     OpenTopoMap,
-    ArcGIS,
+    GoogleSatellite,
 }
 
 #[derive(Clone)]
