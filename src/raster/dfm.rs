@@ -736,42 +736,37 @@ struct DfmPaddedProxy<'a, T> {
 }
 
 impl<'a, T> DfmPaddedProxy<'a, T> {
-    fn new(inner: &'a Dfm<T>) -> DfmPaddedProxy<'a, T> {
-        DfmPaddedProxy { inner }
+    fn new(inner: &'a Dfm<T>) -> Self {
+        Self { inner }
     }
 
     #[inline]
-    fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
+    fn index2coord(&self, row: usize, column: usize) -> geo::Coord {
+        let cell_size = self.inner.grid.cell_size_m;
         geo::Coord {
-            x: self.inner.grid.top_left.x - self.inner.grid.cell_size_m
-                + (xi as f64) * self.inner.grid.cell_size_m,
-            y: self.inner.grid.top_left.y + self.inner.grid.cell_size_m
-                - (yi as f64) * self.inner.grid.cell_size_m,
+            x: self.inner.grid.top_left.x - cell_size + column as f64 * cell_size,
+            y: self.inner.grid.top_left.y + cell_size - row as f64 * cell_size,
         }
     }
 
     #[inline]
     fn vertex_interpolate(
         &self,
-        e: usize,
+        edge: usize,
         xs: &[usize; 4],
         ys: &[usize; 4],
         level: f32,
     ) -> geo::Coord {
-        let a = self[(ys[e], xs[e])];
-        let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
-
-        let a_coord = self.index2coord(ys[e], xs[e]);
+        let next = (edge + 1) % 4;
+        let a = self[(ys[edge], xs[edge])];
+        let b = self[(ys[next], xs[next])];
+        let fraction = (f64::from(level) - f64::from(a)) / (f64::from(b) - f64::from(a));
+        let a_coord = self.index2coord(ys[edge], xs[edge]);
+        let cell = self.inner.grid.cell_size_m;
 
         geo::Coord {
-            x: a_coord.x
-                + self.inner.grid.cell_size_m
-                    * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64
-                    * ((level - a) / (b - a)) as f64,
-            y: a_coord.y
-                + self.inner.grid.cell_size_m
-                    * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64
-                    * ((level - a) / (b - a)) as f64,
+            x: a_coord.x + cell * (xs[next] as isize - xs[edge] as isize) as f64 * fraction,
+            y: a_coord.y + cell * (ys[edge] as isize - ys[next] as isize) as f64 * fraction,
         }
     }
 }
@@ -779,15 +774,15 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
 impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
     type Output = f32;
 
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        if index.0 == 0
-            || index.0 == self.inner.width() + 1
-            || index.1 == 0
-            || index.1 == self.inner.height() + 1
+    fn index(&self, (row, column): (usize, usize)) -> &Self::Output {
+        if row == 0
+            || row == self.inner.height() + 1
+            || column == 0
+            || column == self.inner.width() + 1
         {
             &Self::Output::MIN
         } else {
-            &self.inner[(index.0 - 1, index.1 - 1)]
+            &self.inner[(row - 1, column - 1)]
         }
     }
 }
@@ -795,6 +790,7 @@ impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::MapLineString;
     use crate::raster::DfmPixelBounds;
     use geo::BoundingRect;
 
@@ -853,6 +849,29 @@ mod tests {
     }
 
     #[test]
+    fn marching_squares_preserves_extremum_winding() {
+        let grid = DfmGrid::new(5, 5, 1., geo::coord! { x: 0., y: 4. }).unwrap();
+        let mut hill = Dfm::<Elevation>::new(grid.clone());
+        hill.field.fill(0.);
+        hill[(2, 2)] = 2.;
+        assert!(
+            hill.marching_squares(1.).0[0]
+                .line_string_signed_area()
+                .is_some_and(|area| area > 0.)
+        );
+
+        let mut depression = Dfm::<Elevation>::new(grid);
+        depression.field.fill(2.);
+        depression[(2, 2)] = 0.;
+        assert!(
+            depression
+                .marching_squares(1.)
+                .iter()
+                .any(|line| line.line_string_signed_area().is_some_and(|area| area < 0.))
+        );
+    }
+
+    #[test]
     fn bilinear_sampling_recovers_plane_values() {
         let raster = plane(DfmGrid::new(4, 3, 1., geo::coord! { x: 5., y: 8. }).unwrap());
         let point = geo::coord! { x: 6.25, y: 7.5 };
@@ -871,17 +890,17 @@ mod tests {
     }
 
     #[test]
-    fn contour_coordinates_follow_instance_cell_size() {
+    fn contour_coordinates_follow_rectangular_grid_and_cell_size() {
         let mut raster =
-            Dfm::<Elevation>::new(DfmGrid::new(3, 3, 2., geo::coord! { x: 10., y: 20. }).unwrap());
+            Dfm::<Elevation>::new(DfmGrid::new(5, 3, 2., geo::coord! { x: 10., y: 20. }).unwrap());
         raster.field.fill(0.);
-        raster[(1, 1)] = 2.;
+        raster[(1, 2)] = 2.;
         let bounds = raster.marching_squares(1.).bounding_rect().unwrap();
         assert_eq!(
             bounds,
             geo::Rect::new(
-                geo::coord! { x: 11., y: 17. },
-                geo::coord! { x: 13., y: 19. }
+                geo::coord! { x: 13., y: 17. },
+                geo::coord! { x: 15., y: 19. }
             )
         );
     }
