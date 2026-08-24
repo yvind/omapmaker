@@ -3,7 +3,7 @@ use crate::{
     geometry::PointCloud,
     raster::{
         Dfm,
-        dfm::{Elevation, Water},
+        dfm::{Elevation, FloodFill, HydroCorrected, Water},
     },
     statistics::LidarStats,
 };
@@ -134,6 +134,27 @@ pub fn compute_water_probability(
     water
 }
 
+/// Expand high-confidence water seeds to their complete, level extent on the
+/// hydrologically corrected elevation model.
+pub fn compute_water_extent(
+    water_probability: &Dfm<Water>,
+    hydro_corrected: &Dfm<HydroCorrected>,
+    seed_threshold: f32,
+    elevation_tolerance_m: f32,
+) -> Dfm<FloodFill> {
+    let generators = water_probability
+        .field
+        .iter()
+        .enumerate()
+        .filter(|(_, probability)| probability.is_finite() && **probability >= seed_threshold)
+        .map(|(index, _)| {
+            water_probability.index2coord(index / TILE_SIZE_PIXELS, index % TILE_SIZE_PIXELS)
+        })
+        .collect();
+
+    hydro_corrected.flood_fill(generators, elevation_tolerance_m, false)
+}
+
 fn water_likelihood(
     density: f64,
     mean_intensity: f64,
@@ -180,4 +201,30 @@ fn rectangle_sum(table: &[f64], top: usize, bottom: usize, left: usize, right: u
     table[bottom * stride + right] + table[top * stride + left]
         - table[top * stride + right]
         - table[bottom * stride + left]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn probability_filter_only_selects_seeds_for_the_final_extent() {
+        let mut corrected = Dfm::<HydroCorrected>::new(geo::Coord { x: 0., y: 100. });
+        corrected.field.fill(10.);
+        for y in 20..=22 {
+            for x in 30..=32 {
+                corrected[(y, x)] = 2.;
+            }
+        }
+
+        let mut probability = Dfm::<Water>::new_like(&corrected);
+        probability.field.fill(0.);
+        probability[(21, 31)] = 0.8;
+
+        let extent = compute_water_extent(&probability, &corrected, 0.65, 0.05);
+
+        assert_eq!(extent.field.iter().filter(|value| **value == 1.).count(), 9);
+        assert_eq!(extent[(20, 30)], 1.);
+        assert_eq!(probability[(20, 30)], 0.);
+    }
 }

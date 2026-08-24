@@ -927,17 +927,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "copc-rs"
-version = "0.8.0"
-dependencies = [
- "byteorder",
- "las 0.10.0",
- "laz",
- "log",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "copc_converter"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2652,9 +2641,9 @@ dependencies = [
 
 [[package]]
 name = "las"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62f1a1abaa9217530731d35a08a5e37828b2f6158196cdd61252c017bbdace95"
+checksum = "f33019a4341150ccdf6cf9e42ff13e76967497de83607677be5826bc42836f14"
 dependencies = [
  "byteorder",
  "chrono",
@@ -3425,14 +3414,13 @@ name = "omap_maker"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "copc-rs",
  "copc_converter",
  "eframe",
  "egui_autocomplete",
  "egui_double_slider",
  "geo",
  "geotiff-writer",
- "las 0.10.0",
+ "las 0.11.0",
  "linestring2bezier",
  "log",
  "ndarray",

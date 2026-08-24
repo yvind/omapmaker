@@ -107,6 +107,9 @@ pub fn regenerate_map_tile(
     if steps.water {
         omap.reserve_capacity(AreaSymbol::UncrossableWaterWithBankLine, 0);
     }
+    if steps.streams {
+        omap.reserve_capacity(LineSymbol::SmallCrossableWatercourse, 0);
+    }
     if steps.intensity {
         for filter in params.intensity.filters.iter() {
             omap.reserve_capacity(filter.symbol, 0);
@@ -184,6 +187,7 @@ fn changed_steps(
         || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff
         || new.cliff.collapse_linearity != old.cliff.collapse_linearity;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
+    steps.streams = steps.water;
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval
         || new.contour.basemap_contour != old.contour.basemap_contour;
@@ -210,7 +214,10 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
         RegenerationScope::Section(MapPreviewSection::Openness) => steps.openness = true,
         RegenerationScope::Section(MapPreviewSection::Vegetation) => steps.vegetation = true,
         RegenerationScope::Section(MapPreviewSection::Cliffs) => steps.cliffs = true,
-        RegenerationScope::Section(MapPreviewSection::Water) => steps.water = true,
+        RegenerationScope::Section(MapPreviewSection::Water) => {
+            steps.water = true;
+            steps.streams = true;
+        }
         RegenerationScope::Section(MapPreviewSection::Intensity) => steps.intensity = true,
     }
 }

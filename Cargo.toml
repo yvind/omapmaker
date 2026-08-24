@@ -38,9 +38,8 @@ linestring2bezier = "0.5.2"
 rstar = "0.13.0"
 
 # read/write las/laz/copc
-las = { version = "0.10", features = ["laz-parallel"] }
+las = { version = "0.11.0", features = ["laz-parallel"] }
 copc_converter = "0.11.0"
-copc-rs = { path = "../copc-rs" }
 
 # write omap files
 omap = { version = "0.8.0", features = ["geo_ref"] }

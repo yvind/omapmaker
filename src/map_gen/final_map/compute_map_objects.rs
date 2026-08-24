@@ -21,6 +21,7 @@ pub fn compute_tile_map_objects(
             cliffs: true,
             intensity: true,
             water: true,
+            streams: false,
         },
         false,
     )?

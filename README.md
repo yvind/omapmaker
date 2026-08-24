@@ -26,6 +26,7 @@ Overlapping lidar files not yet handled
 - Non-connected lidar file detection (Useful when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
 - OpenStreetMap, OpenTopoMap or ESRI satellite background map
 - Experimental lidar-intensity filter
+- Hydrologically corrected D8 stream detection
 - Buffering on polygons to remove small holes and too thin areas or exaggerating small details
 
 ### WIP:
@@ -36,7 +37,6 @@ Overlapping lidar files not yet handled
 ### Wish List:
 - Building detection
 - Vegetation boundaries
-- Stream detection
 - Boulder detection
 - Road/path detection
 - Marsh detection

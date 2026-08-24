@@ -10,8 +10,8 @@ use std::{
 };
 
 use copc_converter::{NodeStorage, Pipeline, PipelineConfig, TempCompression};
-use copc_rs::CopcReader;
 use geo::Intersects;
+use las::CopcReader;
 use proj_core::CrsDef;
 
 #[allow(clippy::too_many_arguments)]

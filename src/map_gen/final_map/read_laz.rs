@@ -4,7 +4,7 @@ use crate::{
     neighbors::{NeighborSide, Neighborhood},
 };
 
-use copc_rs::CopcReader;
+use las::CopcReader;
 use las::point::Classification;
 use rstar::{PointDistance, RTree, primitives::GeomWithData};
 
@@ -38,10 +38,11 @@ pub fn read_laz(
     rel_bounds.min.y -= ref_point.y;
 
     let center_points = las_reader
-        .points(
-            copc_rs::LodSelection::All,
-            copc_rs::BoundsSelection::Within(query_bounds),
+        .query(
+            las::LodSelection::All,
+            las::BoundsSelection::Within(query_bounds),
         )?
+        .points()
         .filter_map(std::result::Result::ok)
         .filter_map(|mut p| {
             (!p.is_withheld).then(|| {
@@ -103,10 +104,11 @@ pub fn read_laz(
         let mut edge_reader = CopcReader::from_path(&las_paths[*ei])?;
 
         let edge_points = edge_reader
-            .points(
-                copc_rs::LodSelection::All,
-                copc_rs::BoundsSelection::Within(query_bounds),
+            .query(
+                las::LodSelection::All,
+                las::BoundsSelection::Within(query_bounds),
             )?
+            .points()
             .filter_map(std::result::Result::ok)
             .filter_map(|mut p| {
                 (!p.is_withheld).then(|| {

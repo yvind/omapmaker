@@ -9,9 +9,10 @@ use crate::{
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        Dfm,
+        D8Flow, Dfm,
         dfm::{
-            HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity, Slope, SurfaceObjects,
+            FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity, Slope,
+            SurfaceObjects,
         },
     },
     statistics::LidarStats,
@@ -24,6 +25,12 @@ use std::{
     cmp::Ordering,
     sync::{Arc, Mutex},
 };
+
+struct DeferredStreamTile {
+    key: (usize, usize),
+    flow: D8Flow,
+    cut_overlay: geo::Polygon,
+}
 
 pub fn make_map(
     sender: FrontendSender,
@@ -72,6 +79,10 @@ pub fn make_map(
     let saved_point_density_rasters = file_params
         .save_point_density_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<PointDensity>>::new())));
+    let saved_flow_accumulation_rasters = file_params
+        .save_flow_accumulation_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<FlowAccumulation>>::new())));
+    let deferred_stream_tiles = Arc::new(Mutex::new(Vec::<DeferredStreamTile>::new()));
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {
@@ -253,6 +264,20 @@ pub fn make_map(
                 {
                     return;
                 }
+
+                if let Ok(mut stream_tiles) = deferred_stream_tiles.lock() {
+                    stream_tiles.push(DeferredStreamTile {
+                        key: (fi, tile_i),
+                        flow: tile.rasters.stream_flow,
+                        cut_overlay: tile.cut_overlay,
+                    });
+                } else {
+                    let _ = sender.send(FrontendTask::Error(
+                        "Deferred stream tile mutex was poisoned".to_string(),
+                        true,
+                    ));
+                    return;
+                }
                 {
                     if let Ok(mut map) = map.lock() {
                         for object in objects {
@@ -273,10 +298,38 @@ pub fn make_map(
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
     }
 
+    let mut stream_tiles = Arc::<Mutex<Vec<DeferredStreamTile>>>::into_inner(deferred_stream_tiles)
+        .context("Could not get deferred stream tiles; a worker still holds a reference")?
+        .into_inner()
+        .map_err(|_| anyhow::anyhow!("Deferred stream tile mutex was poisoned"))?;
+    stream_tiles.sort_by_key(|tile| tile.key);
+
+    let _ = sender.send(FrontendTask::Log(
+        "Accumulating flow across tile boundaries...".to_string(),
+    ));
+    crate::raster::accumulate_cross_tile_flow(stream_tiles.iter_mut().map(|tile| &mut tile.flow))?;
+
+    if let Some(saved_rasters) = &saved_flow_accumulation_rasters {
+        let mut saved_rasters = saved_rasters
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Flow accumulation raster mutex was poisoned"))?;
+        saved_rasters.extend(
+            stream_tiles
+                .iter()
+                .map(|tile| tile.flow.flow_accumulation().clone()),
+        );
+    }
+
     let mut map = Arc::<Mutex<TempMap>>::into_inner(map)
         .context("Could not get inner map value; a worker still holds a reference")?
         .into_inner()
         .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;
+
+    for tile in &stream_tiles {
+        for object in map_gen::common::compute_streams(&tile.flow, &tile.cut_overlay, &map_params) {
+            map.add_object(object);
+        }
+    }
 
     let min_size_filter_symbols = map_params.min_size_filter_symbols(true, true, true, true, true);
     if !min_size_filter_symbols.is_empty() {
@@ -318,8 +371,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_slope_rasters,
-        "slope",
-        "slope",
+        ("slope", "slope"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -327,8 +379,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_hillshade_rasters,
-        "hillshade",
-        "hillshade",
+        ("hillshade", "hillshade"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -336,8 +387,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_last_return_rasters,
-        "last-return",
-        "last_return",
+        ("last-return", "last_return"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -345,8 +395,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_canopy_height_rasters,
-        "canopy height",
-        "canopy_height",
+        ("canopy height", "canopy_height"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -354,8 +403,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_surface_objects_rasters,
-        "surface objects",
-        "surface_objects",
+        ("surface objects", "surface_objects"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -363,8 +411,7 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_ndvd_rasters,
-        "NDVD",
-        "ndvd",
+        ("NDVD", "ndvd"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -372,8 +419,15 @@ pub fn make_map(
     write_saved_rasters(
         &sender,
         saved_point_density_rasters,
-        "lidar point density",
-        "point_density",
+        ("lidar point density", "point_density"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_flow_accumulation_rasters,
+        ("flow accumulation", "flow_accumulation"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -404,12 +458,12 @@ fn push_saved_raster<T>(
 fn write_saved_rasters<T>(
     sender: &FrontendSender,
     saved_rasters: Option<Arc<Mutex<Vec<Dfm<T>>>>>,
-    label: &str,
-    suffix: &str,
+    naming: (&str, &str),
     file_params: &FileParameters,
     ref_point: geo::Coord,
     crs: Option<&proj_core::CrsDef>,
 ) -> Result<()> {
+    let (label, suffix) = naming;
     let Some(saved_rasters) = saved_rasters else {
         return Ok(());
     };

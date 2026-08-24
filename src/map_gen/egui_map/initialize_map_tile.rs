@@ -1,6 +1,6 @@
-use copc_rs::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 use geo::{Area, BooleanOps, ConvexHull, Intersects};
 use las::point::Classification;
+use las::{Bounds, BoundsSelection, CopcReader, LodSelection, Vector};
 
 use std::path::PathBuf;
 
@@ -89,7 +89,8 @@ pub fn initialize_map_tile(
             };
 
             for mut p in reader
-                .points(LodSelection::All, BoundsSelection::Within(bounds))?
+                .query(LodSelection::All, BoundsSelection::Within(bounds))?
+                .points()
                 .filter_map(std::result::Result::ok)
             {
                 if p.is_withheld {
@@ -196,6 +197,9 @@ pub fn initialize_map_tile(
         tile.hull = super_hull.clone();
         tile.z_range = z_range;
     }
+    crate::raster::accumulate_cross_tile_flow(
+        tiles.iter_mut().map(|tile| &mut tile.rasters.stream_flow),
+    )?;
 
     let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Finish));
     let _ = sender.send(FrontendTask::TaskComplete(TaskDone::InitializeMapTile));

@@ -1,7 +1,9 @@
 pub mod dfm;
 pub mod geotiff;
+mod hydrology;
 
 pub use self::dfm::Dfm;
+pub use self::hydrology::{D8Flow, accumulate_cross_tile_flow};
 
 pub enum Threshold {
     Upper(f32),

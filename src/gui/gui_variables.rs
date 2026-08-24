@@ -55,6 +55,7 @@ pub struct ProjectFiles {
     pub save_surface_objects_raster: bool,
     pub save_ndvd_raster: bool,
     pub save_point_density_raster: bool,
+    pub save_flow_accumulation_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -79,6 +80,7 @@ impl Default for ProjectFiles {
             save_surface_objects_raster: Default::default(),
             save_ndvd_raster: Default::default(),
             save_point_density_raster: Default::default(),
+            save_flow_accumulation_raster: Default::default(),
         }
     }
 }
@@ -108,6 +110,8 @@ impl ProjectFiles {
                 save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
                 save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
                 save_point_density_raster: self.save_rasters && self.save_point_density_raster,
+                save_flow_accumulation_raster: self.save_rasters
+                    && self.save_flow_accumulation_raster,
                 crs_epsg: vec![],
                 save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
             };
@@ -122,6 +126,7 @@ impl ProjectFiles {
             save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
             save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
             save_point_density_raster: self.save_rasters && self.save_point_density_raster,
+            save_flow_accumulation_raster: self.save_rasters && self.save_flow_accumulation_raster,
             crs_epsg: self.crses.clone(),
             save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
         }
@@ -371,6 +376,7 @@ impl GuiVariables {
                 save_surface_objects_raster: false,
                 save_ndvd_raster: false,
                 save_point_density_raster: false,
+                save_flow_accumulation_raster: false,
                 crs_epsg: self.project.crses.clone(),
                 save_canopy_height_raster: false,
             },

@@ -1,4 +1,4 @@
-use copc_rs::CopcReader;
+use las::CopcReader;
 use std::path::Path;
 
 const STATS_SAMPLE_SIZE: usize = 10_000;
@@ -75,10 +75,11 @@ impl LidarStats {
         let mut intensity_sum = 0_f64;
         let mut num_taken_points = 0_u64;
         for point in reader
-            .points(
-                copc_rs::LodSelection::LevelMinMax(0, 2),
-                copc_rs::BoundsSelection::All,
+            .query(
+                las::LodSelection::LevelMinMax(0, 2),
+                las::BoundsSelection::All,
             )?
+            .points()
             .filter_map(Result::ok)
             .take(STATS_SAMPLE_SIZE)
         {

@@ -107,12 +107,20 @@ pub struct GeometryParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterParameters {
+    /// Minimum likelihood needed for a cell to seed a water region.
     pub threshold: f32,
+    /// Maximum elevation difference from a seed across a water region.
+    pub elevation_tolerance_m: f32,
+    pub stream_min_catchment_area_m2: f32,
 }
 
 impl Default for WaterParameters {
     fn default() -> Self {
-        Self { threshold: 0.65 }
+        Self {
+            threshold: 0.65,
+            elevation_tolerance_m: 0.15,
+            stream_min_catchment_area_m2: 5_000.0,
+        }
     }
 }
 
@@ -194,6 +202,7 @@ impl GeometryParameters {
             | Symbol::Line(LineSymbol::Cliff)
             | Symbol::Line(LineSymbol::ImpassableCliff) => &self.cliffs.bezier,
             Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine) => &self.water.bezier,
+            Symbol::Line(LineSymbol::SmallCrossableWatercourse) => &self.water.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,
         };
@@ -235,6 +244,7 @@ pub struct FileParameters {
     pub save_surface_objects_raster: bool,
     pub save_ndvd_raster: bool,
     pub save_point_density_raster: bool,
+    pub save_flow_accumulation_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

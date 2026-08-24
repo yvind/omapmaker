@@ -7,11 +7,11 @@ use crate::{
     },
     parameters::{ContourAlgo, MapParameters, VegetationWeights},
     raster::{
-        Dfm, Threshold,
+        D8Flow, Dfm, Threshold,
         dfm::{
-            Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
-            LowVegetation, MediumVegetation, Ndvd, PointDensity, Returns, Slope, SurfaceObjects,
-            Water,
+            Elevation, Ground, HeightAboveGround, HighVegetation, HydroCorrected, Intensity,
+            LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity, Returns, Slope,
+            SurfaceObjects, Water,
         },
     },
     statistics::LidarStats,
@@ -33,6 +33,8 @@ pub struct TileRasters {
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub point_density: Dfm<PointDensity>,
+    pub hydro_corrected: Dfm<HydroCorrected>,
+    pub stream_flow: D8Flow,
 }
 
 pub struct PreparedTile {
@@ -57,6 +59,7 @@ pub struct PipelineSteps {
     pub cliffs: bool,
     pub intensity: bool,
     pub water: bool,
+    pub streams: bool,
 }
 
 impl PreparedTile {
@@ -77,6 +80,9 @@ impl PreparedTile {
             z_range,
         } = dfms;
 
+        let hydro_corrected = dem.hydrological_correction();
+        let stream_flow = dem.hydrological_analysis_with_corrected(&hydro_corrected);
+
         Self {
             rasters: TileRasters {
                 slope: dem.slope(),
@@ -92,6 +98,8 @@ impl PreparedTile {
                 water,
                 canopy_height,
                 point_density,
+                hydro_corrected,
+                stream_flow,
             },
             hull,
             cut_overlay,
@@ -224,14 +232,28 @@ pub fn compute_tile(
     }
 
     if steps.water {
-        objects.extend(map_gen::common::compute_vegetation(
+        let water_extent = map_gen::common::compute_water_extent(
             &tile.rasters.water,
-            Threshold::Lower(params.water.threshold),
+            &tile.rasters.hydro_corrected,
+            params.water.threshold,
+            params.water.elevation_tolerance_m,
+        );
+        objects.extend(map_gen::common::compute_vegetation(
+            &water_extent,
+            Threshold::Lower(0.5),
             &tile.hull,
             &tile.cut_overlay,
             AreaSymbol::UncrossableWaterWithBankLine,
             params,
             &params.geometry.water.buffer_rules,
+        ));
+    }
+
+    if steps.streams {
+        objects.extend(map_gen::common::compute_streams(
+            &tile.rasters.stream_flow,
+            &tile.cut_overlay,
+            params,
         ));
     }
 

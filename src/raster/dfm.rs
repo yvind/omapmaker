@@ -1,6 +1,7 @@
 use crate::geometry::contour_set::ContourPoint;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
+use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
@@ -38,6 +39,12 @@ pub struct Water;
 pub struct Ndvd;
 #[derive(Clone, Copy, Debug)]
 pub struct PointDensity;
+#[derive(Clone, Copy, Debug)]
+pub struct HydroCorrected;
+#[derive(Clone, Copy, Debug)]
+pub struct FloodFill;
+#[derive(Clone, Copy, Debug)]
+pub struct FlowAccumulation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DfmPixelBounds {
@@ -749,6 +756,109 @@ impl<T: Clone> Dfm<T> {
     }
 }
 
+impl Dfm<HydroCorrected> {
+    /// Grow level regions from seed coordinates on a hydrologically corrected
+    /// elevation model.
+    ///
+    /// With `allow_water_fall` disabled, a cell belongs to a seed's region
+    /// when its elevation differs from the seed elevation by at most
+    /// `threshold`. With it enabled, all cells below the seed elevation plus
+    /// the threshold are accepted. Eight-neighbour connectivity is used.
+    pub fn flood_fill(
+        &self,
+        generators: Vec<geo::Coord>,
+        threshold: f32,
+        allow_water_fall: bool,
+    ) -> Dfm<FloodFill> {
+        let mut water_mask = Dfm::new_like(self);
+
+        if !threshold.is_finite() || threshold < 0. {
+            water_mask.field.fill(0.);
+            return water_mask;
+        }
+
+        let mut visited_generation = vec![0_u32; self.field.len()];
+        let mut generation = 0_u32;
+
+        for generator in generators {
+            let x = ((generator.x - self.tl_coord.x) / CELL_SIZE_METERS).round();
+            let y = ((self.tl_coord.y - generator.y) / CELL_SIZE_METERS).round();
+            if !x.is_finite()
+                || !y.is_finite()
+                || x < 0.
+                || y < 0.
+                || x >= TILE_SIZE_PIXELS as f64
+                || y >= TILE_SIZE_PIXELS as f64
+            {
+                continue;
+            }
+
+            let seed_index = y as usize * TILE_SIZE_PIXELS + x as usize;
+            // A seed already covered by an earlier seed has the same completed
+            // region, so avoid traversing that region again for every seed
+            // cell produced by the likelihood filter.
+            if water_mask.field[seed_index] == 1. {
+                continue;
+            }
+
+            let generator_value = self.field[seed_index];
+            if !generator_value.is_finite() || generator_value == f32::MIN {
+                continue;
+            }
+
+            generation = generation.wrapping_add(1);
+            if generation == 0 {
+                visited_generation.fill(0);
+                generation = 1;
+            }
+
+            let mut queue = VecDeque::from([seed_index]);
+            visited_generation[seed_index] = generation;
+
+            while let Some(index) = queue.pop_front() {
+                let elevation = self.field[index];
+                if !elevation.is_finite() || elevation == f32::MIN {
+                    continue;
+                }
+
+                let accepted = if allow_water_fall {
+                    elevation <= generator_value + threshold
+                } else {
+                    (elevation - generator_value).abs() <= threshold
+                };
+                if !accepted {
+                    continue;
+                }
+
+                water_mask.field[index] = 1.;
+                let cell_y = index / TILE_SIZE_PIXELS;
+                let cell_x = index % TILE_SIZE_PIXELS;
+                let top = cell_y.saturating_sub(1);
+                let bottom = (cell_y + 1).min(TILE_SIZE_PIXELS - 1);
+                let left = cell_x.saturating_sub(1);
+                let right = (cell_x + 1).min(TILE_SIZE_PIXELS - 1);
+
+                for neighbour_y in top..=bottom {
+                    for neighbour_x in left..=right {
+                        let neighbour = neighbour_y * TILE_SIZE_PIXELS + neighbour_x;
+                        if visited_generation[neighbour] != generation {
+                            visited_generation[neighbour] = generation;
+                            queue.push_back(neighbour);
+                        }
+                    }
+                }
+            }
+        }
+
+        for v in water_mask.field.iter_mut() {
+            if *v == f32::MIN {
+                *v = 0.;
+            }
+        }
+        water_mask
+    }
+}
+
 fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
     (a.0 * b.0 + a.1 * b.1 + 1.)
         / ((a.0 * a.0 + a.1 * a.1 + 1.) * (b.0 * b.0 + b.1 * b.1 + 1.)).sqrt()
@@ -822,5 +932,75 @@ impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
         } else {
             &self.inner[(index.0 - 1, index.1 - 1)]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn corrected_dtm(elevation: f32) -> Dfm<HydroCorrected> {
+        let mut dtm = Dfm::new(geo::Coord { x: 100., y: 200. });
+        dtm.field.fill(elevation);
+        dtm
+    }
+
+    #[test]
+    fn flood_fill_grows_only_the_level_seed_region() {
+        let mut dtm = corrected_dtm(10.);
+        for y in 20..=22 {
+            for x in 30..=32 {
+                dtm[(y, x)] = 2. + (x - 30) as f32 * 0.02;
+            }
+        }
+
+        let water = dtm.flood_fill(vec![dtm.index2coord(21, 31)], 0.05, false);
+
+        assert_eq!(water.field.iter().filter(|value| **value == 1.).count(), 9);
+        assert_eq!(water[(20, 30)], 1.);
+        assert_eq!(water[(22, 32)], 1.);
+        assert_eq!(water[(19, 31)], 0.);
+    }
+
+    #[test]
+    fn rejected_cell_can_still_act_as_a_later_seed() {
+        let mut dtm = corrected_dtm(10.);
+        dtm[(20, 20)] = 2.;
+        dtm[(20, 21)] = 5.;
+
+        let water = dtm.flood_fill(
+            vec![dtm.index2coord(20, 20), dtm.index2coord(20, 21)],
+            0.1,
+            false,
+        );
+
+        assert_eq!(water[(20, 20)], 1.);
+        assert_eq!(water[(20, 21)], 1.);
+    }
+
+    #[test]
+    fn waterfall_mode_accepts_connected_lower_ground() {
+        let mut dtm = corrected_dtm(10.);
+        dtm[(20, 20)] = 5.;
+        dtm[(20, 21)] = 4.;
+        dtm[(20, 22)] = 3.;
+
+        let level_water = dtm.flood_fill(vec![dtm.index2coord(20, 20)], 0.1, false);
+        let falling_water = dtm.flood_fill(vec![dtm.index2coord(20, 20)], 0.1, true);
+
+        assert_eq!(level_water[(20, 22)], 0.);
+        assert_eq!(falling_water[(20, 22)], 1.);
+    }
+
+    #[test]
+    fn flood_fill_ignores_invalid_generators_and_tolerances() {
+        let dtm = corrected_dtm(10.);
+        let outside = geo::Coord { x: -10., y: -10. };
+
+        let outside_water = dtm.flood_fill(vec![outside], 0.1, false);
+        let invalid_tolerance = dtm.flood_fill(vec![dtm.index2coord(10, 10)], -0.1, false);
+
+        assert!(outside_water.field.iter().all(|value| *value == 0.));
+        assert!(invalid_tolerance.field.iter().all(|value| *value == 0.));
     }
 }

@@ -63,7 +63,7 @@ impl OmapMaker {
         ui.label("Selected files:");
 
         egui::ScrollArea::both()
-            .max_height(ui.available_height() - 400.)
+            .max_height(ui.available_height() - 500.)
             .auto_shrink(false)
             .max_width(f32::INFINITY)
             .show(ui, |ui| {
@@ -142,6 +142,7 @@ impl OmapMaker {
                     self.gui_variables.project.save_surface_objects_raster = false;
                     self.gui_variables.project.save_ndvd_raster = false;
                     self.gui_variables.project.save_point_density_raster = false;
+                    self.gui_variables.project.save_flow_accumulation_raster = false;
                 }
 
                 ui.indent("indented raster checkboxes", |ui| {
@@ -202,6 +203,20 @@ impl OmapMaker {
                     )
                     .on_hover_text(
                         "Calculate points per square metre for each cell and scale the merged raster for image viewers.",
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self
+                                .gui_variables
+                                .project
+                                .save_flow_accumulation_raster,
+                            "Save flow accumulation raster",
+                        ),
+                    )
+                    .on_hover_text(
+                        "Save the D8 contributing catchment area as a merged GeoTIFF scaled for image viewers.",
                     );
                 });
             });
@@ -658,17 +673,52 @@ impl OmapMaker {
                     );
                 }
                 ProcessStage::AdjustWater => {
-                    ui.label(egui::RichText::new("Water probability threshold").strong());
+                    ui.label(egui::RichText::new("Water seed detection").strong());
                     ui.add(
                         egui::Slider::new(
                             &mut self.gui_variables.generation.params.water.threshold,
                             0.0..=1.0,
                         )
-                        .text("Water")
+                        .text("Seed probability")
                         .show_value(true),
                     )
                     .on_hover_text(
-                        "Cells at or above this probability become uncrossable water. Higher values are more selective.",
+                        "Cells at or above this probability seed water regions. Higher values require stronger lidar evidence, while the elevation flood fill determines the final extent.",
+                    );
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .water
+                                .elevation_tolerance_m,
+                            0.0..=1.0,
+                        )
+                        .text("Level tolerance (m)")
+                        .show_value(true),
+                    )
+                    .on_hover_text(
+                        "Maximum elevation difference from a water seed included by the flood fill on the hydro-corrected elevation model.",
+                    );
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Stream initiation").strong());
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .water
+                                .stream_min_catchment_area_m2,
+                            100.0..=50_000.0,
+                        )
+                        .logarithmic(true)
+                        .text("Minimum catchment area (m²)")
+                        .show_value(true),
+                    )
+                    .on_hover_text(
+                        "Minimum upstream area needed to map a small crossable watercourse. Candidates must also have positive cross-channel curvature in the original elevation model.",
                     );
                     ui.add_space(20.);
                     ui.label(egui::RichText::new("Water Bezier simplification").strong());
