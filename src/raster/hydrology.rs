@@ -139,7 +139,7 @@ pub fn accumulate_cross_tile_flow<'a>(
     let mut owned_count = 0_usize;
 
     for tile in 0..flows.len() {
-        let inner = flows[tile].accumulation.inner;
+        let inner = flows[tile].accumulation.grid.inner;
         for y in inner.top..inner.bottom {
             for x in inner.left..inner.right {
                 let local_index = y * TILE_SIZE_PIXELS + x;
@@ -283,7 +283,7 @@ fn owner_of_coordinate(flows: &[&mut D8Flow], coordinate: geo::Coord) -> Option<
         let index = index_of_coordinate(flow, coordinate)?;
         let x = index % TILE_SIZE_PIXELS;
         let y = index / TILE_SIZE_PIXELS;
-        let inner = flow.accumulation.inner;
+        let inner = flow.accumulation.grid.inner;
         if y < inner.top || y >= inner.bottom || x < inner.left || x >= inner.right {
             return None;
         }
@@ -292,8 +292,8 @@ fn owner_of_coordinate(flows: &[&mut D8Flow], coordinate: geo::Coord) -> Option<
 }
 
 fn index_of_coordinate(flow: &D8Flow, coordinate: geo::Coord) -> Option<usize> {
-    let x = ((coordinate.x - flow.accumulation.tl_coord.x) / CELL_SIZE_METERS).round();
-    let y = ((flow.accumulation.tl_coord.y - coordinate.y) / CELL_SIZE_METERS).round();
+    let x = ((coordinate.x - flow.accumulation.grid.top_left.x) / CELL_SIZE_METERS).round();
+    let y = ((flow.accumulation.grid.top_left.y - coordinate.y) / CELL_SIZE_METERS).round();
     if x < 0.0 || y < 0.0 || x >= TILE_SIZE_PIXELS as f64 || y >= TILE_SIZE_PIXELS as f64 {
         return None;
     }
@@ -305,7 +305,7 @@ fn index_of_coordinate(flow: &D8Flow, coordinate: geo::Coord) -> Option<usize> {
         .then_some(y * TILE_SIZE_PIXELS + x)
 }
 
-fn is_inner_boundary(inner: super::dfm::DfmPixelBounds, y: usize, x: usize) -> bool {
+fn is_inner_boundary(inner: super::DfmPixelBounds, y: usize, x: usize) -> bool {
     y == inner.top || y + 1 == inner.bottom || x == inner.left || x + 1 == inner.right
 }
 
@@ -381,8 +381,8 @@ impl Dfm<Elevation> {
     /// useful when another feature, such as water-region growth, also needs
     /// the corrected elevations.
     pub fn hydrological_analysis_with_corrected(&self, corrected: &Dfm<HydroCorrected>) -> D8Flow {
-        debug_assert_eq!(self.tl_coord, corrected.tl_coord);
-        debug_assert_eq!(self.inner, corrected.inner);
+        debug_assert_eq!(self.grid.top_left, corrected.grid.top_left);
+        debug_assert_eq!(self.grid.inner, corrected.grid.inner);
         let directions = d8_directions(corrected);
         let accumulation = d8_accumulation(corrected, &directions);
         let positive_cross_channel_curvature = positive_cross_channel_curvature(self, &directions);
@@ -657,9 +657,10 @@ impl Ord for HeapCell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raster::*;
 
     fn descending_valley() -> Dfm<Elevation> {
-        let mut dem = Dfm::<Elevation>::new(geo::Coord { x: 0.0, y: 0.0 });
+        let mut dem = Dfm::<Elevation>::new(DfmGrid::standard(geo::Coord { x: 0.0, y: 0.0 }));
         let centre = (TILE_SIZE_PIXELS / 2) as f32;
         for y in 0..TILE_SIZE_PIXELS {
             for x in 0..TILE_SIZE_PIXELS {
@@ -709,7 +710,7 @@ mod tests {
 
     #[test]
     fn planar_slope_is_not_a_stream_without_positive_cross_channel_curvature() {
-        let mut dem = Dfm::<Elevation>::new(geo::Coord { x: 0.0, y: 0.0 });
+        let mut dem = Dfm::<Elevation>::new(DfmGrid::standard(geo::Coord { x: 0.0, y: 0.0 }));
         for y in 0..TILE_SIZE_PIXELS {
             for x in 0..TILE_SIZE_PIXELS {
                 dem[(y, x)] = (TILE_SIZE_PIXELS - y) as f32;
@@ -732,14 +733,14 @@ mod tests {
         const OVERLAP_CELLS: usize = 10;
         const HALF_OVERLAP: usize = OVERLAP_CELLS / 2;
 
-        let mut upstream = Dfm::<Elevation>::new(geo::Coord { x: 0.0, y: 0.0 });
-        upstream.inner.right = TILE_SIZE_PIXELS - HALF_OVERLAP;
+        let mut upstream = Dfm::<Elevation>::new(DfmGrid::standard(geo::Coord { x: 0.0, y: 0.0 }));
+        upstream.grid.inner.right = TILE_SIZE_PIXELS - HALF_OVERLAP;
         let downstream_left = (TILE_SIZE_PIXELS - OVERLAP_CELLS) as f64 * CELL_SIZE_METERS;
-        let mut downstream = Dfm::<Elevation>::new(geo::Coord {
+        let mut downstream = Dfm::<Elevation>::new(DfmGrid::standard(geo::Coord {
             x: downstream_left,
             y: 0.0,
-        });
-        downstream.inner.left = HALF_OVERLAP;
+        }));
+        downstream.grid.inner.left = HALF_OVERLAP;
 
         for y in 0..TILE_SIZE_PIXELS {
             for x in 0..TILE_SIZE_PIXELS {

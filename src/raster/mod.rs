@@ -1,9 +1,14 @@
 pub mod dfm;
 pub mod geotiff;
+pub mod grid;
 mod hydrology;
+pub mod resample;
 
 pub use self::dfm::Dfm;
+pub use self::grid::{DfmGrid, DfmPixelBounds};
 pub use self::hydrology::{D8Flow, accumulate_cross_tile_flow};
+#[allow(unused_imports)]
+pub use self::resample::MaskRestriction;
 
 pub enum Threshold {
     Upper(f32),

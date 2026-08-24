@@ -79,6 +79,70 @@ pub struct ContourParameters {
     pub form_lines: bool,
     pub form_line_prune_threshold: f32,
     pub form_line_error_threshold: f32,
+    pub contour_field: ContourFieldParameters,
+    pub form_line_min_open_length_m: f64,
+    pub form_line_min_closed_length_m: f64,
+    pub form_line_reconnect_gap_m: f64,
+    pub form_line_closed_seed_length_m: f64,
+    pub form_line_closed_all_or_none_max_length_m: f64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContourFieldParameters {
+    pub max_iterations: usize,
+    pub generalization: ContourGeneralization,
+    pub multiresolution_levels_m: Vec<f64>,
+    pub iterations_per_level: Vec<usize>,
+    pub convergence_tolerance: f32,
+    pub fidelity_weight: f32,
+    pub weighted_tv_weight: f32,
+    pub hessian_weight: f32,
+    pub minimum_contour_cost: f32,
+    pub minimum_smoothness_weight: f32,
+    pub smoothness_scale: f32,
+    pub salience_power: f32,
+    pub smoothness_power: f32,
+    pub slope_fit_radius_m: f64,
+    pub curvature_fit_radius_m: f64,
+    pub slope_weight: f32,
+    pub profile_change_weight: f32,
+    pub tangent_change_weight: f32,
+    pub slope_reference: f32,
+    pub profile_change_reference: f32,
+    pub tangent_change_reference: f32,
+    pub slope_epsilon: f32,
+    pub rmse_reference: f32,
+    pub persistence_threshold_fraction: f32,
+    pub solver_guard_distance_m: f64,
+    pub collect_debug_rasters: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ContourGeneralization {
+    Light,
+    #[default]
+    Balanced,
+    Strong,
+}
+
+impl ContourGeneralization {
+    pub(crate) const fn factor(self) -> f32 {
+        match self {
+            Self::Light => 0.6,
+            Self::Balanced => 1.,
+            Self::Strong => 1.6,
+        }
+    }
+}
+
+impl Display for ContourGeneralization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Light => "Light",
+            Self::Balanced => "Balanced",
+            Self::Strong => "Strong",
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -164,6 +228,45 @@ impl Default for ContourParameters {
             form_lines: false,
             form_line_prune_threshold: 0.8,
             form_line_error_threshold: 0.15,
+            contour_field: Default::default(),
+            form_line_min_open_length_m: 0.,
+            form_line_min_closed_length_m: 0.,
+            form_line_reconnect_gap_m: 3.,
+            form_line_closed_seed_length_m: 1.5,
+            form_line_closed_all_or_none_max_length_m: 30.,
+        }
+    }
+}
+
+impl Default for ContourFieldParameters {
+    fn default() -> Self {
+        Self {
+            max_iterations: 160,
+            generalization: Default::default(),
+            multiresolution_levels_m: vec![2., 1., crate::STANDARD_CELL_SIZE_METERS],
+            iterations_per_level: vec![40, 50, 70],
+            convergence_tolerance: 1e-4,
+            fidelity_weight: 1.,
+            weighted_tv_weight: 0.2,
+            hessian_weight: 0.05,
+            minimum_contour_cost: 0.08,
+            minimum_smoothness_weight: 0.05,
+            smoothness_scale: 1.,
+            salience_power: 2.,
+            smoothness_power: 2.,
+            slope_fit_radius_m: 3.,
+            curvature_fit_radius_m: 5.,
+            slope_weight: 0.55,
+            profile_change_weight: 0.3,
+            tangent_change_weight: 0.15,
+            slope_reference: 0.5,
+            profile_change_reference: 0.5,
+            tangent_change_reference: 0.5,
+            slope_epsilon: 0.02,
+            rmse_reference: 0.25,
+            persistence_threshold_fraction: 0.3,
+            solver_guard_distance_m: 5.,
+            collect_debug_rasters: false,
         }
     }
 }
@@ -254,6 +357,7 @@ pub struct FileParameters {
 pub enum ContourAlgo {
     NaiveIterations,
     NormalFieldSmoothing,
+    WeightedScalarField,
     #[default]
     Raw,
 }
@@ -263,6 +367,7 @@ impl Display for ContourAlgo {
         match self {
             ContourAlgo::NaiveIterations => f.write_str("Naive"),
             ContourAlgo::NormalFieldSmoothing => f.write_str("Smooth"),
+            ContourAlgo::WeightedScalarField => f.write_str("Weighted scalar field"),
             ContourAlgo::Raw => f.write_str("Raw"),
         }
     }

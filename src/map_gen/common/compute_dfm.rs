@@ -195,8 +195,8 @@ fn compute_vegetation_density_dfms(
     let two_sigma2 = 2. * sigma.powi(2);
 
     for point in point_cloud.points.iter() {
-        let x_center = ((point.x() - dem.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
-        let y_center = ((dem.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+        let x_center = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
+        let y_center = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
 
         if x_center < -radius_cells
             || y_center < -radius_cells
@@ -297,8 +297,8 @@ pub fn compute_ndvd(
 }
 
 fn height_above_ground(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<f64> {
-    let x_index = ((point.x() - dem.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
-    let y_index = ((dem.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+    let x_index = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
+    let y_index = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
 
     if x_index < 0
         || y_index < 0

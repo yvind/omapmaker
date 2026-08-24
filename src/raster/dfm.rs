@@ -1,5 +1,5 @@
 use crate::geometry::contour_set::ContourPoint;
-use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
+use crate::raster::DfmGrid;
 
 use std::collections::VecDeque;
 use std::marker::PhantomData;
@@ -8,7 +8,29 @@ use std::ops::{Index, IndexMut};
 #[derive(Clone, Copy, Debug)]
 pub struct Elevation;
 #[derive(Clone, Copy, Debug)]
+pub struct AdjustedElevation;
+#[derive(Clone, Copy, Debug)]
+pub struct TargetElevation;
+#[derive(Clone, Copy, Debug)]
 pub struct Slope;
+#[derive(Clone, Copy, Debug)]
+pub struct ProfileChange;
+#[derive(Clone, Copy, Debug)]
+pub struct TangentChange;
+#[derive(Clone, Copy, Debug)]
+pub struct FitConfidence;
+#[derive(Clone, Copy, Debug)]
+pub struct DirectionConfidence;
+#[derive(Clone, Copy, Debug)]
+pub struct TerrainSalience;
+#[derive(Clone, Copy, Debug)]
+pub struct ContourCost;
+#[derive(Clone, Copy, Debug)]
+pub struct SmoothnessWeight;
+#[derive(Clone, Copy, Debug)]
+pub struct VerticalAdjustment;
+#[derive(Clone, Copy, Debug)]
+pub struct AdjustmentBoundMask;
 #[derive(Clone, Copy, Debug)]
 pub struct TerrainChange;
 #[derive(Clone, Copy, Debug)]
@@ -46,348 +68,357 @@ pub struct FloodFill;
 #[derive(Clone, Copy, Debug)]
 pub struct FlowAccumulation;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct DfmPixelBounds {
-    pub top: usize,
-    pub bottom: usize,
-    pub left: usize,
-    pub right: usize,
-}
-
-impl DfmPixelBounds {
-    fn full() -> Self {
-        Self {
-            top: 0,
-            bottom: TILE_SIZE_PIXELS,
-            left: 0,
-            right: TILE_SIZE_PIXELS,
-        }
-    }
-
-    pub fn is_empty(self) -> bool {
-        self.top >= self.bottom || self.left >= self.right
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Dfm<T> {
     pub field: Box<[f32]>,
-    pub tl_coord: geo::Coord,
-    pub inner: DfmPixelBounds,
-    _t: PhantomData<T>,
+    pub grid: DfmGrid,
+    _marker: PhantomData<T>,
 }
 
 impl<T> Dfm<T> {
-    #[inline]
-    pub fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
-        geo::Coord {
-            x: (xi as f64) * CELL_SIZE_METERS + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE_METERS,
+    pub fn new(grid: DfmGrid) -> Self {
+        Self {
+            field: vec![f32::MIN; grid.width * grid.height].into_boxed_slice(),
+            grid,
+            _marker: PhantomData,
         }
     }
 
+    #[allow(dead_code)]
+    pub fn standard(top_left: geo::Coord) -> Self {
+        Self::new(DfmGrid::standard(top_left))
+    }
+
+    pub fn with_cut_bounds(top_left: geo::Coord, cut_bounds: geo::Rect) -> Self {
+        let mut grid = DfmGrid::standard(top_left);
+        grid.inner = grid.pixel_bounds(cut_bounds);
+        Self::new(grid)
+    }
+
+    pub fn new_like<U>(other: &Dfm<U>) -> Self {
+        Self::new(other.grid.clone())
+    }
+
     #[inline]
-    pub fn index2spade(&self, yi: usize, xi: usize) -> spade::Point2<f64> {
+    pub fn width(&self) -> usize {
+        self.grid.width
+    }
+
+    #[inline]
+    pub fn height(&self) -> usize {
+        self.grid.height
+    }
+
+    #[inline]
+    pub fn index2coord(&self, row: usize, column: usize) -> geo::Coord {
+        self.grid.coord(row, column)
+    }
+
+    #[inline]
+    pub fn index2spade(&self, row: usize, column: usize) -> spade::Point2<f64> {
+        let point = self.index2coord(row, column);
         spade::Point2 {
-            x: (xi as f64) * CELL_SIZE_METERS + self.tl_coord.x,
-            y: self.tl_coord.y - (yi as f64) * CELL_SIZE_METERS,
+            x: point.x,
+            y: point.y,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn sample_bilinear(&self, coordinate: geo::Coord) -> Option<f32> {
+        let x = (coordinate.x - self.grid.top_left.x) / self.grid.cell_size_m;
+        let y = (self.grid.top_left.y - coordinate.y) / self.grid.cell_size_m;
+        if x < 0. || y < 0. || x > (self.width() - 1) as f64 || y > (self.height() - 1) as f64 {
+            return None;
+        }
+        let left = x.floor() as usize;
+        let top = y.floor() as usize;
+        let right = (left + 1).min(self.width() - 1);
+        let bottom = (top + 1).min(self.height() - 1);
+        let tx = (x - left as f64) as f32;
+        let ty = (y - top as f64) as f32;
+        Some(
+            self[(top, left)] * (1. - tx) * (1. - ty)
+                + self[(top, right)] * tx * (1. - ty)
+                + self[(bottom, left)] * (1. - tx) * ty
+                + self[(bottom, right)] * tx * ty,
+        )
     }
 }
 
 impl<T: Clone> Dfm<T> {
-    pub fn new(tl_coord: geo::Coord) -> Dfm<T> {
-        Dfm {
-            field: vec![f32::MIN; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS].into_boxed_slice(),
-            tl_coord,
-            inner: DfmPixelBounds::full(),
-            _t: PhantomData,
-        }
+    pub fn error(&self, other: &Self) -> f64 {
+        self.grid
+            .ensure_compatible(&other.grid)
+            .expect("cellwise DFM operation requires matching grids");
+        self.field
+            .iter()
+            .zip(&other.field)
+            .map(|(&a, &b)| (f64::from(a) - f64::from(b)).powi(2))
+            .sum::<f64>()
+            / self.field.len() as f64
     }
 
-    pub fn with_cut_bounds(tl_coord: geo::Coord, cut_bounds: geo::Rect) -> Dfm<T> {
-        let mut dfm = Self::new(tl_coord);
-        dfm.inner = dfm.pixel_bounds(cut_bounds);
-        dfm
-    }
-
-    pub fn new_like<U>(other: &Dfm<U>) -> Dfm<T> {
-        let mut dfm = Self::new(other.tl_coord);
-        dfm.inner = other.inner;
-        dfm
-    }
-
-    fn pixel_bounds(&self, cut_bounds: geo::Rect) -> DfmPixelBounds {
-        let left = (0..TILE_SIZE_PIXELS)
-            .find(|&x| self.index2coord(0, x).x >= cut_bounds.min().x)
-            .unwrap_or(TILE_SIZE_PIXELS);
-        let right = (left..TILE_SIZE_PIXELS)
-            .find(|&x| self.index2coord(0, x).x > cut_bounds.max().x)
-            .unwrap_or(TILE_SIZE_PIXELS);
-        let top = (0..TILE_SIZE_PIXELS)
-            .find(|&y| self.index2coord(y, 0).y <= cut_bounds.max().y)
-            .unwrap_or(TILE_SIZE_PIXELS);
-        let bottom = (top..TILE_SIZE_PIXELS)
-            .find(|&y| self.index2coord(y, 0).y < cut_bounds.min().y)
-            .unwrap_or(TILE_SIZE_PIXELS);
-
-        DfmPixelBounds {
-            top,
-            bottom,
-            left,
-            right,
-        }
-    }
-
-    pub fn error(&self, other: &Dfm<T>) -> f64 {
-        let mut square_diff = 0.;
-        for y in 0..TILE_SIZE_PIXELS {
-            for x in 0..TILE_SIZE_PIXELS {
-                square_diff += (f64::from(self[(y, x)]) - f64::from(other[(y, x)])).powi(2);
-            }
-        }
-        square_diff / (TILE_SIZE_PIXELS * TILE_SIZE_PIXELS) as f64
-    }
-
-    pub fn difference(&self, other: &Dfm<T>) -> Dfm<T> {
-        let mut diff = self.clone();
-        for y in 0..TILE_SIZE_PIXELS {
-            for x in 0..TILE_SIZE_PIXELS {
-                diff[(y, x)] -= other[(y, x)];
-            }
-        }
-        diff
+    pub fn difference(&self, other: &Self) -> Self {
+        self.grid
+            .ensure_compatible(&other.grid)
+            .expect("cellwise DFM operation requires matching grids");
+        let mut output = self.clone();
+        output
+            .field
+            .iter_mut()
+            .zip(&other.field)
+            .for_each(|(value, other)| *value -= other);
+        output
     }
 
     pub fn adjust(
         &mut self,
-        truth: &Dfm<T>,
-        interpolated: &Dfm<T>,
+        truth: &Self,
+        interpolated: &Self,
         filter_half_size: usize,
         amplitude: f32,
     ) {
-        let diff = truth.difference(interpolated);
-        for yi in 0..TILE_SIZE_PIXELS {
-            let top_i = yi.saturating_sub(filter_half_size);
-            let bottom_i = (yi + filter_half_size).min(TILE_SIZE_PIXELS - 1);
-            for xi in 0..TILE_SIZE_PIXELS {
-                let left_i = xi.saturating_sub(filter_half_size);
-                let right_i = (xi + filter_half_size).min(TILE_SIZE_PIXELS - 1);
-
+        let difference = truth.difference(interpolated);
+        for y in 0..self.height() {
+            let top = y.saturating_sub(filter_half_size);
+            let bottom = (y + filter_half_size).min(self.height() - 1);
+            for x in 0..self.width() {
+                let left = x.saturating_sub(filter_half_size);
+                let right = (x + filter_half_size).min(self.width() - 1);
                 let mut adjustment = 0.;
-                for yj in top_i..=bottom_i {
-                    for xj in left_i..=right_i {
-                        adjustment += f64::from(diff[(yj, xj)]);
+                for row in top..=bottom {
+                    for column in left..=right {
+                        adjustment += f64::from(difference[(row, column)]);
                     }
                 }
-
-                self[(yi, xi)] = (f64::from(self[(yi, xi)])
-                    + f64::from(amplitude) * adjustment
-                        / ((bottom_i - top_i + 1) * (right_i - left_i + 1)) as f64)
-                    as f32;
+                self[(y, x)] += amplitude
+                    * (adjustment / ((bottom - top + 1) * (right - left + 1)) as f64) as f32;
             }
         }
+    }
+
+    pub fn hillshade_as<U>(&self, sun_angle: f64) -> Dfm<U> {
+        let mut output = Dfm::new_like(self);
+        let sun_elevation = std::f64::consts::FRAC_PI_4;
+        let light = (
+            sun_angle.cos() * sun_elevation.cos(),
+            sun_angle.sin() * sun_elevation.cos(),
+            sun_elevation.sin(),
+        );
+        for y in 0..self.height() {
+            for x in 0..self.width() {
+                let (vertical, horizontal) = self.sobel_gradient(y, x);
+                let normal = (vertical, -horizontal, 1.);
+                let length = (normal.0.powi(2) + normal.1.powi(2) + 1.).sqrt();
+                output[(y, x)] =
+                    ((normal.0 * light.0 + normal.1 * light.1 + light.2) / length).max(0.) as f32;
+            }
+        }
+        output
+    }
+
+    #[inline]
+    fn sobel_gradient(&self, y: usize, x: usize) -> (f64, f64) {
+        let top = y.saturating_sub(1);
+        let bottom = (y + 1).min(self.height() - 1);
+        let left = x.saturating_sub(1);
+        let right = (x + 1).min(self.width() - 1);
+        let cell = self.grid.cell_size_m;
+        (
+            (f64::from(self[(top, left)]) - f64::from(self[(top, right)])
+                + 2. * f64::from(self[(y, left)])
+                - 2. * f64::from(self[(y, right)])
+                + f64::from(self[(bottom, left)])
+                - f64::from(self[(bottom, right)]))
+                / (8. * cell),
+            (f64::from(self[(top, left)]) - f64::from(self[(bottom, left)])
+                + 2. * f64::from(self[(top, x)])
+                - 2. * f64::from(self[(bottom, x)])
+                + f64::from(self[(top, right)])
+                - f64::from(self[(bottom, right)]))
+                / (8. * cell),
+        )
+    }
+
+    pub fn smoothen(
+        &self,
+        mut max_normal_difference: f32,
+        mut filter_size: usize,
+        mut iterations: usize,
+    ) -> Self {
+        filter_size = (filter_size.max(3) / 2) * 2 + 1;
+        iterations = iterations.max(1);
+        max_normal_difference = max_normal_difference.abs().min(60.);
+        let threshold = f64::from(max_normal_difference).to_radians().cos();
+        let width = self.width();
+        let height = self.height();
+        let cell = self.grid.cell_size_m;
+        let mut normals = vec![(0., 0.); width * height];
+        for y in 0..height {
+            for x in 0..width {
+                normals[y * width + x] = self.sobel_gradient(y, x);
+            }
+        }
+
+        let radius = (filter_size / 2) as isize;
+        let mut smooth = vec![(0., 0.); normals.len()];
+        for y in 0..height {
+            for x in 0..width {
+                let center = normals[y * width + x];
+                let mut sum = (0., 0., 0.);
+                for dy in -radius..=radius {
+                    let row = (y as isize + dy).clamp(0, height as isize - 1) as usize;
+                    for dx in -radius..=radius {
+                        let column = (x as isize + dx).clamp(0, width as isize - 1) as usize;
+                        let neighbor = normals[row * width + column];
+                        let similarity = cosine_between_normals(center, neighbor);
+                        if similarity > threshold {
+                            let weight = (similarity - threshold).powi(2);
+                            sum.0 += neighbor.0 * weight;
+                            sum.1 += neighbor.1 * weight;
+                            sum.2 += weight;
+                        }
+                    }
+                }
+                smooth[y * width + x] = if sum.2 > f64::EPSILON {
+                    (sum.0 / sum.2, sum.1 / sum.2)
+                } else {
+                    center
+                };
+            }
+        }
+
+        let neighbors = [
+            (-1, -1),
+            (-1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+            (1, 0),
+            (1, -1),
+            (0, -1),
+        ];
+        let mut output = self.clone();
+        for _ in 0..iterations {
+            for y in 0..height {
+                for x in 0..width {
+                    let center = smooth[y * width + x];
+                    let mut weighted_height = 0.;
+                    let mut weight_sum = 0.;
+                    for &(dy, dx) in &neighbors {
+                        let row = (y as isize + dy).clamp(0, height as isize - 1) as usize;
+                        let column = (x as isize + dx).clamp(0, width as isize - 1) as usize;
+                        let neighbor = smooth[row * width + column];
+                        let similarity = cosine_between_normals(center, neighbor);
+                        if similarity > threshold {
+                            let weight = (similarity - threshold).powi(2);
+                            let offset_x = dx as f64 * cell;
+                            let offset_y = -dy as f64 * cell;
+                            weighted_height += (f64::from(output[(row, column)])
+                                + neighbor.0 * offset_x
+                                + neighbor.1 * offset_y)
+                                * weight;
+                            weight_sum += weight;
+                        }
+                    }
+                    if weight_sum > f64::EPSILON {
+                        output[(y, x)] = (weighted_height / weight_sum) as f32;
+                    }
+                }
+            }
+        }
+        output
     }
 }
 
 impl Dfm<Elevation> {
     pub fn create_ghost_points(&self) -> [ContourPoint; 4] {
-        const GRAD_CELLS: usize = 5;
-        const GRAD_LENGTH: f64 = GRAD_CELLS as f64 * CELL_SIZE_METERS;
-
-        let top_left = ContourPoint {
-            pos: self.index2spade(0, 0),
-            z: self[(0, 0)],
+        let step = 5.min(self.width().min(self.height()) - 1);
+        let length = step as f64 * self.grid.cell_size_m;
+        let last_x = self.width() - 1;
+        let last_y = self.height() - 1;
+        let point = |y: usize, x: usize, x0: usize, x1: usize, y0: usize, y1: usize| ContourPoint {
+            pos: self.index2spade(y, x),
+            z: self[(y, x)],
             grad: [
-                ((f64::from(self[(0, GRAD_CELLS)]) - f64::from(self[(0, 0)])) / GRAD_LENGTH) as f32,
-                ((f64::from(self[(0, 0)]) - f64::from(self[(GRAD_CELLS, 0)])) / GRAD_LENGTH) as f32,
+                ((f64::from(self[(y, x1)]) - f64::from(self[(y, x0)])) / length) as f32,
+                ((f64::from(self[(y0, x)]) - f64::from(self[(y1, x)])) / length) as f32,
             ],
         };
-
-        let top_right = ContourPoint {
-            pos: self.index2spade(0, TILE_SIZE_PIXELS - 1),
-            z: self[(0, TILE_SIZE_PIXELS - 1)],
-            grad: [
-                ((f64::from(self[(0, TILE_SIZE_PIXELS - 1)])
-                    - f64::from(self[(0, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)]))
-                    / GRAD_LENGTH) as f32,
-                ((f64::from(self[(0, TILE_SIZE_PIXELS - 1)])
-                    - f64::from(self[(GRAD_CELLS, TILE_SIZE_PIXELS - 1)]))
-                    / GRAD_LENGTH) as f32,
-            ],
-        };
-
-        let bottom_right = ContourPoint {
-            pos: self.index2spade(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1),
-            z: self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)],
-            grad: [
-                ((f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)])
-                    - f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1 - GRAD_CELLS)]))
-                    / GRAD_LENGTH) as f32,
-                ((f64::from(self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, TILE_SIZE_PIXELS - 1)])
-                    - f64::from(self[(TILE_SIZE_PIXELS - 1, TILE_SIZE_PIXELS - 1)]))
-                    / GRAD_LENGTH) as f32,
-            ],
-        };
-
-        let bottom_left = ContourPoint {
-            pos: self.index2spade(TILE_SIZE_PIXELS - 1, 0),
-            z: self[(TILE_SIZE_PIXELS - 1, 0)],
-            grad: [
-                ((f64::from(self[(TILE_SIZE_PIXELS - 1, GRAD_CELLS)])
-                    - f64::from(self[(TILE_SIZE_PIXELS - 1, 0)]))
-                    / GRAD_LENGTH) as f32,
-                ((f64::from(self[(TILE_SIZE_PIXELS - 1 - GRAD_CELLS, 0)])
-                    - f64::from(self[(TILE_SIZE_PIXELS - 1, 0)]))
-                    / GRAD_LENGTH) as f32,
-            ],
-        };
-
-        [top_left, top_right, bottom_left, bottom_right]
+        [
+            point(0, 0, 0, step, 0, step),
+            point(0, last_x, last_x - step, last_x, 0, step),
+            point(last_y, 0, 0, step, last_y - step, last_y),
+            point(last_y, last_x, last_x - step, last_x, last_y - step, last_y),
+        ]
     }
 
-    /// Sobel filter gradient estimation
     pub fn slope(&self) -> Dfm<Slope> {
-        let mut slope = Dfm::new_like(self);
-
-        for yi in 0..TILE_SIZE_PIXELS {
-            for xi in 0..TILE_SIZE_PIXELS {
-                let (v, h) = self.sobel_gradient(yi, xi);
-
-                slope[(yi, xi)] = ((v.powi(2) + h.powi(2)).sqrt() / 2_f64.sqrt()) as f32;
+        let mut output = Dfm::new_like(self);
+        for y in 0..self.height() {
+            for x in 0..self.width() {
+                let (vertical, horizontal) = self.sobel_gradient(y, x);
+                output[(y, x)] = (vertical.hypot(horizontal) / 2_f64.sqrt()) as f32;
             }
         }
-        slope
+        output
     }
 
-    /// A dimensionless measure of terrain change used for form-line pruning.
-    ///
-    /// The first term is the elevation gradient. The second is the Frobenius
-    /// norm of the elevation Hessian, scaled by the contour interval so both
-    /// terms are dimensionless and can share one threshold.
     pub fn terrain_change(&self, contour_interval: f32) -> Dfm<TerrainChange> {
-        let mut terrain_change = Dfm::new_like(self);
-        let cell = CELL_SIZE_METERS;
+        let mut output = Dfm::new_like(self);
+        let cell = self.grid.cell_size_m;
         let cell_squared = cell * cell;
-        let curvature_scale = f64::from(contour_interval.abs());
-
-        for yi in 0..TILE_SIZE_PIXELS {
-            let top = yi.saturating_sub(1);
-            let bottom = (yi + 1).min(TILE_SIZE_PIXELS - 1);
-
-            for xi in 0..TILE_SIZE_PIXELS {
-                let left = xi.saturating_sub(1);
-                let right = (xi + 1).min(TILE_SIZE_PIXELS - 1);
-
-                let center = f64::from(self[(yi, xi)]);
-                let dz_dx =
-                    (f64::from(self[(yi, right)]) - f64::from(self[(yi, left)])) / (2. * cell);
-                let dz_dy =
-                    (f64::from(self[(top, xi)]) - f64::from(self[(bottom, xi)])) / (2. * cell);
-                let d2z_dx2 = (f64::from(self[(yi, right)]) - 2. * center
-                    + f64::from(self[(yi, left)]))
+        for y in 0..self.height() {
+            let top = y.saturating_sub(1);
+            let bottom = (y + 1).min(self.height() - 1);
+            for x in 0..self.width() {
+                let left = x.saturating_sub(1);
+                let right = (x + 1).min(self.width() - 1);
+                let center = f64::from(self[(y, x)]);
+                let dx = (f64::from(self[(y, right)]) - f64::from(self[(y, left)])) / (2. * cell);
+                let dy = (f64::from(self[(top, x)]) - f64::from(self[(bottom, x)])) / (2. * cell);
+                let dxx = (f64::from(self[(y, right)]) - 2. * center + f64::from(self[(y, left)]))
                     / cell_squared;
-                let d2z_dy2 = (f64::from(self[(top, xi)]) - 2. * center
-                    + f64::from(self[(bottom, xi)]))
+                let dyy = (f64::from(self[(top, x)]) - 2. * center + f64::from(self[(bottom, x)]))
                     / cell_squared;
-                let d2z_dxdy = (f64::from(self[(top, right)])
+                let dxy = (f64::from(self[(top, right)])
                     - f64::from(self[(top, left)])
                     - f64::from(self[(bottom, right)])
                     + f64::from(self[(bottom, left)]))
                     / (4. * cell_squared);
-
-                let slope = dz_dx.hypot(dz_dy);
-                let curvature = (d2z_dx2.powi(2) + 2. * d2z_dxdy.powi(2) + d2z_dy2.powi(2)).sqrt();
-
-                terrain_change[(yi, xi)] = slope.hypot(curvature_scale * curvature) as f32;
+                output[(y, x)] = dx.hypot(dy).hypot(
+                    f64::from(contour_interval.abs())
+                        * (dxx.powi(2) + 2. * dxy.powi(2) + dyy.powi(2)).sqrt(),
+                ) as f32;
             }
         }
-
-        terrain_change
+        output
     }
 
-    /// Local reduction in absolute elevation error obtained by including form
-    /// lines in a contour-based reconstruction.
     pub fn interpolation_error_improvement(
         &self,
-        with_formlines: &Dfm<Elevation>,
-        without_formlines: &Dfm<Elevation>,
+        with_formlines: &Self,
+        without_formlines: &Self,
     ) -> Dfm<InterpolationErrorImprovement> {
-        let mut improvement = Dfm::new_like(self);
-
-        for yi in 0..TILE_SIZE_PIXELS {
-            for xi in 0..TILE_SIZE_PIXELS {
-                let with_error = (self[(yi, xi)] - with_formlines[(yi, xi)]).abs();
-                let without_error = (self[(yi, xi)] - without_formlines[(yi, xi)]).abs();
-                improvement[(yi, xi)] = (without_error - with_error).max(0.);
-            }
+        self.grid
+            .ensure_compatible(&with_formlines.grid)
+            .and_then(|_| self.grid.ensure_compatible(&without_formlines.grid))
+            .expect("interpolation error requires matching grids");
+        let mut output = Dfm::new_like(self);
+        for i in 0..self.field.len() {
+            output.field[i] = ((self.field[i] - without_formlines.field[i]).abs()
+                - (self.field[i] - with_formlines.field[i]).abs())
+            .max(0.);
         }
-
-        improvement
+        output
     }
 
-    /// Hill shade from a Sobel-estimated surface normal.
-    ///
-    /// `sun_angle` is an azimuth in radians, measured counter-clockwise from
-    /// the positive x-axis. The sun elevation is fixed at 45 degrees.
     pub fn hillshade(&self, sun_angle: f64) -> Dfm<Hillshade> {
         self.hillshade_as(sun_angle)
     }
 }
 
 impl<T: Clone> Dfm<T> {
-    pub fn hillshade_as<U: Clone>(&self, sun_angle: f64) -> Dfm<U> {
-        let mut hillshade = Dfm::new_like(self);
-
-        let sun_elevation = std::f64::consts::FRAC_PI_4;
-        let light_x = sun_angle.cos() * sun_elevation.cos();
-        let light_y = sun_angle.sin() * sun_elevation.cos();
-        let light_z = sun_elevation.sin();
-
-        for yi in 0..TILE_SIZE_PIXELS {
-            for xi in 0..TILE_SIZE_PIXELS {
-                let (v, h) = self.sobel_gradient(yi, xi);
-                let normal_x = v;
-                let normal_y = -h;
-                let normal_z = 1.;
-                let normal_length =
-                    (normal_x.powi(2) + normal_y.powi(2) + normal_z * normal_z).sqrt();
-
-                hillshade[(yi, xi)] = ((normal_x * light_x
-                    + normal_y * light_y
-                    + normal_z * light_z)
-                    / normal_length)
-                    .max(0.) as f32;
-            }
-        }
-
-        hillshade
-    }
-
-    #[inline]
-    fn sobel_gradient(&self, yi: usize, xi: usize) -> (f64, f64) {
-        let top_i = yi.saturating_sub(1);
-        let bottom_i = (yi + 1).min(TILE_SIZE_PIXELS - 1);
-        let left_i = xi.saturating_sub(1);
-        let right_i = (xi + 1).min(TILE_SIZE_PIXELS - 1);
-
-        let v = (f64::from(self[(top_i, left_i)]) - f64::from(self[(top_i, right_i)])
-            + 2. * f64::from(self[(yi, left_i)])
-            - 2. * f64::from(self[(yi, right_i)])
-            + f64::from(self[(bottom_i, left_i)])
-            - f64::from(self[(bottom_i, right_i)]))
-            / (8. * CELL_SIZE_METERS);
-
-        let h = (f64::from(self[(top_i, left_i)]) - f64::from(self[(bottom_i, left_i)])
-            + 2. * f64::from(self[(top_i, xi)])
-            - 2. * f64::from(self[(bottom_i, xi)])
-            + f64::from(self[(top_i, right_i)])
-            - f64::from(self[(bottom_i, right_i)]))
-            / (8. * CELL_SIZE_METERS);
-
-        (v, h)
-    }
-
     // marching squares algorithm for extracting contours
     pub fn marching_squares(&self, level: f32) -> geo::MultiLineString {
         // should preallocate some memory, but how much? How many contours can be expected to be created?
@@ -410,7 +441,7 @@ impl<T: Clone> Dfm<T> {
         // (SIDE_LENGTH-1 horizontal inner segments + 2 paddding + 1 vertical)
         // horizontal segments have indecies 0..=SIDE_LENGTH
         // and the vertical segment has index SIDE_LENGTH+1
-        let mut contour_map = [usize::MAX; TILE_SIZE_PIXELS + 2];
+        let mut contour_map = vec![usize::MAX; self.width() + 2].into_boxed_slice();
 
         //   0       1
         //   *-------*   index into the lut based on the sum of (c > level)*2^i for the corner value c at all corner indecies i
@@ -442,11 +473,11 @@ impl<T: Clone> Dfm<T> {
         // make an f32::MIN-padded proxy of self to avoid edge problems and close all contours
         let padded = DfmPaddedProxy::new(self);
 
-        for yi in 0..TILE_SIZE_PIXELS + 1 {
+        for yi in 0..self.height() + 1 {
             let ys = [yi, yi, yi + 1, yi + 1];
-            for xi in 0..TILE_SIZE_PIXELS + 1 {
+            for xi in 0..self.width() + 1 {
                 let xs = [xi, xi + 1, xi + 1, xi];
-                let map_address_lut = [xi, TILE_SIZE_PIXELS + 1, xi, TILE_SIZE_PIXELS + 1];
+                let map_address_lut = [xi, self.width() + 1, xi, self.width() + 1];
 
                 let index = (padded[(ys[0], xs[0])] >= level) as usize
                     + 2 * (padded[(ys[1], xs[1])] >= level) as usize
@@ -573,187 +604,6 @@ impl<T: Clone> Dfm<T> {
         }
         geo::MultiLineString::new(contours)
     }
-
-    // feature preserving smoothing of a DEM by normal vector smoothing
-    //
-    // LiDAR DEM Smoothing and the Preservation of Drainage Features
-    // J.B.Lindsay (2019)
-    //
-    // `max_norm_diff` -
-    // cells with an angle between their normal vectors greater
-    // than this are not used in smoothing each other
-    //
-    // `filter_size` -
-    // pixel size of the smoothing filter, must be odd and min 3
-    //
-    // `num_iter` -
-    // number of smoothing iterations, min 1
-    pub fn smoothen(
-        &self,
-        mut max_norm_diff: f32,
-        mut filter_size: usize,
-        mut num_iter: usize,
-    ) -> Dfm<T> {
-        if filter_size.is_multiple_of(2) {
-            filter_size += 1;
-        }
-        filter_size = filter_size.max(3);
-
-        num_iter = num_iter.max(1);
-        max_norm_diff = max_norm_diff.abs().min(60.);
-
-        // faster to work with the cosine of the angle instead of getting the actual angles
-        let threshold = f64::from(max_norm_diff).to_radians().cos();
-
-        // calculate normal vectors
-        let mut normal_vecs = vec![(0., 0.); TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-        for y in 0..TILE_SIZE_PIXELS {
-            let y_min_1 = y.saturating_sub(1);
-            let y_plus_1 = (y + 1).min(TILE_SIZE_PIXELS - 1);
-
-            let ys = [
-                y_min_1, y, y_plus_1, y_plus_1, y_plus_1, y, y_min_1, y_min_1,
-            ];
-
-            let mut z_vals = [0.; 8];
-            for x in 0..TILE_SIZE_PIXELS {
-                let x_min_1 = x.saturating_sub(1);
-                let x_plus_1 = (x + 1).min(TILE_SIZE_PIXELS - 1);
-
-                let xs = [
-                    x_plus_1, x_plus_1, x_plus_1, x, x_min_1, x_min_1, x_min_1, x,
-                ];
-
-                for i in 0..8 {
-                    z_vals[i] = f64::from(self[(ys[i], xs[i])]);
-                }
-
-                let dzdx = -(z_vals[2] - z_vals[4] + 2. * (z_vals[1] - z_vals[5]) + z_vals[0]
-                    - z_vals[6])
-                    / (CELL_SIZE_METERS * 8.);
-                let dzdy = -(z_vals[6] - z_vals[4] + 2. * (z_vals[7] - z_vals[3]) + z_vals[0]
-                    - z_vals[2])
-                    / (CELL_SIZE_METERS * 8.);
-
-                normal_vecs[y * TILE_SIZE_PIXELS + x] = (dzdx, dzdy);
-            }
-        }
-
-        // Smooth normal vectors
-        let mut smooth_normal_vecs = vec![(0., 0.); TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-
-        let mut dx = vec![0; filter_size * filter_size];
-        let mut dy = vec![0; filter_size * filter_size];
-
-        // fill the filter d_x and d_y values and the distance-weights
-        let half_size = (filter_size as f64 / 2f64).floor() as isize;
-        let mut a = 0;
-        for y in 0..filter_size {
-            for x in 0..filter_size {
-                dx[a] = x as isize - half_size;
-                dy[a] = y as isize - half_size;
-                a += 1;
-            }
-        }
-
-        for y in 0..TILE_SIZE_PIXELS {
-            for x in 0..TILE_SIZE_PIXELS {
-                let mut sum_weights = 0.;
-                let mut a = 0.;
-                let mut b = 0.;
-                for n in 0..filter_size * filter_size {
-                    let x_neighbor =
-                        (x as isize + dx[n]).clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
-                    let y_neighbor =
-                        (y as isize + dy[n]).clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
-                    let neighbor_normal = normal_vecs[y_neighbor * TILE_SIZE_PIXELS + x_neighbor];
-                    let diff =
-                        cos_angle_between(normal_vecs[y * TILE_SIZE_PIXELS + x], neighbor_normal);
-                    if diff > threshold {
-                        let weight = (diff - threshold).powi(2);
-                        sum_weights += weight;
-                        a += neighbor_normal.0 * weight;
-                        b += neighbor_normal.1 * weight;
-                    }
-                }
-
-                a /= sum_weights;
-                b /= sum_weights;
-
-                smooth_normal_vecs[y * TILE_SIZE_PIXELS + x] = (a, b);
-            }
-        }
-
-        // Update the DEM based on the smoothed normal vectors
-        let x = [
-            -CELL_SIZE_METERS,
-            -CELL_SIZE_METERS,
-            -CELL_SIZE_METERS,
-            0.,
-            CELL_SIZE_METERS,
-            CELL_SIZE_METERS,
-            CELL_SIZE_METERS,
-            0.,
-        ];
-        let y = [
-            -CELL_SIZE_METERS,
-            0.,
-            CELL_SIZE_METERS,
-            CELL_SIZE_METERS,
-            CELL_SIZE_METERS,
-            0.,
-            -CELL_SIZE_METERS,
-            -CELL_SIZE_METERS,
-        ];
-
-        let mut output = self.clone();
-
-        for _ in 0..num_iter {
-            for yi in 0..TILE_SIZE_PIXELS {
-                let y_min_1 = yi.saturating_sub(1);
-                let y_plus_1 = (yi + 1).min(TILE_SIZE_PIXELS - 1);
-
-                let ys = [
-                    y_min_1, yi, y_plus_1, y_plus_1, y_plus_1, yi, y_min_1, y_min_1,
-                ];
-                for xi in 0..TILE_SIZE_PIXELS {
-                    let x_min_1 = xi.saturating_sub(1);
-                    let x_plus_1 = (xi + 1).min(TILE_SIZE_PIXELS - 1);
-
-                    let xs = [
-                        x_plus_1, x_plus_1, x_plus_1, xi, x_min_1, x_min_1, x_min_1, xi,
-                    ];
-
-                    let mut sum_weight = 0.;
-                    let mut z = 0.;
-                    for n in 0..8 {
-                        let x_neighbor = xs[n];
-                        let y_neighbor = ys[n];
-
-                        let smooth_neighbor_normal =
-                            smooth_normal_vecs[y_neighbor * TILE_SIZE_PIXELS + x_neighbor];
-                        let diff = cos_angle_between(
-                            smooth_normal_vecs[yi * TILE_SIZE_PIXELS + xi],
-                            smooth_neighbor_normal,
-                        );
-                        if diff > threshold {
-                            let weight = (diff - threshold).powi(2);
-                            sum_weight += weight;
-                            z += -(smooth_neighbor_normal.0 * x[n]
-                                + smooth_neighbor_normal.1 * y[n]
-                                - f64::from(output[(y_neighbor, x_neighbor)]))
-                                * weight;
-                        }
-                    }
-                    if sum_weight > f64::EPSILON {
-                        output[(yi, xi)] = (z / sum_weight) as f32;
-                    }
-                }
-            }
-        }
-
-        output
-    }
 }
 
 impl Dfm<HydroCorrected> {
@@ -781,19 +631,19 @@ impl Dfm<HydroCorrected> {
         let mut generation = 0_u32;
 
         for generator in generators {
-            let x = ((generator.x - self.tl_coord.x) / CELL_SIZE_METERS).round();
-            let y = ((self.tl_coord.y - generator.y) / CELL_SIZE_METERS).round();
+            let x = ((generator.x - self.grid.top_left.x) / self.grid.cell_size_m).round();
+            let y = ((self.grid.top_left.y - generator.y) / self.grid.cell_size_m).round();
             if !x.is_finite()
                 || !y.is_finite()
                 || x < 0.
                 || y < 0.
-                || x >= TILE_SIZE_PIXELS as f64
-                || y >= TILE_SIZE_PIXELS as f64
+                || x >= self.width() as f64
+                || y >= self.height() as f64
             {
                 continue;
             }
 
-            let seed_index = y as usize * TILE_SIZE_PIXELS + x as usize;
+            let seed_index = y as usize * self.width() + x as usize;
             // A seed already covered by an earlier seed has the same completed
             // region, so avoid traversing that region again for every seed
             // cell produced by the likelihood filter.
@@ -831,16 +681,16 @@ impl Dfm<HydroCorrected> {
                 }
 
                 water_mask.field[index] = 1.;
-                let cell_y = index / TILE_SIZE_PIXELS;
-                let cell_x = index % TILE_SIZE_PIXELS;
+                let cell_y = index / self.width();
+                let cell_x = index % self.height();
                 let top = cell_y.saturating_sub(1);
-                let bottom = (cell_y + 1).min(TILE_SIZE_PIXELS - 1);
+                let bottom = (cell_y + 1).min(self.height() - 1);
                 let left = cell_x.saturating_sub(1);
-                let right = (cell_x + 1).min(TILE_SIZE_PIXELS - 1);
+                let right = (cell_x + 1).min(self.width() - 1);
 
                 for neighbour_y in top..=bottom {
                     for neighbour_x in left..=right {
-                        let neighbour = neighbour_y * TILE_SIZE_PIXELS + neighbour_x;
+                        let neighbour = neighbour_y * self.width() + neighbour_x;
                         if visited_generation[neighbour] != generation {
                             visited_generation[neighbour] = generation;
                             queue.push_back(neighbour);
@@ -859,7 +709,8 @@ impl Dfm<HydroCorrected> {
     }
 }
 
-fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+//fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+fn cosine_between_normals(a: (f64, f64), b: (f64, f64)) -> f64 {
     (a.0 * b.0 + a.1 * b.1 + 1.)
         / ((a.0 * a.0 + a.1 * a.1 + 1.) * (b.0 * b.0 + b.1 * b.1 + 1.)).sqrt()
 }
@@ -867,14 +718,16 @@ fn cos_angle_between(a: (f64, f64), b: (f64, f64)) -> f64 {
 impl<T> Index<(usize, usize)> for Dfm<T> {
     type Output = f32;
 
-    fn index(&self, index: (usize, usize)) -> &Self::Output {
-        &self.field[index.0 * TILE_SIZE_PIXELS + index.1]
+    #[inline]
+    fn index(&self, (row, column): (usize, usize)) -> &Self::Output {
+        &self.field[row * self.grid.width + column]
     }
 }
 
 impl<T> IndexMut<(usize, usize)> for Dfm<T> {
-    fn index_mut(&mut self, index: (usize, usize)) -> &mut Self::Output {
-        &mut self.field[index.0 * TILE_SIZE_PIXELS + index.1]
+    #[inline]
+    fn index_mut(&mut self, (row, column): (usize, usize)) -> &mut Self::Output {
+        &mut self.field[row * self.grid.width + column]
     }
 }
 
@@ -890,8 +743,10 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
     #[inline]
     fn index2coord(&self, yi: usize, xi: usize) -> geo::Coord {
         geo::Coord {
-            x: self.inner.tl_coord.x - CELL_SIZE_METERS + (xi as f64) * CELL_SIZE_METERS,
-            y: self.inner.tl_coord.y + CELL_SIZE_METERS - (yi as f64) * CELL_SIZE_METERS,
+            x: self.inner.grid.top_left.x - self.inner.grid.cell_size_m
+                + (xi as f64) * self.inner.grid.cell_size_m,
+            y: self.inner.grid.top_left.y + self.inner.grid.cell_size_m
+                - (yi as f64) * self.inner.grid.cell_size_m,
         }
     }
 
@@ -906,15 +761,17 @@ impl<'a, T> DfmPaddedProxy<'a, T> {
         let a = self[(ys[e], xs[e])];
         let b = self[(ys[(e + 1) % 4], xs[(e + 1) % 4])];
 
-        let fraction = (f64::from(level) - f64::from(a)) / (f64::from(b) - f64::from(a));
-
         let a_coord = self.index2coord(ys[e], xs[e]);
 
         geo::Coord {
             x: a_coord.x
-                + CELL_SIZE_METERS * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64 * fraction,
+                + self.inner.grid.cell_size_m
+                    * (xs[(e + 1) % 4] as i32 - xs[e] as i32) as f64
+                    * ((level - a) / (b - a)) as f64,
             y: a_coord.y
-                + CELL_SIZE_METERS * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64 * fraction,
+                + self.inner.grid.cell_size_m
+                    * (ys[e] as i32 - ys[(e + 1) % 4] as i32) as f64
+                    * ((level - a) / (b - a)) as f64,
         }
     }
 }
@@ -924,9 +781,9 @@ impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
 
     fn index(&self, index: (usize, usize)) -> &Self::Output {
         if index.0 == 0
-            || index.0 == TILE_SIZE_PIXELS + 1
+            || index.0 == self.inner.width() + 1
             || index.1 == 0
-            || index.1 == TILE_SIZE_PIXELS + 1
+            || index.1 == self.inner.height() + 1
         {
             &Self::Output::MIN
         } else {
@@ -938,9 +795,99 @@ impl<T> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raster::DfmPixelBounds;
+    use geo::BoundingRect;
+
+    fn plane(grid: DfmGrid) -> Dfm<Elevation> {
+        let mut raster = Dfm::new(grid);
+        for y in 0..raster.height() {
+            for x in 0..raster.width() {
+                let coordinate = raster.index2coord(y, x);
+                raster[(y, x)] = (2. * coordinate.x - 3. * coordinate.y + 7.) as f32;
+            }
+        }
+        raster
+    }
+
+    #[test]
+    fn restriction_and_prolongation_preserve_a_plane() {
+        let mut grid = DfmGrid::new(8, 8, 0.5, geo::coord! { x: 0., y: 4. }).unwrap();
+        grid.inner = DfmPixelBounds {
+            top: 2,
+            bottom: 6,
+            left: 2,
+            right: 6,
+        };
+        let source = plane(grid.clone());
+        let coarse_grid = grid.aligned_coarsened(1.).unwrap();
+        let coarse = source.restrict_to(&coarse_grid).unwrap();
+        assert_eq!(
+            coarse.grid.inner,
+            DfmPixelBounds {
+                top: 1,
+                bottom: 3,
+                left: 1,
+                right: 3,
+            }
+        );
+        let restored = coarse.prolong_to(&grid).unwrap();
+        for (&actual, &expected) in restored.field.iter().zip(&source.field) {
+            assert!((actual - expected).abs() < 1e-5);
+        }
+        assert_eq!(restored.grid.inner, source.grid.inner);
+    }
+
+    #[test]
+    fn marching_squares_closes_an_interior_ring() {
+        let grid = DfmGrid::new(5, 5, 1., geo::coord! { x: 0., y: 4. }).unwrap();
+        let mut raster = Dfm::<Elevation>::new(grid);
+        raster.field.fill(0.);
+        raster[(2, 2)] = 2.;
+        let contours = raster.marching_squares(1.);
+        assert_eq!(contours.0.len(), 1);
+        assert!(contours.0[0].is_closed());
+        assert_eq!(
+            contours.0[0].coords().next(),
+            contours.0[0].coords().next_back()
+        );
+    }
+
+    #[test]
+    fn bilinear_sampling_recovers_plane_values() {
+        let raster = plane(DfmGrid::new(4, 3, 1., geo::coord! { x: 5., y: 8. }).unwrap());
+        let point = geo::coord! { x: 6.25, y: 7.5 };
+        assert!(
+            (raster.sample_bilinear(point).unwrap() - (2. * 6.25 - 3. * 7.5 + 7.) as f32).abs()
+                < 1e-5
+        );
+    }
+
+    #[test]
+    fn rectangular_indexing_uses_grid_width() {
+        let mut raster =
+            Dfm::<Elevation>::new(DfmGrid::new(4, 3, 2., geo::coord! { x: 0., y: 0. }).unwrap());
+        raster[(2, 3)] = 9.;
+        assert_eq!(raster.field[11], 9.);
+    }
+
+    #[test]
+    fn contour_coordinates_follow_instance_cell_size() {
+        let mut raster =
+            Dfm::<Elevation>::new(DfmGrid::new(3, 3, 2., geo::coord! { x: 10., y: 20. }).unwrap());
+        raster.field.fill(0.);
+        raster[(1, 1)] = 2.;
+        let bounds = raster.marching_squares(1.).bounding_rect().unwrap();
+        assert_eq!(
+            bounds,
+            geo::Rect::new(
+                geo::coord! { x: 11., y: 17. },
+                geo::coord! { x: 13., y: 19. }
+            )
+        );
+    }
 
     fn corrected_dtm(elevation: f32) -> Dfm<HydroCorrected> {
-        let mut dtm = Dfm::new(geo::Coord { x: 100., y: 200. });
+        let mut dtm = Dfm::new(DfmGrid::standard(geo::Coord { x: 100., y: 200. }));
         dtm.field.fill(elevation);
         dtm
     }

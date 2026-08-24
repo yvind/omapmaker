@@ -68,10 +68,11 @@ fn raster_output_path(save_location: &Path, suffix: &str) -> PathBuf {
 }
 
 fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
-    let mut inner_tiles = tiles.iter().filter(|tile| !tile.inner.is_empty());
+    let mut inner_tiles = tiles.iter().filter(|tile| !tile.grid.inner.is_empty());
     let first = inner_tiles.next()?;
-    let first_top_left = first.index2coord(first.inner.top, first.inner.left);
-    let first_bottom_right = first.index2coord(first.inner.bottom - 1, first.inner.right - 1);
+    let first_top_left = first.index2coord(first.grid.inner.top, first.grid.inner.left);
+    let first_bottom_right =
+        first.index2coord(first.grid.inner.bottom - 1, first.grid.inner.right - 1);
 
     let mut min_x = first_top_left.x;
     let mut max_x = first_bottom_right.x;
@@ -79,8 +80,8 @@ fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
     let mut min_y = first_bottom_right.y;
 
     for tile in inner_tiles {
-        let top_left = tile.index2coord(tile.inner.top, tile.inner.left);
-        let bottom_right = tile.index2coord(tile.inner.bottom - 1, tile.inner.right - 1);
+        let top_left = tile.index2coord(tile.grid.inner.top, tile.grid.inner.left);
+        let bottom_right = tile.index2coord(tile.grid.inner.bottom - 1, tile.grid.inner.right - 1);
         min_x = min_x.min(top_left.x);
         max_x = max_x.max(bottom_right.x);
         max_y = max_y.max(top_left.y);
@@ -94,22 +95,22 @@ fn merge_dfms<T>(tiles: &[Dfm<T>]) -> Option<(Array2<f64>, geo::Coord)> {
     let mut counts = vec![0_u16; width * height];
 
     for tile in tiles {
-        if tile.inner.is_empty() {
+        if tile.grid.inner.is_empty() {
             continue;
         }
-        let inner_top_left = tile.index2coord(tile.inner.top, tile.inner.left);
+        let inner_top_left = tile.index2coord(tile.grid.inner.top, tile.grid.inner.left);
         let x_offset = ((inner_top_left.x - min_x) / CELL_SIZE_METERS).round() as usize;
         let y_offset = ((max_y - inner_top_left.y) / CELL_SIZE_METERS).round() as usize;
 
-        for y in tile.inner.top..tile.inner.bottom {
-            let target_y = y_offset + y - tile.inner.top;
-            for x in tile.inner.left..tile.inner.right {
+        for y in tile.grid.inner.top..tile.grid.inner.bottom {
+            let target_y = y_offset + y - tile.grid.inner.top;
+            for x in tile.grid.inner.left..tile.grid.inner.right {
                 let value = tile[(y, x)];
                 if value == f32::MIN || !value.is_finite() {
                     continue;
                 }
 
-                let target_x = x_offset + x - tile.inner.left;
+                let target_x = x_offset + x - tile.grid.inner.left;
                 sums[[target_y, target_x]] += value as f64;
                 counts[target_y * width + target_x] =
                     counts[target_y * width + target_x].saturating_add(1);

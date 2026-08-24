@@ -175,6 +175,13 @@ pub fn compute_tile(
                 },
                 params,
             )?,
+            ContourAlgo::WeightedScalarField => map_gen::common::compute_scalar_field_contours(
+                &tile.rasters.dem,
+                tile.z_range,
+                &tile.cut_overlay,
+                params,
+                compute_contour_score,
+            )?,
             ContourAlgo::NormalFieldSmoothing | ContourAlgo::Raw => {
                 map_gen::common::extract_contours(
                     &tile.rasters.dem,

@@ -47,8 +47,8 @@ pub fn compute_water_probability(
         .iter()
         .filter(|point| point.0.return_number == 1 && point.0.number_of_returns == 1)
     {
-        let xi = ((point.x() - dem.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
-        let yi = ((dem.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+        let xi = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
+        let yi = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
         if xi < 0 || yi < 0 || xi >= side as isize || yi >= side as isize {
             continue;
         }
@@ -56,8 +56,8 @@ pub fn compute_water_probability(
         let index = yi as usize * side + xi as usize;
         // Work in tile-local coordinates to keep the plane-fit covariance
         // numerically stable even when the source CRS has large coordinates.
-        let px = point.x() - dem.tl_coord.x;
-        let py = dem.tl_coord.y - point.y();
+        let px = point.x() - dem.grid.top_left.x;
+        let py = dem.grid.top_left.y - point.y();
         let pz = point.0.z;
         count[index] += 1.;
         intensity[index] += f64::from(point.0.intensity);
@@ -209,7 +209,11 @@ mod tests {
 
     #[test]
     fn probability_filter_only_selects_seeds_for_the_final_extent() {
-        let mut corrected = Dfm::<HydroCorrected>::new(geo::Coord { x: 0., y: 100. });
+        let mut corrected =
+            Dfm::<HydroCorrected>::new(crate::raster::DfmGrid::standard(geo::Coord {
+                x: 0.,
+                y: 100.,
+            }));
         corrected.field.fill(10.);
         for y in 20..=22 {
             for x in 30..=32 {

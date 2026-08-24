@@ -227,6 +227,8 @@ pub enum MapObject {
     },
 }
 
+const PRESERVE_CONTOUR_GEOMETRY_TAG: &str = "_omapmaker_preserve_contour_geometry";
+
 impl MapObject {
     pub fn get_symbol(&self) -> Symbol {
         match self {
@@ -311,6 +313,12 @@ impl MapObject {
             }
         }
     }
+
+    pub fn preserve_contour_geometry(&mut self) {
+        if let MapObject::Line { tags, .. } = self {
+            tags.insert(PRESERVE_CONTOUR_GEOMETRY_TAG.to_string(), String::new());
+        }
+    }
 }
 
 pub struct TempMap {
@@ -352,6 +360,10 @@ impl MergeLine {
             .get("Elevation")
             .and_then(|elevation| elevation.parse::<f64>().ok())
             .map(|elevation| (elevation * 100.).round() as i64)
+    }
+
+    fn preserves_contour_geometry(&self) -> bool {
+        self.tags.contains_key(PRESERVE_CONTOUR_GEOMETRY_TAG)
     }
 
     fn start_point(&self) -> [f64; 2] {
@@ -572,8 +584,10 @@ impl TempMap {
                     MapObject::Line {
                         object,
                         symbol,
-                        tags,
+                        mut tags,
                     } => {
+                        let preserve_geometry =
+                            tags.remove(PRESERVE_CONTOUR_GEOMETRY_TAG).is_some();
                         let object = object.map_coords(|c| c + self.ref_point);
                         let mut line = LineObject::new(
                             WeakLinePathSymbol::try_from(
@@ -585,7 +599,8 @@ impl TempMap {
                             transform.to_map_linestring(object),
                         );
                         line.tags = tags;
-                        line.write_as_bezier = if let Some(err) = bezier_error
+                        line.write_as_bezier = if !preserve_geometry
+                            && let Some(err) = bezier_error
                             && !matches!(
                                 symbol,
                                 LineSymbol::BasemapContour | LineSymbol::NegBasemapContour
@@ -803,15 +818,26 @@ impl TempMap {
                 }
             }
 
-            let mut unclosed_object_groups = HashMap::<Option<i64>, Vec<MergeLine>>::new();
+            let mut unclosed_object_groups = HashMap::<(Option<i64>, bool), Vec<MergeLine>>::new();
             for unclosed_object in unclosed_objects {
                 unclosed_object_groups
-                    .entry(unclosed_object.elevation_key())
+                    .entry((
+                        unclosed_object.elevation_key(),
+                        unclosed_object.preserves_contour_geometry(),
+                    ))
                     .or_default()
                     .push(unclosed_object);
             }
 
-            for (_, mut unclosed_objects) in unclosed_object_groups {
+            for ((_, preserve_geometry), mut unclosed_objects) in unclosed_object_groups {
+                let merge_delta =
+                    if preserve_geometry && matches!(key, Symbol::Line(LineSymbol::FormLine)) {
+                        -1.
+                    } else if preserve_geometry {
+                        1e-16
+                    } else {
+                        delta
+                    };
                 let (line_ends, line_starts): (Vec<_>, Vec<_>) = unclosed_objects
                     .iter()
                     .enumerate()
@@ -824,7 +850,7 @@ impl TempMap {
                 let mut merges = Vec::with_capacity(line_starts.len());
                 for (start_i, line_start) in line_starts.iter().enumerate() {
                     if let Some(nn) = end_tree.nearest_neighbor(*line_start)
-                        && nn.distance_2(line_start) <= delta
+                        && nn.distance_2(line_start) <= merge_delta
                     {
                         merges.push((start_i, nn.data));
                     }
@@ -885,7 +911,7 @@ impl TempMap {
                     let start = line_object.object.0[0];
                     let end = line_object.object.0[line_object.object.0.len() - 1];
 
-                    if (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= delta {
+                    if (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= merge_delta {
                         line_object.object.close();
                     }
 

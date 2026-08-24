@@ -883,13 +883,84 @@ impl OmapMaker {
                     );
                     ui.selectable_value(
                         &mut self.gui_variables.generation.params.contour.algorithm,
+                        ContourAlgo::WeightedScalarField,
+                        "Weighted scalar field",
+                    );
+                    ui.selectable_value(
+                        &mut self.gui_variables.generation.params.contour.algorithm,
                         ContourAlgo::Raw,
                         "Raw contours (fastest)",
                     );
                 });
         });
 
-        if self.gui_variables.generation.params.contour.algorithm != ContourAlgo::Raw {
+        if self.gui_variables.generation.params.contour.algorithm
+            == ContourAlgo::WeightedScalarField
+        {
+            ui.label("Maximum optimization iterations");
+            ui.add(
+                egui::Slider::new(
+                    &mut self
+                        .gui_variables
+                        .generation
+                        .params
+                        .contour
+                        .contour_field
+                        .max_iterations,
+                    20..=400,
+                )
+                .show_value(true),
+            );
+            ui.horizontal(|ui| {
+                use crate::parameters::ContourGeneralization;
+                ui.label("Generalization:");
+                egui::ComboBox::from_id_salt("Contour generalization")
+                    .selected_text(
+                        self.gui_variables
+                            .generation
+                            .params
+                            .contour
+                            .contour_field
+                            .generalization
+                            .to_string(),
+                    )
+                    .show_ui(ui, |ui| {
+                        for value in [
+                            ContourGeneralization::Light,
+                            ContourGeneralization::Balanced,
+                            ContourGeneralization::Strong,
+                        ] {
+                            ui.selectable_value(
+                                &mut self
+                                    .gui_variables
+                                    .generation
+                                    .params
+                                    .contour
+                                    .contour_field
+                                    .generalization,
+                                value,
+                                value.to_string(),
+                            );
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Persistence threshold:");
+                ui.add(
+                    egui::widgets::DragValue::new(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .contour
+                            .contour_field
+                            .persistence_threshold_fraction,
+                    )
+                    .speed(0.01)
+                    .range(0.0..=0.5),
+                );
+            });
+        } else if self.gui_variables.generation.params.contour.algorithm != ContourAlgo::Raw {
             if self.gui_variables.generation.params.contour.algorithm
                 == ContourAlgo::NormalFieldSmoothing
             {
@@ -1010,6 +1081,48 @@ impl OmapMaker {
                         ui.label("All generated form lines are retained.");
                     }
                 }
+                ui.horizontal(|ui| {
+                    ui.label("Minimum open/closed length (m, 0 = symbol default):");
+                    ui.add(
+                        egui::DragValue::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .contour
+                                .form_line_min_open_length_m,
+                        )
+                        .speed(0.5)
+                        .range(0.0..=100.0),
+                    );
+                    ui.add(
+                        egui::DragValue::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .contour
+                                .form_line_min_closed_length_m,
+                        )
+                        .speed(0.5)
+                        .range(0.0..=100.0),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Reconnect culled gaps up to (m):");
+                    ui.add(
+                        egui::DragValue::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .contour
+                                .form_line_reconnect_gap_m,
+                        )
+                        .speed(0.25)
+                        .range(0.0..=20.0),
+                    );
+                });
             },
         );
 

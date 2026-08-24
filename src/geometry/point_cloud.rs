@@ -1,7 +1,7 @@
 use super::PointLaz;
 
 use crate::{
-    CELL_SIZE_METERS, TILE_SIZE_METERS, TILE_SIZE_PIXELS,
+    CELL_SIZE_METERS, TILE_SIZE_METERS,
     raster::{
         Dfm,
         dfm::{Elevation, HeightAboveGround, PointDensity},
@@ -44,8 +44,8 @@ impl PointCloud {
         spikiness: f64,
     ) -> Dfm<HeightAboveGround> {
         let mut chm = Dfm::<HeightAboveGround>::new_like(dem);
-        let mut sums = vec![0.; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-        let mut counts = vec![0_u32; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        let mut sums = vec![0.; dem.width() * dem.height()];
+        let mut counts = vec![0_u32; dem.width() * dem.height()];
         let power = if spikiness.is_finite() {
             spikiness.clamp(1., 64.)
         } else {
@@ -53,20 +53,22 @@ impl PointCloud {
         };
 
         for point in self.points.iter() {
-            let x_index = ((point.x() - dem.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
-            let y_index = ((dem.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+            let x_index =
+                ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
+            let y_index =
+                ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
 
             if x_index < 0
                 || y_index < 0
-                || x_index >= TILE_SIZE_PIXELS as isize
-                || y_index >= TILE_SIZE_PIXELS as isize
+                || x_index >= dem.width() as isize
+                || y_index >= dem.height() as isize
             {
                 continue;
             }
 
             let x_index = x_index as usize;
             let y_index = y_index as usize;
-            let index = y_index * TILE_SIZE_PIXELS + x_index;
+            let index = y_index * dem.width() + x_index;
             let height_above_ground = (point.0.z - f64::from(dem[(y_index, x_index)])).max(0.);
 
             sums[index] += height_above_ground.powf(power);
@@ -87,25 +89,27 @@ impl PointCloud {
 
     pub fn point_density<T>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
         let mut density = Dfm::<PointDensity>::new_like(grid);
-        let mut counts = vec![0_u32; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        let mut counts = vec![0_u32; grid.width() * grid.height()];
 
         for point in &self.points {
-            let x_index = ((point.x() - grid.tl_coord.x) / CELL_SIZE_METERS).round() as isize;
-            let y_index = ((grid.tl_coord.y - point.y()) / CELL_SIZE_METERS).round() as isize;
+            let x_index =
+                ((point.x() - grid.grid.top_left.x) / grid.grid.cell_size_m).round() as isize;
+            let y_index =
+                ((grid.grid.top_left.y - point.y()) / grid.grid.cell_size_m).round() as isize;
 
             if x_index < 0
                 || y_index < 0
-                || x_index >= TILE_SIZE_PIXELS as isize
-                || y_index >= TILE_SIZE_PIXELS as isize
+                || x_index >= grid.width() as isize
+                || y_index >= grid.height() as isize
             {
                 continue;
             }
 
-            let index = y_index as usize * TILE_SIZE_PIXELS + x_index as usize;
+            let index = y_index as usize * grid.width() + x_index as usize;
             counts[index] += 1;
         }
 
-        let cell_area = CELL_SIZE_METERS.powi(2);
+        let cell_area = grid.grid.cell_size_m.powi(2);
         for (value, count) in density.field.iter_mut().zip(counts) {
             *value = (f64::from(count) / cell_area) as f32;
         }
@@ -312,7 +316,7 @@ mod tests {
                 z: 0.,
             },
         };
-        let grid = Dfm::<Elevation>::new(geo::Coord { x: 0., y: 10. });
+        let grid = Dfm::<Elevation>::standard(geo::Coord { x: 0., y: 10. });
         let points = vec![
             PointLaz::new(0.1, 9.9, 0.),
             PointLaz::new(-0.1, 10.1, 0.),

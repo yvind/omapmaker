@@ -6,6 +6,7 @@ mod compute_intensity;
 mod compute_streams;
 mod compute_vegetation;
 mod compute_water;
+pub mod contour_field;
 mod retile_laz;
 
 pub use compute_basemap::compute_basemap;

@@ -195,11 +195,18 @@ fn changed_steps(
     steps.contours = new.contour.algorithm != old.contour.algorithm
         || new.contour.algo_lambda != old.contour.algo_lambda
         || new.contour.algo_steps != old.contour.algo_steps
+        || new.contour.contour_field != old.contour.contour_field
         || new.geometry.contours != old.geometry.contours
         || new.contour.form_lines != old.contour.form_lines
         || new.contour.form_line_prune_algorithm != old.contour.form_line_prune_algorithm
         || new.contour.form_line_prune_threshold != old.contour.form_line_prune_threshold
         || new.contour.form_line_error_threshold != old.contour.form_line_error_threshold
+        || new.contour.form_line_min_open_length_m != old.contour.form_line_min_open_length_m
+        || new.contour.form_line_min_closed_length_m != old.contour.form_line_min_closed_length_m
+        || new.contour.form_line_reconnect_gap_m != old.contour.form_line_reconnect_gap_m
+        || new.contour.form_line_closed_seed_length_m != old.contour.form_line_closed_seed_length_m
+        || new.contour.form_line_closed_all_or_none_max_length_m
+            != old.contour.form_line_closed_all_or_none_max_length_m
         || new.contour.interval != old.contour.interval
         || new.contour.dot_knoll_area.0 != old.contour.dot_knoll_area.0
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;
