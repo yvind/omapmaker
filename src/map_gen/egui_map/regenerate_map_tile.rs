@@ -21,10 +21,11 @@ pub fn regenerate_map_tile(
     params: &MapParameters,
     old_params: &Option<MapParameters>,
     scope: RegenerationScope,
+    preview_section_reached: Option<MapPreviewSection>,
 ) {
     let mut omap = TempMap::new(ref_point, params.scale, params.output.crs.clone());
 
-    let steps = changed_steps(params, old_params.as_ref(), scope);
+    let steps = changed_steps(params, old_params.as_ref(), scope, preview_section_reached);
 
     if steps.intensity {
         // make sure the symbols used in the prev generation are cleared
@@ -66,9 +67,17 @@ pub fn regenerate_map_tile(
         }
     }
 
+    if steps.buildings
+        && let Err(e) = omap.merge_areas(AreaSymbol::Building, 2. * crate::SIMPLIFICATION_DIST)
+    {
+        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+        return;
+    }
+
     let min_size_filter_symbols = params.min_size_filter_symbols(
         steps.openness,
         steps.vegetation,
+        steps.buildings,
         steps.cliffs,
         steps.intensity,
         steps.water,
@@ -98,6 +107,9 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(AreaSymbol::LightGreen, 0);
         omap.reserve_capacity(AreaSymbol::MediumGreen, 0);
         omap.reserve_capacity(AreaSymbol::DarkGreen, 0);
+    }
+    if steps.buildings {
+        omap.reserve_capacity(AreaSymbol::Building, 0);
     }
     if steps.cliffs {
         omap.reserve_capacity(AreaSymbol::GiganticBoulder, 0);
@@ -159,16 +171,19 @@ fn changed_steps(
     new: &MapParameters,
     old: Option<&MapParameters>,
     scope: RegenerationScope,
+    preview_section_reached: Option<MapPreviewSection>,
 ) -> PipelineSteps {
     let mut steps = PipelineSteps::default();
 
     let Some(old) = old else {
         force_scope(&mut steps, scope);
+        limit_to_reached_sections(&mut steps, preview_section_reached);
         return steps;
     };
 
     if new.scale != old.scale {
         force_scope(&mut steps, scope);
+        limit_to_reached_sections(&mut steps, preview_section_reached);
         return steps;
     }
 
@@ -180,6 +195,9 @@ fn changed_steps(
     steps.vegetation = new.vegetation.green != old.vegetation.green
         || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
+    let buildings_changed =
+        new.building != old.building || new.geometry.buildings != old.geometry.buildings;
+    steps.buildings = buildings_changed;
     let polynomial_fit_changed = new.cliff.algorithm == CliffAlgorithm::PolynomialFit
         && (new.contour.contour_field.slope_fit_radius_m
             != old.contour.contour_field.slope_fit_radius_m
@@ -195,6 +213,20 @@ fn changed_steps(
         || polynomial_fit_changed;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
     steps.streams = steps.water;
+
+    // Building precedence changes the geometry of these layers. Regenerate
+    // the affected counterparts together so incremental preview updates do
+    // not leave stale overlaps behind.
+    if buildings_changed {
+        steps.openness = true;
+        steps.vegetation = true;
+        steps.cliffs = true;
+        steps.intensity = true;
+        steps.water = true;
+    }
+    if steps.openness || steps.vegetation || steps.cliffs || steps.intensity || steps.water {
+        steps.buildings = true;
+    }
 
     steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval
         || new.contour.basemap_contour != old.contour.basemap_contour;
@@ -214,20 +246,76 @@ fn changed_steps(
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;
 
     force_scope(&mut steps, scope);
+    limit_to_reached_sections(&mut steps, preview_section_reached);
     steps
+}
+
+fn limit_to_reached_sections(
+    steps: &mut PipelineSteps,
+    preview_section_reached: Option<MapPreviewSection>,
+) {
+    let Some(reached) = preview_section_reached else {
+        *steps = PipelineSteps::default();
+        return;
+    };
+
+    if reached < MapPreviewSection::Contours {
+        steps.basemap = false;
+        steps.contours = false;
+    }
+    if reached < MapPreviewSection::Openness {
+        steps.openness = false;
+    }
+    if reached < MapPreviewSection::Vegetation {
+        steps.vegetation = false;
+    }
+    if reached < MapPreviewSection::Buildings {
+        steps.buildings = false;
+    }
+    if reached < MapPreviewSection::Cliffs {
+        steps.cliffs = false;
+    }
+    if reached < MapPreviewSection::Water {
+        steps.water = false;
+        steps.streams = false;
+    }
+    if reached < MapPreviewSection::Intensity {
+        steps.intensity = false;
+    }
 }
 
 fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
     match scope {
         RegenerationScope::Changed => (),
-        RegenerationScope::Section(MapPreviewSection::Openness) => steps.openness = true,
-        RegenerationScope::Section(MapPreviewSection::Vegetation) => steps.vegetation = true,
-        RegenerationScope::Section(MapPreviewSection::Cliffs) => steps.cliffs = true,
+        RegenerationScope::Section(MapPreviewSection::Openness) => {
+            steps.openness = true;
+            steps.buildings = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::Vegetation) => {
+            steps.vegetation = true;
+            steps.buildings = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::Buildings) => {
+            steps.buildings = true;
+            steps.openness = true;
+            steps.vegetation = true;
+            steps.cliffs = true;
+            steps.intensity = true;
+            steps.water = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::Cliffs) => {
+            steps.cliffs = true;
+            steps.buildings = true;
+        }
         RegenerationScope::Section(MapPreviewSection::Water) => {
             steps.water = true;
             steps.streams = true;
+            steps.buildings = true;
         }
-        RegenerationScope::Section(MapPreviewSection::Intensity) => steps.intensity = true,
+        RegenerationScope::Section(MapPreviewSection::Intensity) => {
+            steps.intensity = true;
+            steps.buildings = true;
+        }
         RegenerationScope::Section(MapPreviewSection::Contours) => {
             steps.contours = true;
             steps.basemap = true;
@@ -239,6 +327,48 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
 mod tests {
     use super::*;
 
+    fn first_generation_steps(section: MapPreviewSection) -> PipelineSteps {
+        changed_steps(
+            &MapParameters::default(),
+            None,
+            RegenerationScope::Section(section),
+            Some(section),
+        )
+    }
+
+    #[test]
+    fn preview_sections_do_not_compute_features_before_they_are_reached() {
+        let contours = first_generation_steps(MapPreviewSection::Contours);
+        assert!(contours.contours);
+        assert!(!contours.openness);
+        assert!(!contours.vegetation);
+        assert!(!contours.buildings);
+        assert!(!contours.cliffs);
+        assert!(!contours.water);
+        assert!(!contours.intensity);
+
+        let openness = first_generation_steps(MapPreviewSection::Openness);
+        assert!(openness.openness);
+        assert!(!openness.buildings);
+        assert!(!openness.cliffs);
+        assert!(!openness.water);
+
+        let vegetation = first_generation_steps(MapPreviewSection::Vegetation);
+        assert!(vegetation.vegetation);
+        assert!(!vegetation.buildings);
+        assert!(!vegetation.cliffs);
+        assert!(!vegetation.water);
+
+        let buildings = first_generation_steps(MapPreviewSection::Buildings);
+        assert!(buildings.buildings);
+        assert!(buildings.openness);
+        assert!(buildings.vegetation);
+        assert!(!buildings.cliffs);
+        assert!(!buildings.water);
+        assert!(!buildings.streams);
+        assert!(!buildings.intensity);
+    }
+
     #[test]
     fn changing_cliff_algorithm_regenerates_cliffs() {
         let old = MapParameters::default();
@@ -246,7 +376,15 @@ mod tests {
         let mut new = old.clone();
         new.cliff.algorithm = CliffAlgorithm::SobelSlope;
 
-        assert!(changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
+        assert!(
+            changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Cliffs),
+            )
+            .cliffs
+        );
     }
 
     #[test]
@@ -256,9 +394,43 @@ mod tests {
         let mut new = old.clone();
         new.contour.contour_field.curvature_fit_radius_m += 1.;
 
-        assert!(!changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
+        assert!(
+            !changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Cliffs),
+            )
+            .cliffs
+        );
 
         new.cliff.algorithm = CliffAlgorithm::PolynomialFit;
-        assert!(changed_steps(&new, Some(&old), RegenerationScope::Changed).cliffs);
+        assert!(
+            changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Cliffs),
+            )
+            .cliffs
+        );
+    }
+
+    #[test]
+    fn shared_contour_parameters_do_not_compute_cliffs_early() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.contour.contour_field.curvature_fit_radius_m += 1.;
+
+        let steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Contours),
+        );
+
+        assert!(steps.contours);
+        assert!(!steps.buildings);
+        assert!(!steps.cliffs);
     }
 }

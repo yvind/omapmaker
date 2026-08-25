@@ -71,6 +71,7 @@ impl eframe::App for OmapMaker {
                     ProcessStage::AdjustContours
                     | ProcessStage::AdjustOpenness
                     | ProcessStage::AdjustVegetation
+                    | ProcessStage::AdjustBuildings
                     | ProcessStage::AdjustCliffs
                     | ProcessStage::AdjustWater
                     | ProcessStage::AdjustIntensity => self.render_adjust_slider_panel(ui),
@@ -90,6 +91,7 @@ impl eframe::App for OmapMaker {
                 | ProcessStage::AdjustContours
                 | ProcessStage::AdjustOpenness
                 | ProcessStage::AdjustVegetation
+                | ProcessStage::AdjustBuildings
                 | ProcessStage::AdjustCliffs
                 | ProcessStage::AdjustWater
                 | ProcessStage::AdjustIntensity
@@ -424,6 +426,7 @@ impl OmapMaker {
                     ProcessStage::AdjustContours => MapPreviewSection::Contours,
                     ProcessStage::AdjustOpenness => MapPreviewSection::Openness,
                     ProcessStage::AdjustVegetation => MapPreviewSection::Vegetation,
+                    ProcessStage::AdjustBuildings => MapPreviewSection::Buildings,
                     ProcessStage::AdjustCliffs => MapPreviewSection::Cliffs,
                     ProcessStage::AdjustWater => MapPreviewSection::Water,
                     ProcessStage::AdjustIntensity => MapPreviewSection::Intensity,

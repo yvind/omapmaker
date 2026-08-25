@@ -58,6 +58,10 @@ pub struct ProjectFiles {
     pub save_ndvd_raster: bool,
     pub save_point_density_raster: bool,
     pub save_flow_accumulation_raster: bool,
+    pub save_building_height_raster: bool,
+    pub save_building_planarity_raster: bool,
+    pub save_building_residual_raster: bool,
+    pub save_building_probability_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -85,6 +89,10 @@ impl Default for ProjectFiles {
             save_ndvd_raster: Default::default(),
             save_point_density_raster: Default::default(),
             save_flow_accumulation_raster: Default::default(),
+            save_building_height_raster: Default::default(),
+            save_building_planarity_raster: Default::default(),
+            save_building_residual_raster: Default::default(),
+            save_building_probability_raster: Default::default(),
         }
     }
 }
@@ -118,6 +126,13 @@ impl ProjectFiles {
                 save_point_density_raster: self.save_rasters && self.save_point_density_raster,
                 save_flow_accumulation_raster: self.save_rasters
                     && self.save_flow_accumulation_raster,
+                save_building_height_raster: self.save_rasters && self.save_building_height_raster,
+                save_building_planarity_raster: self.save_rasters
+                    && self.save_building_planarity_raster,
+                save_building_residual_raster: self.save_rasters
+                    && self.save_building_residual_raster,
+                save_building_probability_raster: self.save_rasters
+                    && self.save_building_probability_raster,
                 crs_epsg: vec![],
                 save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
             };
@@ -135,6 +150,12 @@ impl ProjectFiles {
             save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
             save_point_density_raster: self.save_rasters && self.save_point_density_raster,
             save_flow_accumulation_raster: self.save_rasters && self.save_flow_accumulation_raster,
+            save_building_height_raster: self.save_rasters && self.save_building_height_raster,
+            save_building_planarity_raster: self.save_rasters
+                && self.save_building_planarity_raster,
+            save_building_residual_raster: self.save_rasters && self.save_building_residual_raster,
+            save_building_probability_raster: self.save_rasters
+                && self.save_building_probability_raster,
             crs_epsg: self.crses.clone(),
             save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
         }
@@ -387,6 +408,10 @@ impl GuiVariables {
                 save_ndvd_raster: false,
                 save_point_density_raster: false,
                 save_flow_accumulation_raster: false,
+                save_building_height_raster: false,
+                save_building_planarity_raster: false,
+                save_building_residual_raster: false,
+                save_building_probability_raster: false,
                 crs_epsg: self.project.crses.clone(),
                 save_canopy_height_raster: false,
             },

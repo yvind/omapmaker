@@ -12,6 +12,10 @@ pub struct Backend {
     // so the next call only generates the
     // objects corresponding to the changed parameters
     map_params: Option<MapParameters>,
+    // Later preview features must not be computed before their adjustment
+    // section has been reached. Keep the furthest reached section separately
+    // from the current frontend state so going back does not hide valid work.
+    preview_section_reached: Option<MapPreviewSection>,
 
     // for iterating the params
     map_tiles: Vec<PreparedTile>,
@@ -36,6 +40,7 @@ impl Backend {
             let mut backend = Backend {
                 comms,
                 map_params: None,
+                preview_section_reached: None,
                 map_tiles: Vec::with_capacity(9),
                 hull: geo::Polygon::new(geo::LineString::new(vec![]), vec![]),
                 ref_point: geo::Coord { x: 0., y: 0. },
@@ -54,6 +59,7 @@ impl Backend {
             match task {
                 BackendTask::ClearParams => {
                     self.map_params = None;
+                    self.preview_section_reached = None;
                 }
                 BackendTask::SetWorkerThreads(worker_threads) => {
                     if let Err(e) = self.set_worker_threads(worker_threads) {
@@ -92,6 +98,7 @@ impl Backend {
                 }
 
                 BackendTask::InitializeMapTile(task) => {
+                    self.preview_section_reached = None;
                     let InitializeMapTileTask {
                         paths,
                         test_area,
@@ -120,6 +127,12 @@ impl Backend {
 
                 BackendTask::RegenerateMap(job_id, params, scope) => {
                     assert!(!self.map_tiles.is_empty());
+                    if let RegenerationScope::Section(section) = scope {
+                        self.preview_section_reached = Some(
+                            self.preview_section_reached
+                                .map_or(section, |reached| reached.max(section)),
+                        );
+                    }
                     map_gen::egui_map::regenerate_map_tile(
                         &self.comms,
                         job_id,
@@ -130,6 +143,7 @@ impl Backend {
                         &params,
                         &self.map_params,
                         scope,
+                        self.preview_section_reached,
                     );
 
                     self.map_params = Some(*params);
@@ -184,6 +198,7 @@ impl Backend {
 
     fn reset(&mut self) {
         self.map_params = None;
+        self.preview_section_reached = None;
 
         // removing the allocated memory also, not justing clearing
         self.map_tiles = Vec::new();

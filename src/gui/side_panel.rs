@@ -3,8 +3,8 @@ use crate::{
     drawable::DrawOrder,
     map_gen::egui_map::AreaSymbol,
     parameters::{
-        BezierParameters, BufferDirection, BufferRule, CliffAlgorithm, ContourAlgo,
-        FormlinePruneAlgo, Scale,
+        BezierParameters, BufferDirection, BufferRule, BuildingClassificationEvidence,
+        CliffAlgorithm, ContourAlgo, FormlinePruneAlgo, Scale,
     },
 };
 
@@ -146,6 +146,10 @@ impl OmapMaker {
                     self.gui_variables.project.save_ndvd_raster = false;
                     self.gui_variables.project.save_point_density_raster = false;
                     self.gui_variables.project.save_flow_accumulation_raster = false;
+                    self.gui_variables.project.save_building_height_raster = false;
+                    self.gui_variables.project.save_building_planarity_raster = false;
+                    self.gui_variables.project.save_building_residual_raster = false;
+                    self.gui_variables.project.save_building_probability_raster = false;
                 }
 
                 ui.indent("indented raster checkboxes", |ui| {
@@ -236,6 +240,35 @@ impl OmapMaker {
                     )
                     .on_hover_text(
                         "Save the D8 contributing catchment area as a merged GeoTIFF scaled for image viewers.",
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_building_height_raster,
+                            "Save building height diagnostic",
+                        ),
+                    );
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_building_planarity_raster,
+                            "Save building planarity diagnostic",
+                        ),
+                    );
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_building_residual_raster,
+                            "Save building plane-residual diagnostic",
+                        ),
+                    );
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_building_probability_raster,
+                            "Save building probability diagnostic",
+                        ),
                     );
                 });
             });
@@ -514,6 +547,10 @@ impl OmapMaker {
                 "Adjust vegetation settings",
                 "Tune the green vegetation layers and their polygon geometry.",
             ),
+            ProcessStage::AdjustBuildings => (
+                "Adjust building detection",
+                "Tune conservative roof-surface detection and building footprint geometry.",
+            ),
             ProcessStage::AdjustCliffs => (
                 "Adjust cliff settings",
                 "Tune cliff detection and cliff geometry.",
@@ -626,6 +663,43 @@ impl OmapMaker {
                             .params
                             .geometry
                             .vegetation
+                            .buffer_rules,
+                    );
+                }
+                ProcessStage::AdjustBuildings => {
+                    self.render_building_adjustments(ui);
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Building Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .buildings
+                            .bezier,
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .buildings
+                            .min_size_filter,
+                        "Filter polygons by minimum symbol size.",
+                    );
+                    ui.add_space(20.);
+                    Self::render_buffer_rules(
+                        ui,
+                        "building_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .buildings
                             .buffer_rules,
                     );
                 }
@@ -1282,6 +1356,101 @@ impl OmapMaker {
                 )
                 .range(0.0..=225.0),
             );
+        });
+    }
+
+    fn render_building_adjustments(&mut self, ui: &mut egui::Ui) {
+        let parameters = &mut self.gui_variables.generation.params.building;
+        ui.checkbox(&mut parameters.enabled, "Detect buildings from LiDAR");
+        ui.add_enabled_ui(parameters.enabled, |ui| {
+            ui.label(egui::RichText::new("Roof elevation and fit").strong());
+            ui.add(
+                egui::Slider::new(&mut parameters.minimum_roof_height_m, 0.5..=10.)
+                    .text("Minimum roof height (m)"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_roof_height_m, 5.0..=100.)
+                    .text("Maximum roof height (m)"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.plane_fit_radius_m, 0.5..=8.)
+                    .text("Plane-fit radius (m)"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_plane_residual_m, 0.02..=1.)
+                    .text("Maximum plane residual (m)"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.minimum_planar_point_fraction, 0.0..=1.)
+                    .text("Minimum planar fraction"),
+            );
+
+            ui.add_space(12.);
+            ui.label(egui::RichText::new("Facet assembly").strong());
+            ui.add(
+                egui::Slider::new(
+                    &mut parameters.maximum_neighboring_normal_difference_degrees,
+                    0.0..=90.,
+                )
+                .text("Maximum normal difference (°)"),
+            );
+            ui.add(
+                egui::Slider::new(
+                    &mut parameters.maximum_facet_height_discontinuity_m,
+                    0.0..=4.,
+                )
+                .text("Maximum height step (m)"),
+            );
+            ui.add(egui::Slider::new(&mut parameters.merge_gap_m, 0.0..=4.).text("Merge gap (m)"));
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_candidate_hole_area_m2, 0.0..=50.)
+                    .text("Maximum hole area (m²)"),
+            );
+
+            ui.add_space(12.);
+            ui.label(egui::RichText::new("Candidate acceptance").strong());
+            ui.add(
+                egui::Slider::new(&mut parameters.minimum_building_area_m2, 1.0..=500.)
+                    .logarithmic(true)
+                    .text("Minimum area (m²)"),
+            );
+            ui.add(
+                egui::Slider::new(
+                    &mut parameters.minimum_rectangularity_or_compactness,
+                    0.0..=1.,
+                )
+                .text("Minimum shape score"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_vegetation_fraction, 0.0..=1.)
+                    .text("Maximum vegetation evidence"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.confidence_threshold, 0.0..=1.)
+                    .text("Confidence threshold"),
+            );
+            ui.horizontal(|ui| {
+                ui.label("LAS class 6:");
+                egui::ComboBox::from_id_salt("building_class_6_evidence")
+                    .selected_text(parameters.class_6_evidence.to_string())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut parameters.class_6_evidence,
+                            BuildingClassificationEvidence::Authoritative,
+                            "Authoritative",
+                        );
+                        ui.selectable_value(
+                            &mut parameters.class_6_evidence,
+                            BuildingClassificationEvidence::Supporting,
+                            "Supporting evidence",
+                        );
+                        ui.selectable_value(
+                            &mut parameters.class_6_evidence,
+                            BuildingClassificationEvidence::Ignore,
+                            "Ignore",
+                        );
+                    });
+            });
         });
     }
 

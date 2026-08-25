@@ -10,6 +10,7 @@ pub struct MapParameters {
     pub scale: Scale,
     pub contour: ContourParameters,
     pub vegetation: VegetationParameters,
+    pub building: BuildingParameters,
     pub geometry: GeometryParameters,
     pub intensity: IntensityParameters,
     pub cliff: CliffParameters,
@@ -26,6 +27,7 @@ impl MapParameters {
         &self,
         openness: bool,
         vegetation: bool,
+        buildings: bool,
         cliffs: bool,
         intensity: bool,
         water: bool,
@@ -40,6 +42,10 @@ impl MapParameters {
             push_unique_area_symbol(&mut symbols, AreaSymbol::LightGreen);
             push_unique_area_symbol(&mut symbols, AreaSymbol::MediumGreen);
             push_unique_area_symbol(&mut symbols, AreaSymbol::DarkGreen);
+        }
+
+        if buildings && self.geometry.buildings.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::Building);
         }
 
         if cliffs && self.geometry.cliffs.min_size_filter {
@@ -227,14 +233,91 @@ pub struct VegetationWeights {
     pub high: f32,
 }
 
-#[derive(Clone, Debug, Default)]
+/// Physical thresholds used by the LiDAR roof-surface detector.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BuildingParameters {
+    pub enabled: bool,
+    pub minimum_roof_height_m: f32,
+    pub maximum_roof_height_m: f32,
+    pub plane_fit_radius_m: f64,
+    pub maximum_plane_residual_m: f32,
+    pub minimum_planar_point_fraction: f32,
+    pub maximum_neighboring_normal_difference_degrees: f32,
+    pub maximum_facet_height_discontinuity_m: f32,
+    pub minimum_building_area_m2: f64,
+    pub maximum_candidate_hole_area_m2: f64,
+    pub merge_gap_m: f64,
+    pub minimum_rectangularity_or_compactness: f32,
+    pub maximum_vegetation_fraction: f32,
+    pub confidence_threshold: f32,
+    pub class_6_evidence: BuildingClassificationEvidence,
+}
+
+impl Default for BuildingParameters {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            minimum_roof_height_m: 2.,
+            maximum_roof_height_m: 40.,
+            plane_fit_radius_m: 2.5,
+            maximum_plane_residual_m: 0.2,
+            minimum_planar_point_fraction: 0.7,
+            maximum_neighboring_normal_difference_degrees: 25.,
+            maximum_facet_height_discontinuity_m: 0.75,
+            minimum_building_area_m2: 12.,
+            maximum_candidate_hole_area_m2: 4.,
+            merge_gap_m: 0.75,
+            minimum_rectangularity_or_compactness: 0.35,
+            maximum_vegetation_fraction: 0.45,
+            confidence_threshold: 0.7,
+            class_6_evidence: BuildingClassificationEvidence::Supporting,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BuildingClassificationEvidence {
+    Authoritative,
+    #[default]
+    Supporting,
+    Ignore,
+}
+
+impl Display for BuildingClassificationEvidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Authoritative => "Authoritative",
+            Self::Supporting => "Supporting evidence",
+            Self::Ignore => "Ignored",
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct GeometryParameters {
     pub contours: BezierParameters,
     pub openness: BufferedGeometryParameters,
     pub vegetation: BufferedGeometryParameters,
+    pub buildings: BufferedGeometryParameters,
     pub cliffs: BufferedGeometryParameters,
     pub intensity: BufferedGeometryParameters,
     pub water: BufferedGeometryParameters,
+}
+
+impl Default for GeometryParameters {
+    fn default() -> Self {
+        let mut buildings = BufferedGeometryParameters::default();
+        buildings.bezier.error = 0.25;
+        Self {
+            contours: Default::default(),
+            openness: Default::default(),
+            vegetation: Default::default(),
+            buildings,
+            cliffs: Default::default(),
+            intensity: Default::default(),
+            water: Default::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -403,6 +486,7 @@ impl GeometryParameters {
             Symbol::Area(AreaSymbol::LightGreen)
             | Symbol::Area(AreaSymbol::MediumGreen)
             | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
+            Symbol::Area(AreaSymbol::Building) => &self.buildings.bezier,
             Symbol::Area(AreaSymbol::GiganticBoulder)
             | Symbol::Line(LineSymbol::Cliff)
             | Symbol::Line(LineSymbol::ImpassableCliff) => &self.cliffs.bezier,
@@ -452,6 +536,10 @@ pub struct FileParameters {
     pub save_ndvd_raster: bool,
     pub save_point_density_raster: bool,
     pub save_flow_accumulation_raster: bool,
+    pub save_building_height_raster: bool,
+    pub save_building_planarity_raster: bool,
+    pub save_building_residual_raster: bool,
+    pub save_building_probability_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

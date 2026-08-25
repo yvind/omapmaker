@@ -9,8 +9,9 @@ use crate::{
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        D8Flow, Dfm, Elevation, FlowAccumulation, HeightAboveGround, Hillshade, Intensity,
-        LastReturn, Ndvd, PointDensity, RasterMarker, Slope, SurfaceObjects,
+        BuildingProbability, D8Flow, Dfm, Elevation, FlowAccumulation, HeightAboveGround,
+        HeightAboveGroundMean, Hillshade, Intensity, LastReturn, Ndvd, PlanarPointFraction,
+        PlaneResidual, PointDensity, RasterMarker, Slope, SurfaceObjects,
     },
     statistics::LidarStats,
 };
@@ -85,6 +86,18 @@ pub fn make_map(
     let saved_flow_accumulation_rasters = file_params
         .save_flow_accumulation_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<FlowAccumulation>>::new())));
+    let saved_building_height_rasters = file_params
+        .save_building_height_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<HeightAboveGroundMean>>::new())));
+    let saved_building_planarity_rasters = file_params
+        .save_building_planarity_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<PlanarPointFraction>>::new())));
+    let saved_building_residual_rasters = file_params
+        .save_building_residual_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<PlaneResidual>>::new())));
+    let saved_building_probability_rasters = file_params
+        .save_building_probability_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<BuildingProbability>>::new())));
     let deferred_stream_tiles = Arc::new(Mutex::new(Vec::<DeferredStreamTile>::new()));
 
     if let Some(polygon) = &mut polygon_filter {
@@ -190,6 +203,73 @@ pub fn make_map(
                         return;
                     }
                 };
+
+                let needs_building_fit = saved_building_height_rasters.is_some()
+                    || saved_building_planarity_rasters.is_some()
+                    || saved_building_residual_rasters.is_some();
+                let building_fit = if needs_building_fit {
+                    match tile.building_surface_fit(&map_params.building) {
+                        Ok(fit) => fit,
+                        Err(e) => {
+                            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                if let (Some(saved_rasters), Some(fit)) =
+                    (&saved_building_height_rasters, &building_fit)
+                    && !push_saved_raster(
+                        saved_rasters,
+                        fit.height_mean.clone(),
+                        "Building height",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+                if let (Some(saved_rasters), Some(fit)) =
+                    (&saved_building_planarity_rasters, &building_fit)
+                    && !push_saved_raster(
+                        saved_rasters,
+                        fit.planar_point_fraction.clone(),
+                        "Building planarity",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+                if let (Some(saved_rasters), Some(fit)) =
+                    (&saved_building_residual_rasters, &building_fit)
+                    && !push_saved_raster(
+                        saved_rasters,
+                        fit.plane_residual.clone(),
+                        "Building plane residual",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+                if let Some(saved_rasters) = &saved_building_probability_rasters {
+                    match tile.building_detection(&map_params.building) {
+                        Ok(Some(detection)) => {
+                            if !push_saved_raster(
+                                saved_rasters,
+                                detection.probability.clone(),
+                                "Building probability",
+                                &sender,
+                            ) {
+                                return;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                            return;
+                        }
+                    }
+                }
 
                 if let Some(saved_rasters) = &saved_dem_rasters
                     && !push_saved_raster(saved_rasters, tile.rasters.dem.clone(), "DEM", &sender)
@@ -351,7 +431,12 @@ pub fn make_map(
         }
     }
 
-    let min_size_filter_symbols = map_params.min_size_filter_symbols(true, true, true, true, true);
+    // Ownership clipping can split one roof at an internal tile boundary.
+    // Reconcile those exactly adjoining fragments before minimum-size checks.
+    map.merge_areas(AreaSymbol::Building, 2. * crate::SIMPLIFICATION_DIST)?;
+
+    let min_size_filter_symbols =
+        map_params.min_size_filter_symbols(true, true, true, true, true, true);
     if !min_size_filter_symbols.is_empty() {
         let _ = sender.send(FrontendTask::Log(
             "Filtering polygons by minimum symbol size...".to_string(),
@@ -459,6 +544,38 @@ pub fn make_map(
         &sender,
         saved_flow_accumulation_rasters,
         ("flow accumulation", "flow_accumulation"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_building_height_rasters,
+        ("building height", "building_height"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_building_planarity_rasters,
+        ("building planarity", "building_planarity"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_building_residual_rasters,
+        ("building plane residual", "building_residual"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_building_probability_rasters,
+        ("building probability", "building_probability"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),

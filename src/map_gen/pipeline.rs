@@ -5,7 +5,9 @@ use crate::{
         common::ComputedDfms,
         egui_map::{AreaSymbol, MapObject},
     },
-    parameters::{CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights},
+    parameters::{
+        BuildingParameters, CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights,
+    },
     raster::{
         ContourTerrain, D8Flow, Dfm, Elevation, Ground, HeightAboveGround, HighVegetation,
         HydroCorrected, Intensity, LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity,
@@ -21,6 +23,8 @@ use std::sync::{Arc, Mutex};
 
 const CONTOUR_FIELD_CACHE_ENTRIES_PER_TILE: usize = 2;
 const TERRAIN_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
+const BUILDING_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
+const BUILDING_DETECTION_CACHE_ENTRIES_PER_TILE: usize = 2;
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
@@ -52,6 +56,9 @@ pub struct PreparedTile {
     revision: u64,
     terrain_fit_cache: Mutex<TerrainFitCache>,
     contour_field_cache: Mutex<ContourFieldCache>,
+    building_cloud: Option<Arc<PointCloud>>,
+    building_fit_cache: Mutex<BuildingFitCache>,
+    building_detection_cache: Mutex<BuildingDetectionCache>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -80,6 +87,21 @@ struct ContourFieldCacheKey {
     tile_revision: u64,
     interval_bits: u32,
     contour_field_fingerprint: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BuildingFitCacheKey {
+    tile_revision: u64,
+    plane_fit_radius_bits: u64,
+}
+
+impl BuildingFitCacheKey {
+    fn new(tile_revision: u64, params: &BuildingParameters) -> Self {
+        Self {
+            tile_revision,
+            plane_fit_radius_bits: params.plane_fit_radius_m.to_bits(),
+        }
+    }
 }
 
 impl ContourFieldCacheKey {
@@ -138,6 +160,87 @@ struct ContourFieldCache {
     )>,
 }
 
+#[derive(Default)]
+struct BuildingFitCache {
+    entries: VecDeque<(
+        BuildingFitCacheKey,
+        Arc<map_gen::common::BuildingSurfaceFit>,
+    )>,
+}
+
+impl BuildingFitCache {
+    fn get(
+        &mut self,
+        key: BuildingFitCacheKey,
+    ) -> Option<Arc<map_gen::common::BuildingSurfaceFit>> {
+        let position = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| *candidate == key)?;
+        let entry = self
+            .entries
+            .remove(position)
+            .expect("cache position exists");
+        let artifact = Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(artifact)
+    }
+
+    fn insert(
+        &mut self,
+        key: BuildingFitCacheKey,
+        artifact: Arc<map_gen::common::BuildingSurfaceFit>,
+    ) {
+        if self.entries.len() == BUILDING_FIT_CACHE_ENTRIES_PER_TILE {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, artifact));
+    }
+}
+
+#[derive(Default)]
+struct BuildingDetectionCache {
+    entries: VecDeque<(
+        u64,
+        BuildingParameters,
+        Arc<map_gen::common::BuildingDetection>,
+    )>,
+}
+
+impl BuildingDetectionCache {
+    fn get(
+        &mut self,
+        revision: u64,
+        params: &BuildingParameters,
+    ) -> Option<Arc<map_gen::common::BuildingDetection>> {
+        let position =
+            self.entries
+                .iter()
+                .position(|(candidate_revision, candidate_params, _)| {
+                    *candidate_revision == revision && candidate_params == params
+                })?;
+        let entry = self
+            .entries
+            .remove(position)
+            .expect("cache position exists");
+        let artifact = Arc::clone(&entry.2);
+        self.entries.push_back(entry);
+        Some(artifact)
+    }
+
+    fn insert(
+        &mut self,
+        revision: u64,
+        params: BuildingParameters,
+        artifact: Arc<map_gen::common::BuildingDetection>,
+    ) {
+        if self.entries.len() == BUILDING_DETECTION_CACHE_ENTRIES_PER_TILE {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((revision, params, artifact));
+    }
+}
+
 impl ContourFieldCache {
     fn get(
         &mut self,
@@ -180,6 +283,7 @@ pub struct PipelineSteps {
     pub contours: bool,
     pub openness: bool,
     pub vegetation: bool,
+    pub buildings: bool,
     pub cliffs: bool,
     pub intensity: bool,
     pub water: bool,
@@ -233,7 +337,15 @@ impl PreparedTile {
             revision: NEXT_TILE_REVISION.fetch_add(1, AtomicOrdering::Relaxed),
             terrain_fit_cache: Mutex::new(TerrainFitCache::default()),
             contour_field_cache: Mutex::new(ContourFieldCache::default()),
+            building_cloud: None,
+            building_fit_cache: Mutex::new(BuildingFitCache::default()),
+            building_detection_cache: Mutex::new(BuildingDetectionCache::default()),
         }
+    }
+
+    pub fn with_building_cloud(mut self, cloud: PointCloud) -> Self {
+        self.building_cloud = Some(Arc::new(cloud));
+        self
     }
 
     pub fn from_cloud(
@@ -256,7 +368,9 @@ impl PreparedTile {
 
         let dfms =
             map_gen::common::compute_dfms(ground_cloud, stats, &all_point_cloud, cut_bounds)?;
-        Ok(Some(Self::new(dfms, convex_hull, mp.0.swap_remove(0))))
+        Ok(Some(
+            Self::new(dfms, convex_hull, mp.0.swap_remove(0)).with_building_cloud(all_point_cloud),
+        ))
     }
 
     fn produced_contour_field(
@@ -299,6 +413,57 @@ impl PreparedTile {
         )?);
         cache.insert(key, Arc::clone(&fitted));
         Ok(fitted)
+    }
+
+    pub fn building_surface_fit(
+        &self,
+        params: &BuildingParameters,
+    ) -> crate::Result<Option<Arc<map_gen::common::BuildingSurfaceFit>>> {
+        let Some(cloud) = &self.building_cloud else {
+            return Ok(None);
+        };
+        let key = BuildingFitCacheKey::new(self.revision, params);
+        let mut cache = self
+            .building_fit_cache
+            .lock()
+            .expect("building-fit cache poisoned");
+        if let Some(fit) = cache.get(key) {
+            return Ok(Some(fit));
+        }
+        let fit = Arc::new(map_gen::common::compute_building_surface_fit(
+            cloud,
+            &self.rasters.dem,
+            params.plane_fit_radius_m,
+        )?);
+        cache.insert(key, Arc::clone(&fit));
+        Ok(Some(fit))
+    }
+
+    pub fn building_detection(
+        &self,
+        params: &BuildingParameters,
+    ) -> crate::Result<Option<Arc<map_gen::common::BuildingDetection>>> {
+        if !params.enabled {
+            return Ok(None);
+        }
+        let mut cache = self
+            .building_detection_cache
+            .lock()
+            .expect("building-detection cache poisoned");
+        if let Some(detection) = cache.get(self.revision, params) {
+            return Ok(Some(detection));
+        }
+        drop(cache);
+        let Some(fit) = self.building_surface_fit(params)? else {
+            return Ok(None);
+        };
+        let detection = Arc::new(map_gen::common::detect_buildings(&fit, params));
+        let mut cache = self
+            .building_detection_cache
+            .lock()
+            .expect("building-detection cache poisoned");
+        cache.insert(self.revision, params.clone(), Arc::clone(&detection));
+        Ok(Some(detection))
     }
 }
 
@@ -400,6 +565,17 @@ pub fn compute_tile(
         }
     }
 
+    if steps.buildings
+        && let Some(detection) = tile.building_detection(&params.building)?
+    {
+        objects.extend(map_gen::common::building_objects(
+            &detection,
+            &tile.hull,
+            &tile.cut_overlay,
+            &params.geometry.buildings.buffer_rules,
+        ));
+    }
+
     if steps.cliffs {
         let cliffs = match params.cliff.algorithm {
             CliffAlgorithm::SobelSlope => map_gen::common::compute_cliffs(
@@ -462,11 +638,90 @@ pub fn compute_tile(
         ));
     }
 
+    resolve_building_conflicts(&mut objects);
+
     Ok(PipelineOutput {
         objects,
         contour_error,
         contour_energy,
     })
+}
+
+fn resolve_building_conflicts(objects: &mut Vec<MapObject>) {
+    let footprints = geo::MultiPolygon::new(
+        objects
+            .iter()
+            .filter_map(|object| match object {
+                MapObject::Area {
+                    object,
+                    symbol: AreaSymbol::Building,
+                    ..
+                } => Some(object.clone()),
+                _ => None,
+            })
+            .collect(),
+    );
+    if footprints.0.is_empty() {
+        return;
+    }
+
+    let mut resolved = Vec::with_capacity(objects.len());
+    for object in objects.drain(..) {
+        match object {
+            MapObject::Area {
+                object,
+                symbol:
+                    symbol @ (AreaSymbol::RoughOpenLand
+                    | AreaSymbol::LightGreen
+                    | AreaSymbol::MediumGreen
+                    | AreaSymbol::DarkGreen
+                    | AreaSymbol::PavedAreaWithBoundary),
+                tags,
+            } => {
+                resolved.extend(object.difference(&footprints).into_iter().map(|object| {
+                    MapObject::Area {
+                        object,
+                        symbol,
+                        tags: tags.clone(),
+                    }
+                }));
+            }
+            MapObject::Area {
+                object,
+                symbol: AreaSymbol::GiganticBoulder,
+                tags,
+            } => {
+                let overlap = object.intersection(&footprints).unsigned_area();
+                if overlap < object.unsigned_area() * 0.95 {
+                    resolved.push(MapObject::Area {
+                        object,
+                        symbol: AreaSymbol::GiganticBoulder,
+                        tags,
+                    });
+                }
+            }
+            MapObject::Area {
+                object,
+                symbol: AreaSymbol::UncrossableWaterWithBankLine,
+                tags,
+            } => {
+                let overlap = object.intersection(&footprints).unsigned_area();
+                if overlap > 1. && overlap > object.unsigned_area() * 0.25 {
+                    log::warn!(
+                        "A detected building overlaps {:.1} m² of mapped water; keeping both for review",
+                        overlap
+                    );
+                }
+                resolved.push(MapObject::Area {
+                    object,
+                    symbol: AreaSymbol::UncrossableWaterWithBankLine,
+                    tags,
+                });
+            }
+            _ => resolved.push(object),
+        }
+    }
+    *objects = resolved;
 }
 
 #[cfg(test)]
@@ -554,6 +809,75 @@ mod tests {
             .curvature_fit_radius_m += 1.;
         assert_ne!(TerrainFitCacheKey::new(7, &curvature_radius), expected);
         assert_ne!(TerrainFitCacheKey::new(8, &params), expected);
+    }
+
+    #[test]
+    fn building_fit_key_tracks_only_fit_inputs() {
+        let params = MapParameters::default();
+        let expected = BuildingFitCacheKey::new(7, &params.building);
+
+        let mut threshold_change = params.building.clone();
+        threshold_change.confidence_threshold += 0.1;
+        threshold_change.minimum_building_area_m2 += 10.;
+        threshold_change.maximum_plane_residual_m += 0.1;
+        assert_eq!(BuildingFitCacheKey::new(7, &threshold_change), expected);
+
+        let mut radius_change = params.building.clone();
+        radius_change.plane_fit_radius_m += 0.5;
+        assert_ne!(BuildingFitCacheKey::new(7, &radius_change), expected);
+        assert_ne!(BuildingFitCacheKey::new(8, &params.building), expected);
+    }
+
+    #[test]
+    fn buildings_override_vegetation_and_enclosed_boulders() {
+        use geo::polygon;
+
+        let vegetation = polygon![
+            (x: 0., y: 0.), (x: 10., y: 0.), (x: 10., y: 10.), (x: 0., y: 10.)
+        ];
+        let building = polygon![
+            (x: 2., y: 2.), (x: 8., y: 2.), (x: 8., y: 8.), (x: 2., y: 8.)
+        ];
+        let boulder = polygon![
+            (x: 3., y: 3.), (x: 4., y: 3.), (x: 4., y: 4.), (x: 3., y: 4.)
+        ];
+        let mut objects = vec![
+            MapObject::Area {
+                object: vegetation,
+                symbol: AreaSymbol::DarkGreen,
+                tags: Default::default(),
+            },
+            MapObject::Area {
+                object: building.clone(),
+                symbol: AreaSymbol::Building,
+                tags: Default::default(),
+            },
+            MapObject::Area {
+                object: boulder,
+                symbol: AreaSymbol::GiganticBoulder,
+                tags: Default::default(),
+            },
+        ];
+
+        resolve_building_conflicts(&mut objects);
+
+        assert!(!objects.iter().any(|object| matches!(
+            object,
+            MapObject::Area {
+                symbol: AreaSymbol::GiganticBoulder,
+                ..
+            }
+        )));
+        for object in &objects {
+            if let MapObject::Area {
+                object,
+                symbol: AreaSymbol::DarkGreen,
+                ..
+            } = object
+            {
+                assert_eq!(object.intersection(&building).unsigned_area(), 0.);
+            }
+        }
     }
 
     #[test]

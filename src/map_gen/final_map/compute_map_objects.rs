@@ -18,6 +18,7 @@ pub fn compute_tile_map_objects(
             contours: true,
             openness: true,
             vegetation: true,
+            buildings: true,
             cliffs: true,
             intensity: true,
             water: true,

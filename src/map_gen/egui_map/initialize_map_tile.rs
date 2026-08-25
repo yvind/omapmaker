@@ -183,7 +183,9 @@ pub fn initialize_map_tile(
             z_range.1 = dfms.z_range.1;
         }
 
-        tiles.push(PreparedTile::new(dfms, hull.clone(), cut_overlay));
+        tiles.push(
+            PreparedTile::new(dfms, hull.clone(), cut_overlay).with_building_cloud(all_point_cloud),
+        );
         all_hulls.push(hull);
 
         let _ = sender.send(FrontendTask::ProgressBar(ProgressBar::Inc(inc_size)));

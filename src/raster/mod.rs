@@ -83,6 +83,26 @@ pub struct Intensity;
 #[derive(Clone, Copy, Debug)]
 pub struct HeightAboveGround;
 #[derive(Clone, Copy, Debug)]
+pub struct HeightAboveGroundMean;
+#[derive(Clone, Copy, Debug)]
+pub struct HeightAboveGroundMax;
+#[derive(Clone, Copy, Debug)]
+pub struct ElevatedPointCount;
+#[derive(Clone, Copy, Debug)]
+pub struct PlanarPointFraction;
+#[derive(Clone, Copy, Debug)]
+pub struct PlaneResidual;
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceNormalX;
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceNormalY;
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceNormalZ;
+#[derive(Clone, Copy, Debug)]
+pub struct BuildingProbability;
+#[derive(Clone, Copy, Debug)]
+pub struct BuildingCandidateId;
+#[derive(Clone, Copy, Debug)]
 pub struct LastReturn;
 #[derive(Clone, Copy, Debug)]
 pub struct Ground;
@@ -165,6 +185,15 @@ continuous_raster_markers!(
     Returns,
     Intensity,
     HeightAboveGround,
+    HeightAboveGroundMean,
+    HeightAboveGroundMax,
+    ElevatedPointCount,
+    PlanarPointFraction,
+    PlaneResidual,
+    SurfaceNormalX,
+    SurfaceNormalY,
+    SurfaceNormalZ,
+    BuildingProbability,
     LastReturn,
     Ground,
     LowVegetation,
@@ -176,6 +205,9 @@ continuous_raster_markers!(
     PointDensity,
     FlowAccumulation
 );
+
+// Candidate IDs are categorical and must never be averaged during resampling.
+impl RasterMarker for BuildingCandidateId {}
 
 impl TerrainRasterMarker for Elevation {}
 impl TerrainRasterMarker for ContourTerrain {}

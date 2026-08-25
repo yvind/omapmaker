@@ -92,15 +92,19 @@ pub enum ProgressBar {
     Inc(f32),
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum RegenerationScope {
     Changed,
     Section(MapPreviewSection),
 }
 
+/// Preview sections in the order they become available in the adjustment flow.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum MapPreviewSection {
     Contours,
     Openness,
     Vegetation,
+    Buildings,
     Cliffs,
     Water,
     Intensity,

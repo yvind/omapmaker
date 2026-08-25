@@ -14,6 +14,7 @@ pub enum ProcessStage {
     AdjustContours,
     AdjustOpenness,
     AdjustVegetation,
+    AdjustBuildings,
     AdjustCliffs,
     AdjustWater,
     AdjustIntensity,
@@ -39,7 +40,8 @@ impl ProcessStage {
             ProcessStage::PrepareMapPreview => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustContours => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustVegetation,
-            ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustCliffs,
+            ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustBuildings,
+            ProcessStage::AdjustBuildings => *self = ProcessStage::AdjustCliffs,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustWater,
             ProcessStage::AdjustWater => *self = ProcessStage::AdjustIntensity,
             ProcessStage::AdjustIntensity => *self = ProcessStage::MakeMap,
@@ -53,7 +55,8 @@ impl ProcessStage {
             ProcessStage::AdjustContours => *self = ProcessStage::ChooseSquare,
             ProcessStage::AdjustOpenness => *self = ProcessStage::AdjustContours,
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
-            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustVegetation,
+            ProcessStage::AdjustBuildings => *self = ProcessStage::AdjustVegetation,
+            ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustBuildings,
             ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustWater,
             ProcessStage::AdjustWater => *self = ProcessStage::AdjustCliffs,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
@@ -67,6 +70,7 @@ impl ProcessStage {
             ProcessStage::AdjustContours
                 | ProcessStage::AdjustOpenness
                 | ProcessStage::AdjustVegetation
+                | ProcessStage::AdjustBuildings
                 | ProcessStage::AdjustCliffs
                 | ProcessStage::AdjustWater
                 | ProcessStage::AdjustIntensity
