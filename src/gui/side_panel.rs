@@ -136,8 +136,10 @@ impl OmapMaker {
                 );
 
                 if !self.gui_variables.project.save_rasters {
+                    self.gui_variables.project.save_dem_raster = false;
                     self.gui_variables.project.save_slope_raster = false;
                     self.gui_variables.project.save_hillshade_raster = false;
+                    self.gui_variables.project.save_intensity_raster = false;
                     self.gui_variables.project.save_last_return_raster = false;
                     self.gui_variables.project.save_canopy_height_raster = false;
                     self.gui_variables.project.save_surface_objects_raster = false;
@@ -147,6 +149,14 @@ impl OmapMaker {
                 }
 
                 ui.indent("indented raster checkboxes", |ui| {
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_dem_raster,
+                            "Save DEM raster",
+                        ),
+                    );
+
                     ui.add_enabled(
                         self.gui_variables.project.save_rasters,
                         egui::Checkbox::new(
@@ -160,6 +170,14 @@ impl OmapMaker {
                         egui::Checkbox::new(
                             &mut self.gui_variables.project.save_hillshade_raster,
                             "Save hillshade raster",
+                        ),
+                    );
+
+                    ui.add_enabled(
+                        self.gui_variables.project.save_rasters,
+                        egui::Checkbox::new(
+                            &mut self.gui_variables.project.save_intensity_raster,
+                            "Save intensity raster",
                         ),
                     );
 
@@ -502,7 +520,7 @@ impl OmapMaker {
             ),
             ProcessStage::AdjustWater => (
                 "Adjust water settings",
-                "Threshold the water-probability raster and tune the resulting polygon geometry.",
+                "Tune water seeds, flood-fill behavior, and the resulting polygon geometry.",
             ),
             ProcessStage::AdjustIntensity => (
                 "Adjust lidar intensity settings",
@@ -715,6 +733,20 @@ impl OmapMaker {
                     .on_hover_text(
                         "Cells at or above this probability seed water regions. Higher values require stronger lidar evidence, while the elevation flood fill determines the final extent.",
                     );
+                    ui.add_space(12.);
+                    ui.label(egui::RichText::new("Seed buffers before flood fill").strong());
+                    Self::render_buffer_rules(
+                        ui,
+                        "water_seed_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .water
+                            .seed_buffer_rules,
+                    );
+                    ui.add_space(12.);
+                    ui.label(egui::RichText::new("Flood fill").strong());
                     ui.add(
                         egui::Slider::new(
                             &mut self
@@ -730,6 +762,18 @@ impl OmapMaker {
                     )
                     .on_hover_text(
                         "Maximum elevation difference from a water seed included by the flood fill on the hydro-corrected elevation model.",
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .water
+                            .allow_downhill_flow,
+                        "Allow water to follow D8 flow paths downhill.",
+                    )
+                    .on_hover_text(
+                        "Extends filled water cells only through their hydrologically corrected D8 receivers, avoiding the lateral leakage caused by accepting every lower neighboring cell.",
                     );
                     ui.add_space(20.);
                     ui.label(egui::RichText::new("Stream initiation").strong());
@@ -767,9 +811,10 @@ impl OmapMaker {
                         "Filter polygons by minimum symbol size.",
                     );
                     ui.add_space(20.);
+                    ui.label(egui::RichText::new("Buffers after flood fill").strong());
                     Self::render_buffer_rules(
                         ui,
-                        "water_buffer_rule",
+                        "water_output_buffer_rule",
                         &mut self
                             .gui_variables
                             .generation
@@ -1367,7 +1412,7 @@ impl OmapMaker {
     }
 
     fn render_buffer_rules(ui: &mut egui::Ui, id_prefix: &str, buffer_rules: &mut Vec<BufferRule>) {
-        ui.label("Add buffer rules for polygons. Rules are applied in order");
+        ui.label("Rules are applied in order.");
         for (i, buffer_rule) in buffer_rules.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt(format!("{id_prefix}_{i}"))

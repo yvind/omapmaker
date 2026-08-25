@@ -9,8 +9,8 @@ use crate::{
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        D8Flow, Dfm, FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd,
-        PointDensity, RasterMarker, Slope, SurfaceObjects,
+        D8Flow, Dfm, Elevation, FlowAccumulation, HeightAboveGround, Hillshade, Intensity,
+        LastReturn, Ndvd, PointDensity, RasterMarker, Slope, SurfaceObjects,
     },
     statistics::LidarStats,
 };
@@ -55,12 +55,18 @@ pub fn make_map(
         map_params.scale,
         map_params.output.crs.clone(),
     )));
+    let saved_dem_rasters = file_params
+        .save_dem_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<Elevation>>::new())));
     let saved_slope_rasters = file_params
         .save_slope_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<Slope>>::new())));
     let saved_hillshade_rasters = file_params
         .save_hillshade_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<Hillshade>>::new())));
+    let saved_intensity_rasters = file_params
+        .save_intensity_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<Intensity>>::new())));
     let saved_last_return_rasters = file_params
         .save_last_return_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<LastReturn>>::new())));
@@ -185,6 +191,12 @@ pub fn make_map(
                     }
                 };
 
+                if let Some(saved_rasters) = &saved_dem_rasters
+                    && !push_saved_raster(saved_rasters, tile.rasters.dem.clone(), "DEM", &sender)
+                {
+                    return;
+                }
+
                 if let Some(saved_rasters) = &saved_slope_rasters
                     && !push_saved_raster(
                         saved_rasters,
@@ -212,6 +224,17 @@ pub fn make_map(
                         saved_rasters,
                         tile.rasters.last_return.clone(),
                         "Last-return",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_intensity_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.intensity.clone(),
+                        "Intensity",
                         &sender,
                     )
                 {
@@ -362,6 +385,14 @@ pub fn make_map(
 
     write_saved_rasters(
         &sender,
+        saved_dem_rasters,
+        ("DEM", "dem"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
         saved_slope_rasters,
         ("slope", "slope"),
         &file_params,
@@ -380,6 +411,14 @@ pub fn make_map(
         &sender,
         saved_last_return_rasters,
         ("last-return", "last_return"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_intensity_rasters,
+        ("intensity", "intensity"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),

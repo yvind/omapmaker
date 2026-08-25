@@ -1,34 +1,46 @@
 use crate::{
     CELL_SIZE_METERS, TILE_SIZE_PIXELS,
     geometry::PointCloud,
-    raster::{Dfm, Elevation, FloodFill, HydroCorrected, Water},
-    statistics::LidarStats,
+    parameters::{BufferDirection, BufferRule},
+    raster::{
+        D8Flow, Dfm, Elevation, FloodFill, HeightAboveGround, HydroCorrected, Intensity, Water,
+    },
 };
 
 // A 3 m neighborhood is large enough to estimate a plane even where water
 // returns are sparse, while still preserving the banks of small ponds.
 const WATER_RADIUS_METERS: f64 = 3.;
 const MIN_PLANE_RETURNS: f64 = 6.;
-const SPARSE_DENSITY_PERCENT_OF_AVERAGE: f64 = 0.25;
 const PLANAR_RMSE_METERS: f64 = 0.10;
 // Water surfaces are level. A slope of 0.015 is approximately a 0.86 degree
 // incline and already receives a strong penalty.
 const LEVEL_PLANE_SLOPE: f64 = 0.015;
+// Canopy-height values above this scale quickly suppress a water candidate.
+const WATER_HAG_SCALE_METERS: f64 = 0.5;
+const WATER_MEDIAN_RADIUS_CELLS: usize = 1;
 
 /// Estimate the probability of water in every raster cell.
 ///
-/// Only single returns are used. The estimate combines the three properties
-/// expected of water returns: low spatial density, weak intensity relative to
-/// the data set, and a level locally fitted plane with a small residual.
+/// Only single returns are used for the plane fit. Low normalized intensity is
+/// the primary water signal. Canopy height, plane residual, and plane slope can
+/// only reduce that signal, after which a 3x3 median filter removes isolated
+/// raster noise.
 pub fn compute_water_probability(
     all_point_cloud: &PointCloud,
     dem: &Dfm<Elevation>,
-    stats: &LidarStats,
+    normalized_intensity: &Dfm<Intensity>,
+    canopy_height: &Dfm<HeightAboveGround>,
 ) -> Dfm<Water> {
+    dem.grid
+        .ensure_compatible(&normalized_intensity.grid)
+        .expect("water probability requires matching intensity and elevation grids");
+    dem.grid
+        .ensure_compatible(&canopy_height.grid)
+        .expect("water probability requires matching canopy-height and elevation grids");
+
     let side = TILE_SIZE_PIXELS;
     let len = side * side;
     let mut count = vec![0.; len];
-    let mut intensity = vec![0.; len];
     let mut x = vec![0.; len];
     let mut y = vec![0.; len];
     let mut z = vec![0.; len];
@@ -57,7 +69,6 @@ pub fn compute_water_probability(
         let py = dem.grid.top_left.y - point.y();
         let pz = point.0.z;
         count[index] += 1.;
-        intensity[index] += f64::from(point.0.intensity);
         x[index] += px;
         y[index] += py;
         z[index] += pz;
@@ -69,8 +80,7 @@ pub fn compute_water_probability(
         zz[index] += pz * pz;
     }
 
-    let fields =
-        [count, intensity, x, y, z, xx, xy, yy, xz, yz, zz].map(|field| summed_area_table(&field));
+    let fields = [count, x, y, z, xx, xy, yy, xz, yz, zz].map(|field| summed_area_table(&field));
     let radius = (WATER_RADIUS_METERS / CELL_SIZE_METERS).ceil() as usize;
     let mut water = Dfm::<Water>::new_like(dem);
 
@@ -85,7 +95,6 @@ pub fn compute_water_probability(
                 .map(|field| rectangle_sum(field, top, bottom, left, right));
             let [
                 n,
-                sum_i,
                 sx,
                 sy,
                 sz,
@@ -119,65 +128,204 @@ pub fn compute_water_probability(
             let residual_sum = (szz - plane_x * sxz - plane_y * syz).max(0.);
             let plane_rmse = (residual_sum / n).sqrt();
             let plane_slope = plane_x.hypot(plane_y);
-            let area = ((bottom - top) * (right - left)) as f64 * CELL_SIZE_METERS.powi(2);
-            let density = n / area;
-            let mean_intensity = sum_i / n;
 
-            water[(yi, xi)] =
-                water_likelihood(density, mean_intensity, plane_rmse, plane_slope, n, stats);
+            water[(yi, xi)] = water_likelihood(
+                normalized_intensity[(yi, xi)],
+                canopy_height[(yi, xi)],
+                plane_rmse,
+                plane_slope,
+            );
         }
     }
 
-    water
+    median_filter(&water, WATER_MEDIAN_RADIUS_CELLS)
 }
 
-/// Expand high-confidence water seeds to their complete, level extent on the
-/// hydrologically corrected elevation model.
+/// Buffer high-confidence seeds, expand them to their complete level extent,
+/// and optionally continue that extent along the existing D8 flow field.
 pub fn compute_water_extent(
     water_probability: &Dfm<Water>,
     hydro_corrected: &Dfm<HydroCorrected>,
+    flow: &D8Flow,
     seed_threshold: f32,
     elevation_tolerance_m: f32,
+    seed_buffer_rules: &[BufferRule],
+    allow_downhill_flow: bool,
 ) -> Dfm<FloodFill> {
-    let generators = water_probability
+    let mut seed_mask = Dfm::<FloodFill>::new_like(water_probability);
+    for (seed, probability) in seed_mask.field.iter_mut().zip(&water_probability.field) {
+        *seed = if probability.is_finite() && *probability >= seed_threshold {
+            1.
+        } else {
+            0.
+        };
+    }
+    apply_buffer_rules(&mut seed_mask, seed_buffer_rules);
+
+    let generators = seed_mask
         .field
         .iter()
         .enumerate()
-        .filter(|(_, probability)| probability.is_finite() && **probability >= seed_threshold)
-        .map(|(index, _)| {
-            water_probability.index2coord(index / TILE_SIZE_PIXELS, index % TILE_SIZE_PIXELS)
-        })
+        .filter(|(_, seed)| **seed == 1.)
+        .map(|(index, _)| seed_mask.index2coord(index / TILE_SIZE_PIXELS, index % TILE_SIZE_PIXELS))
         .collect();
 
-    hydro_corrected.flood_fill(generators, elevation_tolerance_m, false)
+    let mut extent = hydro_corrected.flood_fill(generators, elevation_tolerance_m, false);
+    if allow_downhill_flow {
+        flow.extend_mask_downstream(&mut extent);
+    }
+    extent
 }
 
 fn water_likelihood(
-    density: f64,
-    mean_intensity: f64,
+    normalized_intensity: f32,
+    canopy_height_m: f32,
     plane_rmse: f64,
     plane_slope: f64,
-    returns: f64,
-    stats: &LidarStats,
 ) -> f32 {
-    let sparse_density =
-        (stats.average_density * SPARSE_DENSITY_PERCENT_OF_AVERAGE).max(f64::EPSILON);
-    let density_score = 1. / (1. + (density / sparse_density).powi(2));
+    let intensity_score = 1. - f64::from(normalized_intensity).clamp(0., 1.);
+    let hag_score = (-(f64::from(canopy_height_m).max(0.) / WATER_HAG_SCALE_METERS).powi(2)).exp();
     let planarity_score = (-(plane_rmse / PLANAR_RMSE_METERS).powi(2)).exp();
     let level_score = (-(plane_slope / LEVEL_PLANE_SLOPE).powi(2)).exp();
-    let flatness_score = planarity_score * level_score;
 
-    let intensity_scale = f64::from(stats.intensity.std_dev).max(1.);
-    let weak_boundary = f64::from(stats.intensity.mean) - 0.5 * intensity_scale;
-    let intensity_score = 1. / (1. + ((mean_intensity - weak_boundary) / intensity_scale).exp());
+    // Intensity sets a hard ceiling on confidence. The remaining evidence is
+    // deliberately expressed only as a penalty: vegetation, off-plane
+    // returns, or a sloping plane can never rescue a bright candidate.
+    (intensity_score * (hag_score * planarity_score * level_score).sqrt()).clamp(0., 1.) as f32
+}
 
-    let evidence = 1. - (-(returns - MIN_PLANE_RETURNS + 1.) / MIN_PLANE_RETURNS).exp();
-    // Plane residual and, especially, a level fitted plane dominate the
-    // result. Density and intensity are supporting evidence rather than
-    // enough to classify a sloping surface as water.
-    (flatness_score.powf(0.70) * density_score.powf(0.15) * intensity_score.powf(0.15))
-        .mul_add(evidence, 0.)
-        .clamp(0., 1.) as f32
+fn median_filter(source: &Dfm<Water>, radius: usize) -> Dfm<Water> {
+    let mut output = Dfm::<Water>::new_like(source);
+    let diameter = radius * 2 + 1;
+    let mut values = Vec::with_capacity(diameter * diameter);
+
+    for y in 0..source.height() {
+        let top = y.saturating_sub(radius);
+        let bottom = (y + radius).min(source.height() - 1);
+        for x in 0..source.width() {
+            let left = x.saturating_sub(radius);
+            let right = (x + radius).min(source.width() - 1);
+            values.clear();
+            for row in top..=bottom {
+                for column in left..=right {
+                    let value = source[(row, column)];
+                    if value.is_finite() {
+                        values.push(value);
+                    }
+                }
+            }
+            values.sort_unstable_by(f32::total_cmp);
+            output[(y, x)] = values.get(values.len() / 2).copied().unwrap_or(0.);
+        }
+    }
+
+    output
+}
+
+fn apply_buffer_rules(mask: &mut Dfm<FloodFill>, rules: &[BufferRule]) {
+    for rule in rules {
+        if !rule.amount.is_finite() || rule.amount <= 0. {
+            continue;
+        }
+
+        let grow = rule.direction == BufferDirection::Grow;
+        let sources = mask
+            .field
+            .iter()
+            .map(|value| (*value == 1.) == grow)
+            .collect::<Vec<_>>();
+        let width = mask.width();
+        let height = mask.height();
+        let distance_squared = squared_distance_transform(&sources, width, height);
+        let radius_cells_squared = (rule.amount / mask.grid.cell_size_m).powi(2);
+
+        for (index, value) in mask.field.iter_mut().enumerate() {
+            *value = if grow {
+                if distance_squared[index] <= radius_cells_squared {
+                    1.
+                } else {
+                    0.
+                }
+            } else {
+                let x = index % width;
+                let y = index / width;
+                let outside_distance_squared =
+                    (x + 1).min(y + 1).min(width - x).min(height - y).pow(2) as f64;
+                if *value == 1.
+                    && distance_squared[index].min(outside_distance_squared) > radius_cells_squared
+                {
+                    1.
+                } else {
+                    0.
+                }
+            };
+        }
+    }
+}
+
+/// Exact squared Euclidean distance, in cells, to the nearest `true` source.
+fn squared_distance_transform(sources: &[bool], width: usize, height: usize) -> Vec<f64> {
+    const INF: f64 = 1.0e20;
+    let mut horizontal = vec![INF; sources.len()];
+    let mut input = vec![INF; width.max(height)];
+    let mut output = vec![INF; width.max(height)];
+
+    for y in 0..height {
+        for x in 0..width {
+            input[x] = if sources[y * width + x] { 0. } else { INF };
+        }
+        squared_distance_transform_1d(&input[..width], &mut output[..width]);
+        horizontal[y * width..(y + 1) * width].copy_from_slice(&output[..width]);
+    }
+
+    let mut distances = vec![INF; sources.len()];
+    for x in 0..width {
+        for y in 0..height {
+            input[y] = horizontal[y * width + x];
+        }
+        squared_distance_transform_1d(&input[..height], &mut output[..height]);
+        for y in 0..height {
+            distances[y * width + x] = output[y];
+        }
+    }
+    distances
+}
+
+fn squared_distance_transform_1d(input: &[f64], output: &mut [f64]) {
+    let mut locations = vec![0_usize; input.len()];
+    let mut boundaries = vec![0_f64; input.len() + 1];
+    let mut envelope = 0_usize;
+    locations[0] = 0;
+    boundaries[0] = f64::NEG_INFINITY;
+    boundaries[1] = f64::INFINITY;
+
+    for q in 1..input.len() {
+        let qf = q as f64;
+        let mut location = locations[envelope];
+        let mut intersection = ((input[q] + qf * qf)
+            - (input[location] + (location * location) as f64))
+            / (2. * (q - location) as f64);
+        while intersection <= boundaries[envelope] {
+            envelope -= 1;
+            location = locations[envelope];
+            intersection = ((input[q] + qf * qf)
+                - (input[location] + (location * location) as f64))
+                / (2. * (q - location) as f64);
+        }
+        envelope += 1;
+        locations[envelope] = q;
+        boundaries[envelope] = intersection;
+        boundaries[envelope + 1] = f64::INFINITY;
+    }
+
+    envelope = 0;
+    for (q, value) in output.iter_mut().enumerate() {
+        while boundaries[envelope + 1] < q as f64 {
+            envelope += 1;
+        }
+        let delta = q.abs_diff(locations[envelope]) as f64;
+        *value = delta * delta + input[locations[envelope]];
+    }
 }
 
 fn summed_area_table(values: &[f64]) -> Vec<f64> {
@@ -203,6 +351,13 @@ fn rectangle_sum(table: &[f64], top: usize, bottom: usize, left: usize, right: u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::raster::DfmGrid;
+
+    fn flow_for(corrected: &Dfm<HydroCorrected>) -> D8Flow {
+        let mut source = Dfm::<Elevation>::new(corrected.grid.clone());
+        source.field.clone_from_slice(&corrected.field);
+        source.hydrological_analysis_with_corrected(corrected)
+    }
 
     #[test]
     fn probability_filter_only_selects_seeds_for_the_final_extent() {
@@ -222,10 +377,89 @@ mod tests {
         probability.field.fill(0.);
         probability[(21, 31)] = 0.8;
 
-        let extent = compute_water_extent(&probability, &corrected, 0.65, 0.05);
+        let flow = flow_for(&corrected);
+        let extent = compute_water_extent(&probability, &corrected, &flow, 0.65, 0.05, &[], false);
 
         assert_eq!(extent.field.iter().filter(|value| **value == 1.).count(), 9);
         assert_eq!(extent[(20, 30)], 1.);
         assert_eq!(probability[(20, 30)], 0.);
+    }
+
+    #[test]
+    fn intensity_is_primary_and_other_evidence_only_penalizes_it() {
+        let ideal = water_likelihood(0.1, 0., 0., 0.);
+        let bright = water_likelihood(0.8, 0., 0., 0.);
+        let canopy = water_likelihood(0.1, 0.5, 0., 0.);
+        let off_plane = water_likelihood(0.1, 0., PLANAR_RMSE_METERS, 0.);
+        let sloping = water_likelihood(0.1, 0., 0., LEVEL_PLANE_SLOPE);
+
+        assert!((ideal - 0.9).abs() < 1.0e-6);
+        assert!(bright < ideal);
+        assert!(canopy < ideal);
+        assert!(off_plane < ideal);
+        assert!(sloping < ideal);
+        assert!(bright <= 0.2 + f32::EPSILON);
+    }
+
+    #[test]
+    fn median_filter_removes_an_isolated_candidate() {
+        let grid = DfmGrid::new(5, 5, 1., geo::coord! { x: 0., y: 5. }).unwrap();
+        let mut probability = Dfm::<Water>::new(grid);
+        probability.field.fill(0.);
+        probability[(2, 2)] = 1.;
+
+        let filtered = median_filter(&probability, 1);
+
+        assert_eq!(filtered[(2, 2)], 0.);
+        assert!(filtered.field.iter().all(|value| *value == 0.));
+    }
+
+    #[test]
+    fn seed_buffers_grow_and_shrink_in_map_units() {
+        let grid = DfmGrid::new(7, 7, 1., geo::coord! { x: 0., y: 7. }).unwrap();
+        let mut mask = Dfm::<FloodFill>::new(grid);
+        mask.field.fill(0.);
+        mask[(3, 3)] = 1.;
+
+        apply_buffer_rules(
+            &mut mask,
+            &[BufferRule {
+                direction: BufferDirection::Grow,
+                amount: 1.,
+            }],
+        );
+        assert_eq!(mask.field.iter().filter(|value| **value == 1.).count(), 5);
+
+        apply_buffer_rules(
+            &mut mask,
+            &[BufferRule {
+                direction: BufferDirection::Shrink,
+                amount: 1.,
+            }],
+        );
+        assert_eq!(mask.field.iter().filter(|value| **value == 1.).count(), 1);
+        assert_eq!(mask[(3, 3)], 1.);
+    }
+
+    #[test]
+    fn downhill_toggle_uses_d8_receivers_without_unrestricted_flooding() {
+        let grid = DfmGrid::standard(geo::coord! { x: 0., y: 256. });
+        let mut corrected = Dfm::<HydroCorrected>::new(grid);
+        for y in 0..corrected.height() {
+            for x in 0..corrected.width() {
+                corrected[(y, x)] = 1_000. - x as f32;
+            }
+        }
+        let flow = flow_for(&corrected);
+        let mut probability = Dfm::<Water>::new_like(&corrected);
+        probability.field.fill(0.);
+        probability[(20, 20)] = 1.;
+
+        let level = compute_water_extent(&probability, &corrected, &flow, 0.65, 0., &[], false);
+        let downhill = compute_water_extent(&probability, &corrected, &flow, 0.65, 0., &[], true);
+
+        assert_eq!(level[(20, 22)], 0.);
+        assert_eq!(downhill[(20, 22)], 1.);
+        assert_eq!(downhill[(20, 19)], 0.);
     }
 }

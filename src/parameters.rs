@@ -241,8 +241,13 @@ pub struct GeometryParameters {
 pub struct WaterParameters {
     /// Minimum likelihood needed for a cell to seed a water region.
     pub threshold: f32,
+    /// Ordered raster-mask buffers applied to thresholded seeds before the
+    /// elevation flood fill.
+    pub seed_buffer_rules: Vec<BufferRule>,
     /// Maximum elevation difference from a seed across a water region.
     pub elevation_tolerance_m: f32,
+    /// Continue a filled water region through the existing D8 receivers.
+    pub allow_downhill_flow: bool,
     pub stream_min_catchment_area_m2: f32,
 }
 
@@ -250,7 +255,9 @@ impl Default for WaterParameters {
     fn default() -> Self {
         Self {
             threshold: 0.65,
+            seed_buffer_rules: Vec::new(),
             elevation_tolerance_m: 0.15,
+            allow_downhill_flow: false,
             stream_min_catchment_area_m2: 5_000.0,
         }
     }
@@ -435,8 +442,10 @@ pub struct BufferedGeometryParameters {
 pub struct FileParameters {
     pub paths: Vec<PathBuf>,
     pub save_location: PathBuf,
+    pub save_dem_raster: bool,
     pub save_slope_raster: bool,
     pub save_hillshade_raster: bool,
+    pub save_intensity_raster: bool,
     pub save_last_return_raster: bool,
     pub save_canopy_height_raster: bool,
     pub save_surface_objects_raster: bool,

@@ -3,7 +3,7 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-use super::{Dfm, Elevation, FlowAccumulation, HydroCorrected, RasterMarker};
+use super::{Dfm, Elevation, FloodFill, FlowAccumulation, HydroCorrected, RasterMarker};
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
 const NO_FLOW: u8 = u8::MAX;
@@ -40,6 +40,35 @@ impl D8Flow {
     /// area. Exposed for optional raster export and diagnostics.
     pub fn flow_accumulation(&self) -> &Dfm<FlowAccumulation> {
         &self.accumulation
+    }
+
+    /// Add every downstream D8 receiver reached by the supplied mask.
+    ///
+    /// Unlike an unrestricted lower-elevation flood fill, this cannot spread
+    /// laterally across unrelated low ground: each accepted cell contributes
+    /// only its already-computed hydrological receiver.
+    pub(crate) fn extend_mask_downstream(&self, mask: &mut Dfm<FloodFill>) {
+        self.accumulation
+            .grid
+            .ensure_compatible(&mask.grid)
+            .expect("downstream mask growth requires the D8 and mask grids to match");
+
+        let mut queue = mask
+            .field
+            .iter()
+            .enumerate()
+            .filter_map(|(index, value)| (*value == 1.).then_some(index))
+            .collect::<VecDeque<_>>();
+
+        while let Some(index) = queue.pop_front() {
+            let Some(receiver) = receiver_index(index, self.directions[index]) else {
+                continue;
+            };
+            if mask.field[receiver] != 1. {
+                mask.field[receiver] = 1.;
+                queue.push_back(receiver);
+            }
+        }
     }
 
     /// Convert cells meeting `minimum_catchment_area_m2` into directed stream

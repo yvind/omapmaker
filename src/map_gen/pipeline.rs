@@ -427,8 +427,11 @@ pub fn compute_tile(
         let water_extent = map_gen::common::compute_water_extent(
             &tile.rasters.water,
             &tile.rasters.hydro_corrected,
+            &tile.rasters.stream_flow,
             params.water.threshold,
             params.water.elevation_tolerance_m,
+            &params.water.seed_buffer_rules,
+            params.water.allow_downhill_flow,
         );
         objects.extend(map_gen::common::compute_vegetation(
             &water_extent,

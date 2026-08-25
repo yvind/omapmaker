@@ -119,7 +119,7 @@ pub fn compute_dfms(
 
     let vegetation_density =
         compute_vegetation_density_dfms(all_point_cloud, &dem, VEGETATION_DENSITY_RADIUS_METERS);
-    let water = super::compute_water_probability(all_point_cloud, &dem, stats);
+    let water = super::compute_water_probability(all_point_cloud, &dem, &dim, &canopy_height);
 
     Ok(ComputedDfms {
         dem,
