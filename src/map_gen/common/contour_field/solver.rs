@@ -1,8 +1,7 @@
 use super::operators;
 use crate::parameters::ContourFieldParameters;
-use crate::raster::Dfm;
-use crate::raster::dfm::{
-    AlignmentConfidence, ContourCost, Elevation, IsolineTangentX, IsolineTangentY,
+use crate::raster::{
+    AlignmentConfidence, ContourCost, Dfm, Elevation, IsolineTangentX, IsolineTangentY,
     SmoothnessWeight, TargetElevation,
 };
 use rayon::prelude::*;

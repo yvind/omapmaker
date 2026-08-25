@@ -2,10 +2,7 @@ use super::PointLaz;
 
 use crate::{
     CELL_SIZE_METERS, TILE_SIZE_METERS,
-    raster::{
-        Dfm,
-        dfm::{Elevation, HeightAboveGround, PointDensity, RasterMarker},
-    },
+    raster::{Dfm, Elevation, HeightAboveGround, PointDensity, RasterMarker},
 };
 use anyhow::{Context, bail};
 

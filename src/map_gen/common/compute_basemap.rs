@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use crate::{
     map_gen::egui_map::{LineSymbol, MapObject},
-    raster::{Dfm, dfm::Elevation},
+    raster::{ContourTerrain, Dfm},
 };
 
 use geo::{BooleanOps, Simplify};
 
 pub fn compute_basemap(
-    dem: &Dfm<Elevation>,
+    contour_dem: &Dfm<ContourTerrain>,
     z_range: (f32, f32),
     cut_overlay: &geo::Polygon,
     basemap_interval: f32,
@@ -23,7 +23,7 @@ pub fn compute_basemap(
     for c_index in 0..bm_levels {
         let bm_level = (c_index as f64 * basemap_interval_f64 + start_level) as f32;
 
-        let mut bm_contours = dem.marching_squares(bm_level);
+        let mut bm_contours = contour_dem.marching_squares(bm_level);
 
         bm_contours = bm_contours.simplify(crate::SIMPLIFICATION_DIST);
 

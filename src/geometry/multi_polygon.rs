@@ -171,7 +171,7 @@ impl MapMultiPolygon for geo::MultiPolygon {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::raster::{Dfm, DfmGrid, dfm::Elevation};
+    use crate::raster::{Dfm, DfmGrid, Elevation};
     use geo::{Area, BoundingRect, Contains, Point, polygon};
 
     fn rectangle(x: f64, y: f64, width: f64, height: f64) -> geo::Polygon {

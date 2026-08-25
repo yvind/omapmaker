@@ -8,11 +8,11 @@ mod solver;
 use self::parameters::ValidatedParameters;
 use crate::STANDARD_CELL_SIZE_METERS;
 use crate::parameters::ContourFieldParameters;
-use crate::raster::Dfm;
-use crate::raster::dfm::{
-    AdjustedElevation, AdjustmentBoundMask, AlignmentConfidence, ContourCost, DirectionConfidence,
-    Elevation, FitConfidence, IsolineTangentX, IsolineTangentY, ProfileChange, RasterMarker, Slope,
-    SmoothnessWeight, TangentChange, TargetElevation, TerrainSalience, VerticalAdjustment,
+use crate::raster::{
+    AdjustedElevation, AdjustmentBoundMask, AlignmentConfidence, ContourCost, Dfm,
+    DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY, ProfileChange,
+    RasterMarker, Slope, SmoothnessWeight, TangentChange, TargetElevation, TerrainSalience,
+    VerticalAdjustment,
 };
 
 use std::time::{Duration, Instant};
@@ -536,7 +536,7 @@ fn validate_solver_halo(source: &Dfm<Elevation>, params: &ContourFieldParameters
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::raster::{DfmGrid, dfm::RasterMarker};
+    use crate::raster::{DfmGrid, RasterMarker};
 
     #[test]
     fn multiresolution_plane_is_deterministic_and_bounded() {

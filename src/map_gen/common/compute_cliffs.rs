@@ -4,7 +4,7 @@ use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::{AreaSymbol, LineSymbol, MapObject},
     parameters::{BufferRule, MapParameters},
-    raster::{Dfm, dfm::RasterMarker},
+    raster::{Dfm, RasterMarker},
 };
 
 use geo::{BooleanOps, Simplify};

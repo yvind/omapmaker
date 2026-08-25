@@ -1,5 +1,4 @@
-use crate::raster::dfm::{ContinuousRasterMarker, MaskRasterMarker};
-use crate::raster::{Dfm, DfmGrid, DfmPixelBounds};
+use crate::raster::{ContinuousRasterMarker, Dfm, DfmGrid, DfmPixelBounds, MaskRasterMarker};
 
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

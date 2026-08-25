@@ -1,6 +1,5 @@
 use super::{ExtremumKind, PersistenceWork, ProtectedPersistenceFeature};
-use crate::raster::Dfm;
-use crate::raster::dfm::{Elevation, RasterMarker, TargetElevation};
+use crate::raster::{Dfm, Elevation, RasterMarker, TargetElevation};
 use rayon::prelude::*;
 use std::collections::HashSet;
 use std::ops::Range;

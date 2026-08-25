@@ -1,8 +1,7 @@
 use crate::parameters::ContourFieldParameters;
-use crate::raster::Dfm;
-use crate::raster::dfm::{
-    CliffStrength, DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY,
-    ProfileChange, Slope, TangentChange,
+use crate::raster::{
+    CliffStrength, Dfm, DirectionConfidence, Elevation, FitConfidence, IsolineTangentX,
+    IsolineTangentY, ProfileChange, Slope, TangentChange,
 };
 
 use rayon::prelude::*;

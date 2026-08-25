@@ -3,12 +3,8 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS, raster::dfm::RasterMarker};
-
-use super::{
-    Dfm,
-    dfm::{Elevation, FlowAccumulation, HydroCorrected},
-};
+use super::{Dfm, Elevation, FlowAccumulation, HydroCorrected, RasterMarker};
+use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
 const NO_FLOW: u8 = u8::MAX;
 

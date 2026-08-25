@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use crate::geometry::MapMultiPolygon;
 use crate::map_gen::egui_map::{AreaSymbol, MapObject};
 use crate::parameters::{BufferRule, MapParameters};
-use crate::raster::dfm::RasterMarker;
-use crate::raster::{Dfm, Threshold};
+use crate::raster::{Dfm, RasterMarker, Threshold};
 
 use geo::{BooleanOps, Simplify};
 

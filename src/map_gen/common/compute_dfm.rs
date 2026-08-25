@@ -1,9 +1,9 @@
 use crate::geometry::{PointCloud, PointLaz};
 use crate::parameters::VegetationWeights;
-use crate::raster::Dfm;
-use crate::raster::dfm::{
-    Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn, LowVegetation,
-    MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns, SurfaceObjects, Water,
+use crate::raster::{
+    Dfm, Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
+    LowVegetation, MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns, SurfaceObjects,
+    Water,
 };
 use crate::statistics::LidarStats;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
@@ -86,10 +86,8 @@ pub fn compute_dfms(
         }
     }
 
-    // some slight smoothing to remove artifacts
-    dem = dem.smoothen(15., 7, 5);
-    dim = dim.smoothen(15., 7, 5);
-    drm = drm.smoothen(15., 7, 5);
+    // Keep these canonical rasters unsmoothed. Terrain and scalar filtering
+    // belong to their feature-specific derived products.
 
     // normalize the return numbers
     for r in drm.field.iter_mut() {

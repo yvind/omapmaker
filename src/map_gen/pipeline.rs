@@ -7,12 +7,9 @@ use crate::{
     },
     parameters::{CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights},
     raster::{
-        D8Flow, Dfm, Threshold,
-        dfm::{
-            Elevation, Ground, HeightAboveGround, HighVegetation, HydroCorrected, Intensity,
-            LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity, Returns, Slope,
-            SurfaceObjects, Water,
-        },
+        ContourTerrain, D8Flow, Dfm, Elevation, Ground, HeightAboveGround, HighVegetation,
+        HydroCorrected, Intensity, LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity,
+        Returns, Slope, SurfaceObjects, Threshold, Water,
     },
     statistics::LidarStats,
 };
@@ -27,7 +24,10 @@ const TERRAIN_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
+    /// Canonical, unsmoothed ground elevation.
     pub dem: Dfm<Elevation>,
+    /// Lightly noise-filtered terrain shared by Raw and basemap contours.
+    pub contour_terrain: Dfm<ContourTerrain>,
     pub slope: Dfm<Slope>,
     pub return_number: Dfm<Returns>,
     pub intensity: Dfm<Intensity>,
@@ -206,10 +206,12 @@ impl PreparedTile {
 
         let hydro_corrected = dem.hydrological_correction();
         let stream_flow = dem.hydrological_analysis_with_corrected(&hydro_corrected);
+        let contour_terrain = map_gen::common::contour_terrain(&dem);
 
         Self {
             rasters: TileRasters {
                 slope: dem.slope(),
+                contour_terrain,
                 dem,
                 return_number,
                 intensity,
@@ -324,7 +326,7 @@ pub fn compute_tile(
 
     if steps.basemap && params.contour.basemap_contour && params.contour.basemap_interval >= 0.1 {
         objects.extend(map_gen::common::compute_basemap(
-            &tile.rasters.dem,
+            &tile.rasters.contour_terrain,
             tile.z_range,
             &tile.cut_overlay,
             params.contour.basemap_interval,
@@ -354,6 +356,7 @@ pub fn compute_tile(
             ContourAlgo::NormalFieldSmoothing | ContourAlgo::Raw => {
                 map_gen::common::extract_contours(
                     &tile.rasters.dem,
+                    &tile.rasters.contour_terrain,
                     tile.z_range,
                     &tile.cut_overlay,
                     params,
@@ -470,8 +473,8 @@ mod tests {
         ContourFieldDiagnostics, ContourFieldStageTimings, ContourSolverDiagnostics,
         PersistenceDiagnostics, PersistenceWork, PublishedFieldDiagnostics,
     };
+    use crate::raster::AdjustedElevation;
     use crate::raster::DfmGrid;
-    use crate::raster::dfm::AdjustedElevation;
 
     fn artifact(value: f32) -> Arc<map_gen::common::ProducedContourField> {
         let grid = DfmGrid::new(2, 2, 0.5, geo::coord! { x: 0., y: 0. }).unwrap();

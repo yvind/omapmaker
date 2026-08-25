@@ -1,9 +1,6 @@
 use crate::{
     geometry::MapLineString,
-    raster::{
-        Dfm,
-        dfm::{Elevation, RasterMarker},
-    },
+    raster::{Dfm, Elevation, RasterMarker},
 };
 
 use geo::Vector2DOps;

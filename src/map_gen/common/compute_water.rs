@@ -1,10 +1,7 @@
 use crate::{
     CELL_SIZE_METERS, TILE_SIZE_PIXELS,
     geometry::PointCloud,
-    raster::{
-        Dfm,
-        dfm::{Elevation, FloodFill, HydroCorrected, Water},
-    },
+    raster::{Dfm, Elevation, FloodFill, HydroCorrected, Water},
     statistics::LidarStats,
 };
 

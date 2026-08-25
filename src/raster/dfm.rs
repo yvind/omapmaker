@@ -1,142 +1,25 @@
 use crate::geometry::contour_set::ContourPoint;
-use crate::raster::DfmGrid;
+use crate::raster::{
+    DfmGrid, Elevation, FloodFill, Hillshade, HydroCorrected, InterpolationErrorImprovement,
+    RasterMarker, Slope, TerrainChange, TerrainRasterMarker,
+};
 
 use std::collections::VecDeque;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 
-#[derive(Clone, Copy, Debug)]
-pub struct Elevation;
-#[derive(Clone, Copy, Debug)]
-pub struct AdjustedElevation;
-#[derive(Clone, Copy, Debug)]
-pub struct TargetElevation;
-#[derive(Clone, Copy, Debug)]
-pub struct Slope;
-#[derive(Clone, Copy, Debug)]
-pub struct CliffStrength;
-#[derive(Clone, Copy, Debug)]
-pub struct ProfileChange;
-#[derive(Clone, Copy, Debug)]
-pub struct TangentChange;
-#[derive(Clone, Copy, Debug)]
-pub struct FitConfidence;
-#[derive(Clone, Copy, Debug)]
-pub struct DirectionConfidence;
-#[derive(Clone, Copy, Debug)]
-pub struct TerrainSalience;
-#[derive(Clone, Copy, Debug)]
-pub struct IsolineTangentX;
-#[derive(Clone, Copy, Debug)]
-pub struct IsolineTangentY;
-#[derive(Clone, Copy, Debug)]
-pub struct AlignmentConfidence;
-#[derive(Clone, Copy, Debug)]
-pub struct ContourCost;
-#[derive(Clone, Copy, Debug)]
-pub struct SmoothnessWeight;
-#[derive(Clone, Copy, Debug)]
-pub struct VerticalAdjustment;
-#[derive(Clone, Copy, Debug)]
-pub struct AdjustmentBoundMask;
-#[derive(Clone, Copy, Debug)]
-pub struct TerrainChange;
-#[derive(Clone, Copy, Debug)]
-pub struct InterpolationErrorImprovement;
-#[derive(Clone, Copy, Debug)]
-pub struct Hillshade;
-#[derive(Clone, Copy, Debug)]
-pub struct Returns;
-#[derive(Clone, Copy, Debug)]
-pub struct Intensity;
-#[derive(Clone, Copy, Debug)]
-pub struct HeightAboveGround;
-#[derive(Clone, Copy, Debug)]
-pub struct LastReturn;
-#[derive(Clone, Copy, Debug)]
-pub struct Ground;
-#[derive(Clone, Copy, Debug)]
-pub struct LowVegetation;
-#[derive(Clone, Copy, Debug)]
-pub struct MediumVegetation;
-#[derive(Clone, Copy, Debug)]
-pub struct HighVegetation;
-#[derive(Clone, Copy, Debug)]
-pub struct SurfaceObjects;
-#[derive(Clone, Copy, Debug)]
-pub struct Water;
-#[derive(Clone, Copy, Debug)]
-pub struct Ndvd;
-#[derive(Clone, Copy, Debug)]
-pub struct PointDensity;
-#[derive(Clone, Copy, Debug)]
-pub struct HydroCorrected;
-#[derive(Clone, Copy, Debug)]
-pub struct FloodFill;
-#[derive(Clone, Copy, Debug)]
-pub struct FlowAccumulation;
-
-/// Zero sized marker trait for strict typing on Dfm
-pub trait RasterMarker: Copy {}
-
-/// Marker for rasters whose values may be averaged and bilinearly interpolated.
-pub trait ContinuousRasterMarker: RasterMarker {}
-
-/// Marker for categorical zero/nonzero rasters that require an explicit
-/// restriction policy.
-pub trait MaskRasterMarker: RasterMarker {}
-
-macro_rules! mask_raster_markers {
-    ($($marker:ty),+ $(,)?) => {
-        $(impl RasterMarker for $marker {})+
-        $(impl MaskRasterMarker for $marker {})+
-    };
+/// Physical parameters for normal-aware, feature-preserving terrain smoothing.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainSmoothing {
+    /// Maximum normal-to-normal angle included in the local estimate.
+    pub max_normal_difference_degrees: f32,
+    /// Radius of the normal-estimation neighbourhood, in map metres.
+    pub radius_m: f64,
+    /// Number of elevation update passes.
+    pub iterations: usize,
+    /// Absolute vertical displacement allowed from the input terrain, in metres.
+    pub max_elevation_change_m: f32,
 }
-
-mask_raster_markers!(FloodFill, AdjustmentBoundMask);
-
-macro_rules! continuous_raster_markers {
-    ($($marker:ty),+ $(,)?) => {
-        $(impl RasterMarker for $marker {})+
-        $(impl ContinuousRasterMarker for $marker {})+
-    };
-}
-
-continuous_raster_markers!(
-    Elevation,
-    AdjustedElevation,
-    TargetElevation,
-    Slope,
-    CliffStrength,
-    ProfileChange,
-    TangentChange,
-    FitConfidence,
-    DirectionConfidence,
-    TerrainSalience,
-    IsolineTangentX,
-    IsolineTangentY,
-    AlignmentConfidence,
-    ContourCost,
-    SmoothnessWeight,
-    VerticalAdjustment,
-    TerrainChange,
-    InterpolationErrorImprovement,
-    Hillshade,
-    HydroCorrected,
-    Returns,
-    Intensity,
-    HeightAboveGround,
-    LastReturn,
-    Ground,
-    LowVegetation,
-    MediumVegetation,
-    HighVegetation,
-    SurfaceObjects,
-    Water,
-    Ndvd,
-    PointDensity,
-    FlowAccumulation
-);
 
 #[derive(Clone, Debug)]
 pub struct Dfm<T: RasterMarker> {
@@ -339,20 +222,41 @@ impl<T: RasterMarker> Dfm<T> {
         let (gradient_x, gradient_y) = self.sobel_gradient(y, x);
         (-gradient_x, -gradient_y)
     }
+}
 
-    pub fn smoothen(
+impl<T: TerrainRasterMarker> Dfm<T> {
+    /// Smooth an elevation surface while retaining discontinuities between
+    /// sufficiently different surface normals.
+    ///
+    /// The neighbourhood and vertical bound use physical units so the result
+    /// does not depend on raster resolution. `U` names the derived terrain
+    /// product and makes accidental reuse as the canonical DEM visible in the
+    /// type system.
+    pub fn feature_preserving_smooth_as<U: TerrainRasterMarker>(
         &self,
-        mut max_normal_difference: f32,
-        mut filter_size: usize,
-        mut iterations: usize,
-    ) -> Self {
-        filter_size = (filter_size.max(3) / 2) * 2 + 1;
-        iterations = iterations.max(1);
-        max_normal_difference = max_normal_difference.abs().min(60.);
+        parameters: TerrainSmoothing,
+    ) -> Dfm<U> {
+        let iterations = parameters.iterations.max(1);
+        let max_normal_difference = if parameters.max_normal_difference_degrees.is_finite() {
+            parameters.max_normal_difference_degrees.abs().min(60.)
+        } else {
+            15.
+        };
         let threshold = f64::from(max_normal_difference).to_radians().cos();
         let width = self.width();
         let height = self.height();
         let cell = self.grid.cell_size_m;
+        let radius_m = if parameters.radius_m.is_finite() {
+            parameters.radius_m.abs()
+        } else {
+            cell
+        };
+        let radius = (radius_m / cell).ceil().max(1.) as isize;
+        let max_elevation_change = if parameters.max_elevation_change_m.is_finite() {
+            parameters.max_elevation_change_m.abs()
+        } else {
+            f32::MAX
+        };
         let mut normals = vec![(0., 0.); width * height];
         for y in 0..height {
             for x in 0..width {
@@ -360,7 +264,6 @@ impl<T: RasterMarker> Dfm<T> {
             }
         }
 
-        let radius = (filter_size / 2) as isize;
         let mut smooth = vec![(0., 0.); normals.len()];
         for y in 0..height {
             for x in 0..width {
@@ -398,7 +301,9 @@ impl<T: RasterMarker> Dfm<T> {
             (1, -1),
             (0, -1),
         ];
-        let mut output = self.clone();
+        let mut output = Dfm::<U>::new_like(self);
+        output.field.copy_from_slice(&self.field);
+        let mut next = output.clone();
         for _ in 0..iterations {
             for y in 0..height {
                 for x in 0..width {
@@ -422,10 +327,15 @@ impl<T: RasterMarker> Dfm<T> {
                         }
                     }
                     if weight_sum > f64::EPSILON {
-                        output[(y, x)] = (weighted_height / weight_sum) as f32;
+                        let source = self[(y, x)];
+                        next[(y, x)] = ((weighted_height / weight_sum) as f32)
+                            .clamp(source - max_elevation_change, source + max_elevation_change);
+                    } else {
+                        next[(y, x)] = output[(y, x)];
                     }
                 }
             }
+            std::mem::swap(&mut output, &mut next);
         }
         output
     }
@@ -870,7 +780,7 @@ impl<T: RasterMarker> Index<(usize, usize)> for DfmPaddedProxy<'_, T> {
 mod tests {
     use super::*;
     use crate::geometry::MapLineString;
-    use crate::raster::DfmPixelBounds;
+    use crate::raster::{ContourTerrain, DfmPixelBounds};
     use geo::BoundingRect;
 
     fn plane(grid: DfmGrid) -> Dfm<Elevation> {
@@ -882,6 +792,40 @@ mod tests {
             }
         }
         raster
+    }
+
+    #[test]
+    fn terrain_smoothing_is_bounded_and_produces_a_named_derivative() {
+        let grid = DfmGrid::new(9, 9, 0.5, geo::coord! { x: 0., y: 4. }).unwrap();
+        let mut source = Dfm::<Elevation>::new(grid);
+        for y in 0..source.height() {
+            for x in 0..source.width() {
+                source[(y, x)] = if (x + y) % 2 == 0 { 10.05 } else { 9.95 };
+            }
+        }
+
+        let smoothed: Dfm<ContourTerrain> = source.feature_preserving_smooth_as(TerrainSmoothing {
+            max_normal_difference_degrees: 60.,
+            radius_m: 1.5,
+            iterations: 3,
+            max_elevation_change_m: 0.02,
+        });
+
+        assert!(
+            smoothed
+                .field
+                .iter()
+                .zip(&source.field)
+                .any(|(&actual, &raw)| (actual - raw).abs() > 1e-4)
+        );
+        assert!(
+            smoothed
+                .field
+                .iter()
+                .zip(&source.field)
+                .all(|(&actual, &raw)| (actual - raw).abs() <= 0.020_001)
+        );
+        assert_eq!(smoothed.grid, source.grid);
     }
 
     #[test]

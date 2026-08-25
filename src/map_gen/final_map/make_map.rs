@@ -9,11 +9,8 @@ use crate::{
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        D8Flow, Dfm,
-        dfm::{
-            FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd, PointDensity,
-            RasterMarker, Slope, SurfaceObjects,
-        },
+        D8Flow, Dfm, FlowAccumulation, HeightAboveGround, Hillshade, LastReturn, Ndvd,
+        PointDensity, RasterMarker, Slope, SurfaceObjects,
     },
     statistics::LidarStats,
 };

@@ -10,7 +10,7 @@ use proj_core::CrsDef;
 
 use crate::{
     CELL_SIZE_METERS,
-    raster::{Dfm, dfm::RasterMarker},
+    raster::{Dfm, RasterMarker},
 };
 
 const NODATA_VALUE: f64 = -9999.;

@@ -1,13 +1,44 @@
 use crate::geometry::{ContourLevel, ContourSet, MapLineString, MapMultiPolygon};
 use crate::map_gen::egui_map::{LineSymbol, MapObject};
 use crate::parameters::{ContourAlgo, FormlinePruneAlgo, MapParameters};
-use crate::raster::Dfm;
-use crate::raster::dfm::{AdjustedElevation, Elevation, RasterMarker};
+use crate::raster::{
+    AdjustedElevation, ContourTerrain, Dfm, Elevation, RasterMarker, dfm::TerrainSmoothing,
+};
 
 use geo::{BooleanOps, Buffer, Contains, Euclidean, Length, LineLocatePoint, Simplify};
 
 use std::collections::HashMap;
 use std::sync::Arc;
+
+/// Removes sub-cell interpolation/oversampling noise without turning the
+/// diagnostic contour product into a generalized contour product.
+const OVERSAMPLING_NOISE_FILTER: TerrainSmoothing = TerrainSmoothing {
+    max_normal_difference_degrees: 15.,
+    radius_m: 1.5,
+    iterations: 5,
+    // Half of the default 0.5 m basemap interval. This prevents the noise
+    // filter from moving a sample through an entire basemap contour band.
+    max_elevation_change_m: 0.25,
+};
+
+pub(crate) fn contour_terrain(raw_dem: &Dfm<Elevation>) -> Dfm<ContourTerrain> {
+    raw_dem.feature_preserving_smooth_as(OVERSAMPLING_NOISE_FILTER)
+}
+
+pub(crate) fn generalized_contour_terrain(
+    contour_dem: &Dfm<ContourTerrain>,
+    iterations: usize,
+    contour_interval_m: f32,
+) -> Dfm<ContourTerrain> {
+    contour_dem.feature_preserving_smooth_as(TerrainSmoothing {
+        max_normal_difference_degrees: 15.,
+        radius_m: 3.5,
+        iterations,
+        // Keep normal-field generalization vertically tied to the raw-derived
+        // contour terrain. The light filter itself contributes at most 0.25 m.
+        max_elevation_change_m: (0.1 * contour_interval_m.abs()).max(0.25),
+    })
+}
 
 const FORMLINE_PRUNE_BUFFER_METERS: f64 = 2.;
 
@@ -945,7 +976,13 @@ pub fn compute_naive_contours(
     compute_energy: bool,
 ) -> crate::Result<(Vec<MapObject>, f32, f32)> {
     let levels = plan_contour_levels(z_range, params.contour.interval, params.contour.form_lines)?;
-    let mut adjusted_dem = true_dem.smoothen(15., 15, 10);
+    let mut adjusted_dem: Dfm<Elevation> =
+        true_dem.feature_preserving_smooth_as(TerrainSmoothing {
+            max_normal_difference_degrees: 15.,
+            radius_m: 3.5,
+            iterations: 10,
+            max_elevation_change_m: (0.1 * params.contour.interval.abs()).max(0.25),
+        });
     let mut interpolated_dem = adjusted_dem.clone();
     let extraction_domain = extraction_polygon(true_dem);
     let simplification = ContourSimplification::DouglasPeucker(crate::SIMPLIFICATION_DIST);
@@ -1139,19 +1176,27 @@ pub(crate) fn compute_scalar_field_contours_from_produced(
     )
 }
 
-// used for raw and smoothed contour extraction, with scoring which complicates it a bit
-// smoothing happens on the DEM level
+// Used for raw and smoothed contour extraction, with scoring which complicates
+// it a bit. Even Raw receives the fixed, slight oversampling-noise filter; it
+// does not receive user-controlled cartographic generalization.
 pub fn extract_contours(
     true_dem: &Dfm<Elevation>,
+    contour_dem: &Dfm<ContourTerrain>,
     z_range: (f32, f32),
     cut_overlay: &geo::Polygon,
     params: &MapParameters,
     compute_energy: bool,
 ) -> crate::Result<(Vec<MapObject>, f32, f32)> {
+    let generalized;
     let dem = if params.contour.algorithm == ContourAlgo::Raw {
-        true_dem
+        contour_dem
     } else {
-        &true_dem.smoothen(15., 15, params.contour.algo_steps as usize)
+        generalized = generalized_contour_terrain(
+            contour_dem,
+            params.contour.algo_steps as usize,
+            params.contour.interval,
+        );
+        &generalized
     };
     let levels = plan_contour_levels(z_range, params.contour.interval, params.contour.form_lines)?;
     let extraction_domain = extraction_polygon(true_dem);
@@ -1175,7 +1220,10 @@ pub fn extract_contours(
             compute_energy,
             validate_vertical_tolerance: false,
             preserve_geometry: false,
-            snap_boundary_to_source: params.contour.algorithm != ContourAlgo::Raw,
+            // Both contour products are now derived from the canonical DEM.
+            // Use its boundary crossing so adjacent tiles agree at ownership
+            // seams even in Raw mode.
+            snap_boundary_to_source: true,
             protected_features: &[],
         },
     )
@@ -1445,12 +1493,15 @@ mod tests {
                 .count()
         };
 
+        let contour_dem = super::super::contour_terrain(&source);
         params.contour.form_line_prune_algorithm = FormlinePruneAlgo::None;
-        let all = extract_contours(&source, z_range, &cut, &params, false).unwrap();
+        let all = extract_contours(&source, &contour_dem, z_range, &cut, &params, false).unwrap();
         params.contour.form_line_prune_algorithm = FormlinePruneAlgo::TerrainChange;
-        let terrain = extract_contours(&source, z_range, &cut, &params, false).unwrap();
+        let terrain =
+            extract_contours(&source, &contour_dem, z_range, &cut, &params, false).unwrap();
         params.contour.form_line_prune_algorithm = FormlinePruneAlgo::InterpolationError;
-        let interpolation = extract_contours(&source, z_range, &cut, &params, false).unwrap();
+        let interpolation =
+            extract_contours(&source, &contour_dem, z_range, &cut, &params, false).unwrap();
 
         assert!(formline_count(&all.0) > 0);
         assert_eq!(formline_count(&terrain.0), 0);

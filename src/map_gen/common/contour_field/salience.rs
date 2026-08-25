@@ -1,7 +1,6 @@
 use super::quadratic::TerrainDerivatives;
 use crate::parameters::ContourFieldParameters;
-use crate::raster::Dfm;
-use crate::raster::dfm::{AlignmentConfidence, ContourCost, SmoothnessWeight, TerrainSalience};
+use crate::raster::{AlignmentConfidence, ContourCost, Dfm, SmoothnessWeight, TerrainSalience};
 
 pub(super) struct SalienceWeights {
     pub(super) salience: Dfm<TerrainSalience>,
@@ -82,9 +81,8 @@ pub(super) fn calculate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::raster::DfmGrid;
-    use crate::raster::dfm::{
-        DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY,
+    use crate::raster::{
+        DfmGrid, DirectionConfidence, Elevation, FitConfidence, IsolineTangentX, IsolineTangentY,
         ProfileChange, Slope, TangentChange,
     };
 

@@ -6,7 +6,7 @@ use crate::{
     geometry::MapMultiPolygon,
     map_gen::egui_map::MapObject,
     parameters::{BufferRule, MapParameters},
-    raster::{Dfm, dfm::Intensity},
+    raster::{Dfm, Intensity},
 };
 
 pub fn compute_intensity(

@@ -31,3 +31,151 @@ impl Threshold {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug)]
+pub struct Elevation;
+/// Elevation derived specifically for contour extraction. The canonical
+/// [`Elevation`] raster remains untouched.
+#[derive(Clone, Copy, Debug)]
+pub struct ContourTerrain;
+#[derive(Clone, Copy, Debug)]
+pub struct AdjustedElevation;
+#[derive(Clone, Copy, Debug)]
+pub struct TargetElevation;
+#[derive(Clone, Copy, Debug)]
+pub struct Slope;
+#[derive(Clone, Copy, Debug)]
+pub struct CliffStrength;
+#[derive(Clone, Copy, Debug)]
+pub struct ProfileChange;
+#[derive(Clone, Copy, Debug)]
+pub struct TangentChange;
+#[derive(Clone, Copy, Debug)]
+pub struct FitConfidence;
+#[derive(Clone, Copy, Debug)]
+pub struct DirectionConfidence;
+#[derive(Clone, Copy, Debug)]
+pub struct TerrainSalience;
+#[derive(Clone, Copy, Debug)]
+pub struct IsolineTangentX;
+#[derive(Clone, Copy, Debug)]
+pub struct IsolineTangentY;
+#[derive(Clone, Copy, Debug)]
+pub struct AlignmentConfidence;
+#[derive(Clone, Copy, Debug)]
+pub struct ContourCost;
+#[derive(Clone, Copy, Debug)]
+pub struct SmoothnessWeight;
+#[derive(Clone, Copy, Debug)]
+pub struct VerticalAdjustment;
+#[derive(Clone, Copy, Debug)]
+pub struct AdjustmentBoundMask;
+#[derive(Clone, Copy, Debug)]
+pub struct TerrainChange;
+#[derive(Clone, Copy, Debug)]
+pub struct InterpolationErrorImprovement;
+#[derive(Clone, Copy, Debug)]
+pub struct Hillshade;
+#[derive(Clone, Copy, Debug)]
+pub struct Returns;
+#[derive(Clone, Copy, Debug)]
+pub struct Intensity;
+#[derive(Clone, Copy, Debug)]
+pub struct HeightAboveGround;
+#[derive(Clone, Copy, Debug)]
+pub struct LastReturn;
+#[derive(Clone, Copy, Debug)]
+pub struct Ground;
+#[derive(Clone, Copy, Debug)]
+pub struct LowVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct MediumVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct HighVegetation;
+#[derive(Clone, Copy, Debug)]
+pub struct SurfaceObjects;
+#[derive(Clone, Copy, Debug)]
+pub struct Water;
+#[derive(Clone, Copy, Debug)]
+pub struct Ndvd;
+#[derive(Clone, Copy, Debug)]
+pub struct PointDensity;
+#[derive(Clone, Copy, Debug)]
+pub struct HydroCorrected;
+#[derive(Clone, Copy, Debug)]
+pub struct FloodFill;
+#[derive(Clone, Copy, Debug)]
+pub struct FlowAccumulation;
+
+/// Zero sized marker trait for strict typing on Dfm
+pub trait RasterMarker: Copy {}
+
+/// Marker for rasters whose values may be averaged and bilinearly interpolated.
+pub trait ContinuousRasterMarker: RasterMarker {}
+
+/// Marker for elevation-like rasters on which terrain smoothing is meaningful.
+///
+/// Keeping this separate from [`ContinuousRasterMarker`] prevents filters based
+/// on surface normals from being applied to intensity, return, probability, or
+/// count rasters merely because their values are continuous.
+pub trait TerrainRasterMarker: ContinuousRasterMarker {}
+
+/// Marker for categorical zero/nonzero rasters that require an explicit
+/// restriction policy.
+pub trait MaskRasterMarker: RasterMarker {}
+
+macro_rules! mask_raster_markers {
+    ($($marker:ty),+ $(,)?) => {
+        $(impl RasterMarker for $marker {})+
+        $(impl MaskRasterMarker for $marker {})+
+    };
+}
+
+mask_raster_markers!(FloodFill, AdjustmentBoundMask);
+
+macro_rules! continuous_raster_markers {
+    ($($marker:ty),+ $(,)?) => {
+        $(impl RasterMarker for $marker {})+
+        $(impl ContinuousRasterMarker for $marker {})+
+    };
+}
+
+continuous_raster_markers!(
+    Elevation,
+    ContourTerrain,
+    AdjustedElevation,
+    TargetElevation,
+    Slope,
+    CliffStrength,
+    ProfileChange,
+    TangentChange,
+    FitConfidence,
+    DirectionConfidence,
+    TerrainSalience,
+    IsolineTangentX,
+    IsolineTangentY,
+    AlignmentConfidence,
+    ContourCost,
+    SmoothnessWeight,
+    VerticalAdjustment,
+    TerrainChange,
+    InterpolationErrorImprovement,
+    Hillshade,
+    HydroCorrected,
+    Returns,
+    Intensity,
+    HeightAboveGround,
+    LastReturn,
+    Ground,
+    LowVegetation,
+    MediumVegetation,
+    HighVegetation,
+    SurfaceObjects,
+    Water,
+    Ndvd,
+    PointDensity,
+    FlowAccumulation
+);
+
+impl TerrainRasterMarker for Elevation {}
+impl TerrainRasterMarker for ContourTerrain {}
