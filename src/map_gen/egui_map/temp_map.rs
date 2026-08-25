@@ -492,6 +492,51 @@ impl TempMap {
         Ok(())
     }
 
+    /// Subtract all polygons under `exclusion` from every polygon under
+    /// `target`, preserving the target symbol and object tags.
+    pub fn subtract_area_symbol(
+        &mut self,
+        target: AreaSymbol,
+        exclusion: AreaSymbol,
+    ) -> crate::Result<()> {
+        let Some(exclusions) = self.objects.get(&Symbol::Area(exclusion)) else {
+            return Ok(());
+        };
+        let exclusions = exclusions
+            .iter()
+            .map(|object| match object {
+                MapObject::Area { object, .. } => Ok(object.clone()),
+                _ => anyhow::bail!("Should not be a non-area object under an Area key"),
+            })
+            .collect::<crate::Result<geo::MultiPolygon>>()?;
+        if exclusions.0.is_empty() {
+            return Ok(());
+        }
+        let Some(targets) = self.objects.get_mut(&Symbol::Area(target)) else {
+            return Ok(());
+        };
+        let mut clipped = Vec::new();
+        for object in targets.drain(..) {
+            let MapObject::Area {
+                object,
+                symbol,
+                tags,
+            } = object
+            else {
+                anyhow::bail!("Should not be a non-area object under an Area key");
+            };
+            clipped.extend(object.difference(&exclusions).into_iter().map(|object| {
+                MapObject::Area {
+                    object,
+                    symbol,
+                    tags: tags.clone(),
+                }
+            }));
+        }
+        *targets = clipped;
+        Ok(())
+    }
+
     pub fn merge_and_filter_min_size(
         &mut self,
         symbols: impl IntoIterator<Item = AreaSymbol>,
@@ -506,6 +551,12 @@ impl TempMap {
         }
 
         Ok(())
+    }
+
+    pub fn filter_area_min_size(&mut self, symbol: AreaSymbol, minimum_area_m2: f64) {
+        if minimum_area_m2.is_finite() && minimum_area_m2 > 0. {
+            self.merge_and_filter_symbol_min_size(symbol, minimum_area_m2);
+        }
     }
 
     fn merge_and_filter_symbol_min_size(&mut self, symbol: AreaSymbol, min_area: f64) {
@@ -1184,6 +1235,36 @@ mod tests {
 
     fn seam_stable_formline(points: Vec<geo::Coord>) -> MapObject {
         seam_stable_formline_at(points, 2.5)
+    }
+
+    #[test]
+    fn marsh_subtraction_removes_all_open_water_overlap() {
+        let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let marsh = geo::Rect::new(geo::coord! { x: 0., y: 0. }, geo::coord! { x: 10., y: 10. })
+            .to_polygon();
+        let water = geo::Rect::new(geo::coord! { x: 5., y: 0. }, geo::coord! { x: 15., y: 10. })
+            .to_polygon();
+        map.add_object(MapObject::Area {
+            object: marsh,
+            symbol: AreaSymbol::Marsh,
+            tags: HashMap::new(),
+        });
+        map.add_object(MapObject::Area {
+            object: water.clone(),
+            symbol: AreaSymbol::UncrossableWaterWithBankLine,
+            tags: HashMap::new(),
+        });
+
+        map.subtract_area_symbol(AreaSymbol::Marsh, AreaSymbol::UncrossableWaterWithBankLine)
+            .unwrap();
+
+        let [MapObject::Area { object, .. }] =
+            map.objects[&Symbol::Area(AreaSymbol::Marsh)].as_slice()
+        else {
+            panic!("expected one clipped marsh polygon");
+        };
+        assert_eq!(object.intersection(&water).unsigned_area(), 0.);
+        assert!((object.unsigned_area() - 50.).abs() < 1e-9);
     }
 
     #[test]

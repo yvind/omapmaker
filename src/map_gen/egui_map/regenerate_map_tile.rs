@@ -80,7 +80,7 @@ pub fn regenerate_map_tile(
         steps.buildings,
         steps.cliffs,
         steps.intensity,
-        steps.water,
+        steps.water || steps.marsh,
     );
     if let Err(e) = omap.merge_and_filter_min_size(min_size_filter_symbols) {
         let _ = sender.send(FrontendTask::Error(e.to_string(), true));
@@ -118,6 +118,9 @@ pub fn regenerate_map_tile(
     }
     if steps.water {
         omap.reserve_capacity(AreaSymbol::UncrossableWaterWithBankLine, 0);
+    }
+    if steps.marsh {
+        omap.reserve_capacity(AreaSymbol::Marsh, 0);
     }
     if steps.streams {
         omap.reserve_capacity(LineSymbol::SmallCrossableWatercourse, 0);
@@ -213,6 +216,7 @@ fn changed_steps(
         || polynomial_fit_changed;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
     steps.streams = steps.water;
+    steps.marsh = new.marsh != old.marsh || new.geometry.marsh != old.geometry.marsh || steps.water;
 
     // Building precedence changes the geometry of these layers. Regenerate
     // the affected counterparts together so incremental preview updates do
@@ -223,8 +227,15 @@ fn changed_steps(
         steps.cliffs = true;
         steps.intensity = true;
         steps.water = true;
+        steps.marsh = true;
     }
-    if steps.openness || steps.vegetation || steps.cliffs || steps.intensity || steps.water {
+    if steps.openness
+        || steps.vegetation
+        || steps.cliffs
+        || steps.intensity
+        || steps.water
+        || steps.marsh
+    {
         steps.buildings = true;
     }
 
@@ -278,6 +289,7 @@ fn limit_to_reached_sections(
     if reached < MapPreviewSection::Water {
         steps.water = false;
         steps.streams = false;
+        steps.marsh = false;
     }
     if reached < MapPreviewSection::Intensity {
         steps.intensity = false;
@@ -302,6 +314,7 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
             steps.cliffs = true;
             steps.intensity = true;
             steps.water = true;
+            steps.marsh = true;
         }
         RegenerationScope::Section(MapPreviewSection::Cliffs) => {
             steps.cliffs = true;
@@ -310,6 +323,7 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
         RegenerationScope::Section(MapPreviewSection::Water) => {
             steps.water = true;
             steps.streams = true;
+            steps.marsh = true;
             steps.buildings = true;
         }
         RegenerationScope::Section(MapPreviewSection::Intensity) => {
@@ -432,5 +446,23 @@ mod tests {
         assert!(steps.contours);
         assert!(!steps.buildings);
         assert!(!steps.cliffs);
+    }
+
+    #[test]
+    fn marsh_sensitivity_recomputes_only_marsh_and_its_building_exclusion() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.marsh.sensitivity = 0.75;
+        let steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(steps.marsh);
+        assert!(steps.buildings);
+        assert!(!steps.water);
+        assert!(!steps.streams);
+        assert!(!steps.contours);
     }
 }

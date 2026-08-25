@@ -15,6 +15,7 @@ pub struct MapParameters {
     pub intensity: IntensityParameters,
     pub cliff: CliffParameters,
     pub water: WaterParameters,
+    pub marsh: MarshParameters,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -60,6 +61,9 @@ impl MapParameters {
 
         if water && self.geometry.water.min_size_filter {
             push_unique_area_symbol(&mut symbols, AreaSymbol::UncrossableWaterWithBankLine);
+        }
+        if water && self.geometry.marsh.min_size_filter {
+            push_unique_area_symbol(&mut symbols, AreaSymbol::Marsh);
         }
 
         symbols
@@ -302,6 +306,7 @@ pub struct GeometryParameters {
     pub cliffs: BufferedGeometryParameters,
     pub intensity: BufferedGeometryParameters,
     pub water: BufferedGeometryParameters,
+    pub marsh: BufferedGeometryParameters,
 }
 
 impl Default for GeometryParameters {
@@ -316,6 +321,7 @@ impl Default for GeometryParameters {
             cliffs: Default::default(),
             intensity: Default::default(),
             water: Default::default(),
+            marsh: Default::default(),
         }
     }
 }
@@ -337,11 +343,81 @@ pub struct WaterParameters {
 impl Default for WaterParameters {
     fn default() -> Self {
         Self {
-            threshold: 0.65,
+            threshold: 0.70,
             seed_buffer_rules: Vec::new(),
-            elevation_tolerance_m: 0.15,
+            elevation_tolerance_m: 0.05,
             allow_downhill_flow: false,
-            stream_min_catchment_area_m2: 5_000.0,
+            stream_min_catchment_area_m2: 10_000.0,
+        }
+    }
+}
+
+/// User-facing and expert controls for the weighted marsh detector.
+///
+/// All spatial values are in physical units so changing raster resolution
+/// does not change the represented feature size.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarshParameters {
+    pub enabled: bool,
+    /// General sensitivity. `0.5` leaves the expert seed/growth thresholds
+    /// unchanged; larger values lower both thresholds.
+    pub sensitivity: f32,
+    pub minimum_polygon_area_m2: f64,
+    pub planarity_radius_m: f64,
+    pub maximum_planarity_rmse_m: f32,
+    pub drainage_initiation_area_m2: f32,
+    pub maximum_height_above_drainage_m: f32,
+    pub maximum_downslope_distance_m: f32,
+    pub preferred_depression_depth_m: f32,
+    pub minimum_wetness_score: f32,
+    pub seed_threshold: f32,
+    pub growth_threshold: f32,
+    pub closing_radius_m: f64,
+    pub opening_radius_m: f64,
+    pub maximum_hole_area_m2: f64,
+    pub observation_radius_m: f64,
+    pub supported_point_density_m2: f32,
+    pub supported_ground_density_m2: f32,
+    pub weights: MarshEvidenceWeights,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarshEvidenceWeights {
+    pub terrain: f32,
+    pub hydrology: f32,
+}
+
+impl Default for MarshParameters {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sensitivity: 0.5,
+            minimum_polygon_area_m2: 45.,
+            planarity_radius_m: 1.5,
+            maximum_planarity_rmse_m: 0.12,
+            drainage_initiation_area_m2: 2_500.,
+            maximum_height_above_drainage_m: 1.5,
+            maximum_downslope_distance_m: 35.,
+            preferred_depression_depth_m: 0.35,
+            minimum_wetness_score: 0.45,
+            seed_threshold: 0.68,
+            growth_threshold: 0.48,
+            closing_radius_m: 1.5,
+            opening_radius_m: 0.5,
+            maximum_hole_area_m2: 12.,
+            observation_radius_m: 2.,
+            supported_point_density_m2: 4.,
+            supported_ground_density_m2: 0.75,
+            weights: MarshEvidenceWeights::default(),
+        }
+    }
+}
+
+impl Default for MarshEvidenceWeights {
+    fn default() -> Self {
+        Self {
+            terrain: 0.25,
+            hydrology: 0.75,
         }
     }
 }
@@ -492,6 +568,7 @@ impl GeometryParameters {
             | Symbol::Line(LineSymbol::ImpassableCliff) => &self.cliffs.bezier,
             Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine) => &self.water.bezier,
             Symbol::Line(LineSymbol::SmallCrossableWatercourse) => &self.water.bezier,
+            Symbol::Area(AreaSymbol::Marsh) => &self.marsh.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,
         };
@@ -540,6 +617,10 @@ pub struct FileParameters {
     pub save_building_planarity_raster: bool,
     pub save_building_residual_raster: bool,
     pub save_building_probability_raster: bool,
+    pub save_marsh_probability_raster: bool,
+    pub save_marsh_support_raster: bool,
+    pub save_marsh_wetness_raster: bool,
+    pub save_marsh_reason_raster: bool,
 
     // lidar crs's
     pub crs_epsg: Vec<Option<CrsDef>>,

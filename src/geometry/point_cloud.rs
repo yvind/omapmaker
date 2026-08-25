@@ -8,7 +8,7 @@ use anyhow::{Context, bail};
 
 use geo::Simplify;
 use las::{Bounds, Vector, point::Classification};
-use std::{cmp::Ordering, ops::Index};
+use std::{cmp::Ordering, collections::HashSet, ops::Index};
 
 #[derive(Clone)]
 pub struct PointCloud {
@@ -85,10 +85,41 @@ impl PointCloud {
     }
 
     pub fn point_density<T: RasterMarker>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
+        self.point_density_impl(grid, false)
+    }
+
+    /// Point density excluding synthetic interpolation support points.
+    pub fn observed_point_density<T: RasterMarker>(&self, grid: &Dfm<T>) -> Dfm<PointDensity> {
+        self.point_density_impl(grid, true)
+    }
+
+    fn point_density_impl<T: RasterMarker>(
+        &self,
+        grid: &Dfm<T>,
+        exclude_synthetic: bool,
+    ) -> Dfm<PointDensity> {
         let mut density = Dfm::<PointDensity>::new_like(grid);
         let mut counts = vec![0_u32; grid.width() * grid.height()];
+        let mut observed_returns = HashSet::with_capacity(self.points.len());
 
         for point in &self.points {
+            if exclude_synthetic && point.0.is_synthetic {
+                continue;
+            }
+            // Exact duplicate records are common where adjacent source files
+            // overlap. Count them once so overlap cannot masquerade as better
+            // observation support. Distinct returns at the same XY remain
+            // distinct through Z and return metadata.
+            if !observed_returns.insert((
+                point.0.x.to_bits(),
+                point.0.y.to_bits(),
+                point.0.z.to_bits(),
+                point.0.return_number,
+                point.0.number_of_returns,
+                point.0.intensity,
+            )) {
+                continue;
+            }
             let x_index =
                 ((point.x() - grid.grid.top_left.x) / grid.grid.cell_size_m).round() as isize;
             let y_index =
@@ -326,5 +357,25 @@ mod tests {
         assert_eq!(density[(0, 0)], (2. / CELL_SIZE_METERS.powi(2)) as f32);
         assert_eq!(density[(0, 1)], (1. / CELL_SIZE_METERS.powi(2)) as f32);
         assert_eq!(density[(1, 0)], 0.);
+    }
+
+    #[test]
+    fn point_density_does_not_double_exact_overlap_returns() {
+        let bounds = Bounds {
+            min: Vector {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            max: Vector {
+                x: TILE_SIZE_METERS,
+                y: TILE_SIZE_METERS,
+                z: 0.,
+            },
+        };
+        let grid = Dfm::<Elevation>::standard(geo::Coord { x: 0., y: 10. });
+        let point = PointLaz::new(0.1, 9.9, 0.);
+        let density = PointCloud::new(vec![point.clone(), point], bounds).point_density(&grid);
+        assert_eq!(density[(0, 0)], (1. / CELL_SIZE_METERS.powi(2)) as f32);
     }
 }

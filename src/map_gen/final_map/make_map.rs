@@ -4,14 +4,15 @@ use crate::{
     map_gen::{
         self,
         egui_map::{AreaSymbol, TempMap},
-        pipeline::PreparedTile,
+        pipeline::{DeferredHydrologyTile, PreparedTile},
     },
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        BuildingProbability, D8Flow, Dfm, Elevation, FlowAccumulation, HeightAboveGround,
-        HeightAboveGroundMean, Hillshade, Intensity, LastReturn, Ndvd, PlanarPointFraction,
-        PlaneResidual, PointDensity, RasterMarker, Slope, SurfaceObjects,
+        BuildingProbability, Dfm, Elevation, FlowAccumulation, HeightAboveGround,
+        HeightAboveGroundMean, Hillshade, Intensity, LastReturn, MarshProbability, MarshReason,
+        MarshSupport, Ndvd, PlanarPointFraction, PlaneResidual, PointDensity, RasterMarker, Slope,
+        SurfaceObjects, WetnessScore,
     },
     statistics::LidarStats,
 };
@@ -26,8 +27,7 @@ use std::{
 
 struct DeferredStreamTile {
     key: (usize, usize),
-    flow: D8Flow,
-    cut_overlay: geo::Polygon,
+    tile: DeferredHydrologyTile,
 }
 
 pub fn make_map(
@@ -98,6 +98,18 @@ pub fn make_map(
     let saved_building_probability_rasters = file_params
         .save_building_probability_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<BuildingProbability>>::new())));
+    let saved_marsh_probability_rasters = file_params
+        .save_marsh_probability_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<MarshProbability>>::new())));
+    let saved_marsh_support_rasters = file_params
+        .save_marsh_support_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<MarshSupport>>::new())));
+    let saved_marsh_wetness_rasters = file_params
+        .save_marsh_wetness_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<WetnessScore>>::new())));
+    let saved_marsh_reason_rasters = file_params
+        .save_marsh_reason_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<MarshReason>>::new())));
     let deferred_stream_tiles = Arc::new(Mutex::new(Vec::<DeferredStreamTile>::new()));
 
     if let Some(polygon) = &mut polygon_filter {
@@ -365,11 +377,17 @@ pub fn make_map(
                     return;
                 }
 
+                let tile = match tile.into_deferred_hydrology(&map_params) {
+                    Ok(tile) => tile,
+                    Err(e) => {
+                        let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                        return;
+                    }
+                };
                 if let Ok(mut stream_tiles) = deferred_stream_tiles.lock() {
                     stream_tiles.push(DeferredStreamTile {
                         key: (fi, tile_i),
-                        flow: tile.rasters.stream_flow,
-                        cut_overlay: tile.cut_overlay,
+                        tile,
                     });
                 } else {
                     let _ = sender.send(FrontendTask::Error(
@@ -407,7 +425,11 @@ pub fn make_map(
     let _ = sender.send(FrontendTask::Log(
         "Accumulating flow across tile boundaries...".to_string(),
     ));
-    crate::raster::accumulate_cross_tile_flow(stream_tiles.iter_mut().map(|tile| &mut tile.flow))?;
+    crate::raster::accumulate_cross_tile_flow(
+        stream_tiles
+            .iter_mut()
+            .map(|tile| &mut tile.tile.stream_flow),
+    )?;
 
     if let Some(saved_rasters) = &saved_flow_accumulation_rasters {
         let mut saved_rasters = saved_rasters
@@ -416,7 +438,7 @@ pub fn make_map(
         saved_rasters.extend(
             stream_tiles
                 .iter()
-                .map(|tile| tile.flow.flow_accumulation().clone()),
+                .map(|tile| tile.tile.stream_flow.flow_accumulation().clone()),
         );
     }
 
@@ -425,15 +447,71 @@ pub fn make_map(
         .into_inner()
         .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;
 
+    let mut final_marsh_params = map_params.clone();
+    // Apply the physical minimum area after fragments have been stitched, so
+    // a valid cross-boundary marsh is not discarded independently by both
+    // owning tiles.
+    final_marsh_params.marsh.minimum_polygon_area_m2 = 0.;
     for tile in &stream_tiles {
-        for object in map_gen::common::compute_streams(&tile.flow, &tile.cut_overlay, &map_params) {
+        for object in map_gen::common::compute_streams(
+            &tile.tile.stream_flow,
+            &tile.tile.cut_overlay,
+            &map_params,
+        ) {
             map.add_object(object);
+        }
+
+        if map_params.marsh.enabled {
+            let marsh = tile.tile.compute_marsh(&final_marsh_params)?;
+            if let Some(saved_rasters) = &saved_marsh_probability_rasters {
+                push_saved_raster(
+                    saved_rasters,
+                    marsh.detection.probability.clone(),
+                    "Marsh probability",
+                    &sender,
+                );
+            }
+            if let Some(saved_rasters) = &saved_marsh_support_rasters {
+                push_saved_raster(
+                    saved_rasters,
+                    marsh.detection.support.clone(),
+                    "Marsh observation support",
+                    &sender,
+                );
+            }
+            if let Some(saved_rasters) = &saved_marsh_wetness_rasters {
+                push_saved_raster(
+                    saved_rasters,
+                    marsh.detection.wetness_score.clone(),
+                    "Marsh wetness score",
+                    &sender,
+                );
+            }
+            if let Some(saved_rasters) = &saved_marsh_reason_rasters {
+                push_saved_raster(
+                    saved_rasters,
+                    marsh.detection.reason.clone(),
+                    "Marsh reason code",
+                    &sender,
+                );
+            }
+            for object in marsh.objects {
+                map.add_object(object);
+            }
         }
     }
 
     // Ownership clipping can split one roof at an internal tile boundary.
     // Reconcile those exactly adjoining fragments before minimum-size checks.
     map.merge_areas(AreaSymbol::Building, 2. * crate::SIMPLIFICATION_DIST)?;
+    map.merge_areas(AreaSymbol::Marsh, 2. * crate::CELL_SIZE_METERS)?;
+    map.merge_areas(
+        AreaSymbol::UncrossableWaterWithBankLine,
+        2. * crate::CELL_SIZE_METERS,
+    )?;
+    map.subtract_area_symbol(AreaSymbol::Marsh, AreaSymbol::UncrossableWaterWithBankLine)?;
+    map.subtract_area_symbol(AreaSymbol::Marsh, AreaSymbol::Building)?;
+    map.filter_area_min_size(AreaSymbol::Marsh, map_params.marsh.minimum_polygon_area_m2);
 
     let min_size_filter_symbols =
         map_params.min_size_filter_symbols(true, true, true, true, true, true);
@@ -445,11 +523,6 @@ pub fn make_map(
     }
 
     let _ = sender.send(FrontendTask::Log("Post-processing contours...".to_string()));
-
-    map.merge_areas(
-        AreaSymbol::UncrossableWaterWithBankLine,
-        2. * crate::CELL_SIZE_METERS,
-    )?;
 
     map.mark_basemap_depressions();
 
@@ -472,6 +545,38 @@ pub fn make_map(
         &sender,
         saved_dem_rasters,
         ("DEM", "dem"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_marsh_probability_rasters,
+        ("marsh probability", "marsh_probability"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_marsh_support_rasters,
+        ("marsh observation support", "marsh_support"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_marsh_wetness_rasters,
+        ("marsh wetness score", "marsh_wetness"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_marsh_reason_rasters,
+        ("marsh reason code", "marsh_reason"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),

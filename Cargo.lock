@@ -3396,7 +3396,9 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.11.0"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4580c4668a80c870b2cb8abfed2101646666aa6d63d70784ed5aa7340907bc6"
 dependencies = [
  "chrono",
  "geo-types",

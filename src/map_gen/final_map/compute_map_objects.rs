@@ -23,6 +23,9 @@ pub fn compute_tile_map_objects(
             intensity: true,
             water: true,
             streams: false,
+            // Marsh uses the globally reconciled accumulation field and is
+            // therefore deferred by final-map generation.
+            marsh: false,
         },
         false,
     )?

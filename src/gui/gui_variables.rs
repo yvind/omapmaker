@@ -47,7 +47,6 @@ pub struct ProjectFiles {
     pub memory_budget_gb: u8,
     pub single_copc_path: Option<std::path::PathBuf>,
     pub worker_threads: usize,
-    pub save_rasters: bool,
     pub save_dem_raster: bool,
     pub save_slope_raster: bool,
     pub save_hillshade_raster: bool,
@@ -62,6 +61,10 @@ pub struct ProjectFiles {
     pub save_building_planarity_raster: bool,
     pub save_building_residual_raster: bool,
     pub save_building_probability_raster: bool,
+    pub save_marsh_probability_raster: bool,
+    pub save_marsh_support_raster: bool,
+    pub save_marsh_wetness_raster: bool,
+    pub save_marsh_reason_raster: bool,
 }
 
 impl Default for ProjectFiles {
@@ -78,7 +81,6 @@ impl Default for ProjectFiles {
                 .map(|threads| threads.get())
                 .unwrap_or(8)
                 .max(1),
-            save_rasters: Default::default(),
             save_dem_raster: Default::default(),
             save_slope_raster: Default::default(),
             save_hillshade_raster: Default::default(),
@@ -93,6 +95,10 @@ impl Default for ProjectFiles {
             save_building_planarity_raster: Default::default(),
             save_building_residual_raster: Default::default(),
             save_building_probability_raster: Default::default(),
+            save_marsh_probability_raster: Default::default(),
+            save_marsh_support_raster: Default::default(),
+            save_marsh_wetness_raster: Default::default(),
+            save_marsh_reason_raster: Default::default(),
         }
     }
 }
@@ -116,48 +122,50 @@ impl ProjectFiles {
             return FileParameters {
                 paths: vec![single_copc_path.clone()],
                 save_location: self.save_location.clone(),
-                save_dem_raster: self.save_rasters && self.save_dem_raster,
-                save_slope_raster: self.save_rasters && self.save_slope_raster,
-                save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
-                save_intensity_raster: self.save_rasters && self.save_intensity_raster,
-                save_last_return_raster: self.save_rasters && self.save_last_return_raster,
-                save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
-                save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
-                save_point_density_raster: self.save_rasters && self.save_point_density_raster,
-                save_flow_accumulation_raster: self.save_rasters
-                    && self.save_flow_accumulation_raster,
-                save_building_height_raster: self.save_rasters && self.save_building_height_raster,
-                save_building_planarity_raster: self.save_rasters
-                    && self.save_building_planarity_raster,
-                save_building_residual_raster: self.save_rasters
-                    && self.save_building_residual_raster,
-                save_building_probability_raster: self.save_rasters
-                    && self.save_building_probability_raster,
+                save_dem_raster: self.save_dem_raster,
+                save_slope_raster: self.save_slope_raster,
+                save_hillshade_raster: self.save_hillshade_raster,
+                save_intensity_raster: self.save_intensity_raster,
+                save_last_return_raster: self.save_last_return_raster,
+                save_surface_objects_raster: self.save_surface_objects_raster,
+                save_ndvd_raster: self.save_ndvd_raster,
+                save_point_density_raster: self.save_point_density_raster,
+                save_flow_accumulation_raster: self.save_flow_accumulation_raster,
+                save_building_height_raster: self.save_building_height_raster,
+                save_building_planarity_raster: self.save_building_planarity_raster,
+                save_building_residual_raster: self.save_building_residual_raster,
+                save_building_probability_raster: self.save_building_probability_raster,
+                save_marsh_probability_raster: self.save_marsh_probability_raster,
+                save_marsh_support_raster: self.save_marsh_support_raster,
+                save_marsh_wetness_raster: self.save_marsh_wetness_raster,
+                save_marsh_reason_raster: self.save_marsh_reason_raster,
                 crs_epsg: vec![],
-                save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
+                save_canopy_height_raster: self.save_canopy_height_raster,
             };
         }
 
         FileParameters {
             paths: self.paths.clone(),
             save_location: self.save_location.clone(),
-            save_dem_raster: self.save_rasters && self.save_dem_raster,
-            save_slope_raster: self.save_rasters && self.save_slope_raster,
-            save_hillshade_raster: self.save_rasters && self.save_hillshade_raster,
-            save_intensity_raster: self.save_rasters && self.save_intensity_raster,
-            save_last_return_raster: self.save_rasters && self.save_last_return_raster,
-            save_surface_objects_raster: self.save_rasters && self.save_surface_objects_raster,
-            save_ndvd_raster: self.save_rasters && self.save_ndvd_raster,
-            save_point_density_raster: self.save_rasters && self.save_point_density_raster,
-            save_flow_accumulation_raster: self.save_rasters && self.save_flow_accumulation_raster,
-            save_building_height_raster: self.save_rasters && self.save_building_height_raster,
-            save_building_planarity_raster: self.save_rasters
-                && self.save_building_planarity_raster,
-            save_building_residual_raster: self.save_rasters && self.save_building_residual_raster,
-            save_building_probability_raster: self.save_rasters
-                && self.save_building_probability_raster,
+            save_dem_raster: self.save_dem_raster,
+            save_slope_raster: self.save_slope_raster,
+            save_hillshade_raster: self.save_hillshade_raster,
+            save_intensity_raster: self.save_intensity_raster,
+            save_last_return_raster: self.save_last_return_raster,
+            save_surface_objects_raster: self.save_surface_objects_raster,
+            save_ndvd_raster: self.save_ndvd_raster,
+            save_point_density_raster: self.save_point_density_raster,
+            save_flow_accumulation_raster: self.save_flow_accumulation_raster,
+            save_building_height_raster: self.save_building_height_raster,
+            save_building_planarity_raster: self.save_building_planarity_raster,
+            save_building_residual_raster: self.save_building_residual_raster,
+            save_building_probability_raster: self.save_building_probability_raster,
+            save_marsh_probability_raster: self.save_marsh_probability_raster,
+            save_marsh_support_raster: self.save_marsh_support_raster,
+            save_marsh_wetness_raster: self.save_marsh_wetness_raster,
+            save_marsh_reason_raster: self.save_marsh_reason_raster,
             crs_epsg: self.crses.clone(),
-            save_canopy_height_raster: self.save_rasters && self.save_canopy_height_raster,
+            save_canopy_height_raster: self.save_canopy_height_raster,
         }
     }
 }
@@ -412,6 +420,10 @@ impl GuiVariables {
                 save_building_planarity_raster: false,
                 save_building_residual_raster: false,
                 save_building_probability_raster: false,
+                save_marsh_probability_raster: false,
+                save_marsh_support_raster: false,
+                save_marsh_wetness_raster: false,
+                save_marsh_reason_raster: false,
                 crs_epsg: self.project.crses.clone(),
                 save_canopy_height_raster: false,
             },

@@ -9,9 +9,10 @@ use crate::{
         BuildingParameters, CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights,
     },
     raster::{
-        ContourTerrain, D8Flow, Dfm, Elevation, Ground, HeightAboveGround, HighVegetation,
-        HydroCorrected, Intensity, LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity,
-        Returns, Slope, SurfaceObjects, Threshold, Water,
+        BuildingProbability, ContourTerrain, D8Flow, Dfm, Elevation, Ground, GroundPointDensity,
+        HeightAboveGround, HighVegetation, HydroCorrected, Intensity, LastReturn, LowVegetation,
+        MarshHydrology, MediumVegetation, Ndvd, PointDensity, Returns, Slope, SurfaceObjects,
+        Threshold, Water,
     },
     statistics::LidarStats,
 };
@@ -25,6 +26,7 @@ const CONTOUR_FIELD_CACHE_ENTRIES_PER_TILE: usize = 2;
 const TERRAIN_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 const BUILDING_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 const BUILDING_DETECTION_CACHE_ENTRIES_PER_TILE: usize = 2;
+const MARSH_HYDROLOGY_CACHE_ENTRIES_PER_TILE: usize = 2;
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
@@ -44,6 +46,7 @@ pub struct TileRasters {
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub point_density: Dfm<PointDensity>,
+    pub ground_point_density: Dfm<GroundPointDensity>,
     pub hydro_corrected: Dfm<HydroCorrected>,
     pub stream_flow: D8Flow,
 }
@@ -59,6 +62,7 @@ pub struct PreparedTile {
     building_cloud: Option<Arc<PointCloud>>,
     building_fit_cache: Mutex<BuildingFitCache>,
     building_detection_cache: Mutex<BuildingDetectionCache>,
+    marsh_hydrology_cache: Mutex<MarshHydrologyCache>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -207,6 +211,34 @@ struct BuildingDetectionCache {
     )>,
 }
 
+#[derive(Default)]
+struct MarshHydrologyCache {
+    entries: VecDeque<(u32, Arc<MarshHydrology>)>,
+}
+
+impl MarshHydrologyCache {
+    fn get(&mut self, drainage_area_bits: u32) -> Option<Arc<MarshHydrology>> {
+        let position = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| *candidate == drainage_area_bits)?;
+        let entry = self
+            .entries
+            .remove(position)
+            .expect("marsh-hydrology cache position exists");
+        let artifact = Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(artifact)
+    }
+
+    fn insert(&mut self, drainage_area_bits: u32, artifact: Arc<MarshHydrology>) {
+        if self.entries.len() == MARSH_HYDROLOGY_CACHE_ENTRIES_PER_TILE {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((drainage_area_bits, artifact));
+    }
+}
+
 impl BuildingDetectionCache {
     fn get(
         &mut self,
@@ -277,6 +309,27 @@ pub struct PipelineOutput {
     pub contour_energy: f32,
 }
 
+pub struct MarshOutput {
+    pub detection: map_gen::common::MarshDetection,
+    pub objects: Vec<MapObject>,
+}
+
+/// Compact set of rasters retained until final-map flow accumulation has been
+/// reconciled across tile boundaries. Point clouds, contour products, and
+/// unrelated observation rasters are dropped before this is queued.
+pub struct DeferredHydrologyTile {
+    pub dem: Dfm<Elevation>,
+    pub water: Dfm<Water>,
+    pub point_density: Dfm<PointDensity>,
+    pub ground_point_density: Dfm<GroundPointDensity>,
+    pub hydro_corrected: Dfm<HydroCorrected>,
+    pub stream_flow: D8Flow,
+    pub hull: geo::Polygon,
+    pub cut_overlay: geo::Polygon,
+    building_mask: Option<Dfm<BuildingProbability>>,
+    building_exclusions: geo::MultiPolygon,
+}
+
 #[derive(Clone, Copy, Default)]
 pub struct PipelineSteps {
     pub basemap: bool,
@@ -288,6 +341,7 @@ pub struct PipelineSteps {
     pub intensity: bool,
     pub water: bool,
     pub streams: bool,
+    pub marsh: bool,
 }
 
 impl PreparedTile {
@@ -305,6 +359,7 @@ impl PreparedTile {
             water,
             canopy_height,
             point_density,
+            ground_point_density,
             z_range,
         } = dfms;
 
@@ -328,6 +383,7 @@ impl PreparedTile {
                 water,
                 canopy_height,
                 point_density,
+                ground_point_density,
                 hydro_corrected,
                 stream_flow,
             },
@@ -340,6 +396,7 @@ impl PreparedTile {
             building_cloud: None,
             building_fit_cache: Mutex::new(BuildingFitCache::default()),
             building_detection_cache: Mutex::new(BuildingDetectionCache::default()),
+            marsh_hydrology_cache: Mutex::new(MarshHydrologyCache::default()),
         }
     }
 
@@ -465,6 +522,102 @@ impl PreparedTile {
         cache.insert(self.revision, params.clone(), Arc::clone(&detection));
         Ok(Some(detection))
     }
+
+    pub fn marsh_hydrology(&self, drainage_area_m2: f32) -> crate::Result<Arc<MarshHydrology>> {
+        let key = drainage_area_m2.to_bits();
+        let mut cache = self
+            .marsh_hydrology_cache
+            .lock()
+            .expect("marsh-hydrology cache poisoned");
+        if let Some(hydrology) = cache.get(key) {
+            return Ok(hydrology);
+        }
+        drop(cache);
+        let hydrology = Arc::new(self.rasters.stream_flow.marsh_hydrology(
+            &self.rasters.dem,
+            &self.rasters.hydro_corrected,
+            drainage_area_m2,
+        )?);
+        let mut cache = self
+            .marsh_hydrology_cache
+            .lock()
+            .expect("marsh-hydrology cache poisoned");
+        cache.insert(key, Arc::clone(&hydrology));
+        Ok(hydrology)
+    }
+
+    pub fn marsh_detection(
+        &self,
+        params: &MapParameters,
+        water_extent: &Dfm<crate::raster::FloodFill>,
+    ) -> crate::Result<map_gen::common::MarshDetection> {
+        let hydrology = self.marsh_hydrology(params.marsh.drainage_initiation_area_m2)?;
+        let building_detection = self.building_detection(&params.building)?;
+        map_gen::common::compute_marsh_detection(
+            &self.rasters.dem,
+            &self.rasters.stream_flow,
+            self.rasters.stream_flow.flow_accumulation(),
+            &hydrology,
+            &self.rasters.point_density,
+            &self.rasters.ground_point_density,
+            water_extent,
+            building_detection
+                .as_deref()
+                .map(map_gen::common::BuildingDetection::accepted_mask),
+            &params.marsh,
+        )
+    }
+
+    pub fn into_deferred_hydrology(
+        self,
+        params: &MapParameters,
+    ) -> crate::Result<DeferredHydrologyTile> {
+        let building_detection = self.building_detection(&params.building)?;
+        let building_mask = building_detection
+            .as_deref()
+            .map(map_gen::common::BuildingDetection::accepted_mask)
+            .cloned();
+        let building_exclusions = building_detection
+            .as_deref()
+            .map(|detection| {
+                geo::MultiPolygon::new(
+                    map_gen::common::building_objects(
+                        detection,
+                        &self.hull,
+                        &self.cut_overlay,
+                        &params.geometry.buildings.buffer_rules,
+                    )
+                    .into_iter()
+                    .filter_map(|object| match object {
+                        MapObject::Area { object, .. } => Some(object),
+                        _ => None,
+                    })
+                    .collect(),
+                )
+            })
+            .unwrap_or_else(|| geo::MultiPolygon::new(Vec::new()));
+        let TileRasters {
+            dem,
+            water,
+            point_density,
+            ground_point_density,
+            hydro_corrected,
+            stream_flow,
+            ..
+        } = self.rasters;
+        Ok(DeferredHydrologyTile {
+            dem,
+            water,
+            point_density,
+            ground_point_density,
+            hydro_corrected,
+            stream_flow,
+            hull: self.hull,
+            cut_overlay: self.cut_overlay,
+            building_mask,
+            building_exclusions,
+        })
+    }
 }
 
 impl TileRasters {
@@ -476,6 +629,119 @@ impl TileRasters {
             &self.high_vegetation,
             weights,
         )
+    }
+}
+
+/// Compute marsh diagnostics and polygons from the current (possibly
+/// cross-tile reconciled) D8 accumulation field.
+pub fn compute_marsh(tile: &PreparedTile, params: &MapParameters) -> crate::Result<MarshOutput> {
+    let water_extent = map_gen::common::compute_water_extent(
+        &tile.rasters.water,
+        &tile.rasters.hydro_corrected,
+        &tile.rasters.stream_flow,
+        params.water.threshold,
+        params.water.elevation_tolerance_m,
+        &params.water.seed_buffer_rules,
+        params.water.allow_downhill_flow,
+    );
+    let detection = tile.marsh_detection(params, &water_extent)?;
+
+    // Vector exclusions use the same cartographic buffers as the emitted
+    // water/building objects. The raster masks prevent classification inside
+    // them; this second pass removes sub-cell marching-squares overlap.
+    let mut exclusion_polygons = map_gen::common::compute_vegetation(
+        &water_extent,
+        Threshold::Lower(0.5),
+        &tile.hull,
+        &tile.cut_overlay,
+        AreaSymbol::UncrossableWaterWithBankLine,
+        params,
+        &params.geometry.water.buffer_rules,
+    )
+    .into_iter()
+    .filter_map(|object| match object {
+        MapObject::Area { object, .. } => Some(object),
+        _ => None,
+    })
+    .collect::<Vec<_>>();
+    if let Some(buildings) = tile.building_detection(&params.building)? {
+        exclusion_polygons.extend(
+            map_gen::common::building_objects(
+                &buildings,
+                &tile.hull,
+                &tile.cut_overlay,
+                &params.geometry.buildings.buffer_rules,
+            )
+            .into_iter()
+            .filter_map(|object| match object {
+                MapObject::Area { object, .. } => Some(object),
+                _ => None,
+            }),
+        );
+    }
+    let exclusions = geo::MultiPolygon::new(exclusion_polygons);
+    let objects = map_gen::common::marsh_objects(
+        &detection,
+        &tile.hull,
+        &tile.cut_overlay,
+        params,
+        &exclusions,
+    );
+    Ok(MarshOutput { detection, objects })
+}
+
+impl DeferredHydrologyTile {
+    pub fn compute_marsh(&self, params: &MapParameters) -> crate::Result<MarshOutput> {
+        let water_extent = map_gen::common::compute_water_extent(
+            &self.water,
+            &self.hydro_corrected,
+            &self.stream_flow,
+            params.water.threshold,
+            params.water.elevation_tolerance_m,
+            &params.water.seed_buffer_rules,
+            params.water.allow_downhill_flow,
+        );
+        let hydrology = self.stream_flow.marsh_hydrology(
+            &self.dem,
+            &self.hydro_corrected,
+            params.marsh.drainage_initiation_area_m2,
+        )?;
+        let detection = map_gen::common::compute_marsh_detection(
+            &self.dem,
+            &self.stream_flow,
+            self.stream_flow.flow_accumulation(),
+            &hydrology,
+            &self.point_density,
+            &self.ground_point_density,
+            &water_extent,
+            self.building_mask.as_ref(),
+            &params.marsh,
+        )?;
+        let mut exclusions = self.building_exclusions.clone();
+        exclusions.0.extend(
+            map_gen::common::compute_vegetation(
+                &water_extent,
+                Threshold::Lower(0.5),
+                &self.hull,
+                &self.cut_overlay,
+                AreaSymbol::UncrossableWaterWithBankLine,
+                params,
+                &params.geometry.water.buffer_rules,
+            )
+            .into_iter()
+            .filter_map(|object| match object {
+                MapObject::Area { object, .. } => Some(object),
+                _ => None,
+            }),
+        );
+        let objects = map_gen::common::marsh_objects(
+            &detection,
+            &self.hull,
+            &self.cut_overlay,
+            params,
+            &exclusions,
+        );
+        Ok(MarshOutput { detection, objects })
     }
 }
 
@@ -620,6 +886,10 @@ pub fn compute_tile(
         ));
     }
 
+    if steps.marsh && params.marsh.enabled {
+        objects.extend(compute_marsh(tile, params)?.objects);
+    }
+
     if steps.streams {
         objects.extend(map_gen::common::compute_streams(
             &tile.rasters.stream_flow,
@@ -675,6 +945,7 @@ fn resolve_building_conflicts(objects: &mut Vec<MapObject>) {
                     | AreaSymbol::LightGreen
                     | AreaSymbol::MediumGreen
                     | AreaSymbol::DarkGreen
+                    | AreaSymbol::Marsh
                     | AreaSymbol::PavedAreaWithBoundary),
                 tags,
             } => {

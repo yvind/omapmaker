@@ -1,9 +1,9 @@
 use crate::geometry::{PointCloud, PointLaz};
 use crate::parameters::VegetationWeights;
 use crate::raster::{
-    Dfm, Elevation, Ground, HeightAboveGround, HighVegetation, Intensity, LastReturn,
-    LowVegetation, MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns, SurfaceObjects,
-    Water,
+    Dfm, Elevation, Ground, GroundPointDensity, HeightAboveGround, HighVegetation, Intensity,
+    LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns,
+    SurfaceObjects, Water,
 };
 use crate::statistics::LidarStats;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
@@ -30,6 +30,7 @@ pub struct ComputedDfms {
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub point_density: Dfm<PointDensity>,
+    pub ground_point_density: Dfm<GroundPointDensity>,
     pub z_range: (f32, f32),
 }
 
@@ -48,6 +49,14 @@ pub fn compute_dfms(
     let mut dem = Dfm::<Elevation>::with_cut_bounds(tl, cut_bounds);
     let mut drm = Dfm::<Returns>::new_like(&dem);
     let mut dim = Dfm::<Intensity>::new_like(&dem);
+    // Preserve direct observation support before the ground points are moved
+    // into the interpolation triangulation. This raster is never smoothed in
+    // place; feature detectors derive their own metre-scale support products.
+    let ground_density = ground_cloud.observed_point_density(&dem);
+    let mut ground_point_density = Dfm::<GroundPointDensity>::new_like(&dem);
+    ground_point_density
+        .field
+        .copy_from_slice(&ground_density.field);
 
     // Because the z_bounds in the header gets wrecked by noise points
     let mut z_range = (f64::MAX, f64::MIN);
@@ -134,6 +143,7 @@ pub fn compute_dfms(
         water,
         canopy_height,
         point_density,
+        ground_point_density,
         z_range,
     })
 }

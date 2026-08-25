@@ -6,7 +6,7 @@ pub mod resample;
 
 pub use self::dfm::Dfm;
 pub use self::grid::{DfmGrid, DfmPixelBounds};
-pub use self::hydrology::{D8Flow, accumulate_cross_tile_flow};
+pub use self::hydrology::{D8Flow, MarshHydrology, accumulate_cross_tile_flow};
 #[allow(unused_imports)]
 pub use self::resample::MaskRestriction;
 
@@ -121,11 +121,29 @@ pub struct Ndvd;
 #[derive(Clone, Copy, Debug)]
 pub struct PointDensity;
 #[derive(Clone, Copy, Debug)]
+pub struct GroundPointDensity;
+#[derive(Clone, Copy, Debug)]
 pub struct HydroCorrected;
 #[derive(Clone, Copy, Debug)]
 pub struct FloodFill;
 #[derive(Clone, Copy, Debug)]
 pub struct FlowAccumulation;
+#[derive(Clone, Copy, Debug)]
+pub struct HeightAboveDrainage;
+#[derive(Clone, Copy, Debug)]
+pub struct DownslopeDistanceToDrainage;
+#[derive(Clone, Copy, Debug)]
+pub struct DepressionDepth;
+#[derive(Clone, Copy, Debug)]
+pub struct WetnessScore;
+#[derive(Clone, Copy, Debug)]
+pub struct MarshProbability;
+#[derive(Clone, Copy, Debug)]
+pub struct MarshSupport;
+#[derive(Clone, Copy, Debug)]
+pub struct MarshReason;
+#[derive(Clone, Copy, Debug)]
+pub struct MarshMask;
 
 /// Zero sized marker trait for strict typing on Dfm
 pub trait RasterMarker: Copy {}
@@ -151,7 +169,7 @@ macro_rules! mask_raster_markers {
     };
 }
 
-mask_raster_markers!(FloodFill, AdjustmentBoundMask);
+mask_raster_markers!(FloodFill, AdjustmentBoundMask, MarshMask);
 
 macro_rules! continuous_raster_markers {
     ($($marker:ty),+ $(,)?) => {
@@ -203,11 +221,20 @@ continuous_raster_markers!(
     Water,
     Ndvd,
     PointDensity,
-    FlowAccumulation
+    GroundPointDensity,
+    FlowAccumulation,
+    HeightAboveDrainage,
+    DownslopeDistanceToDrainage,
+    DepressionDepth,
+    WetnessScore,
+    MarshProbability,
+    MarshSupport
 );
 
 // Candidate IDs are categorical and must never be averaged during resampling.
 impl RasterMarker for BuildingCandidateId {}
+// Reason codes are categorical and must never be averaged during resampling.
+impl RasterMarker for MarshReason {}
 
 impl TerrainRasterMarker for Elevation {}
 impl TerrainRasterMarker for ContourTerrain {}

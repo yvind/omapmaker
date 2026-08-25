@@ -127,148 +127,28 @@ impl OmapMaker {
                     "All non-COPC lidar files are converted into COPC. This is a memory intensive process. Adjust the max allowed memory usage (in GB) with this slider."
                 );
 
-                ui.checkbox(
-                    &mut self.gui_variables.project.save_rasters,
-                    "Save rasters",
-                )
-                .on_hover_text(
-                    "Write selected generated rasters as merged GeoTIFF files next to the .omap output.",
-                );
-
-                if !self.gui_variables.project.save_rasters {
-                    self.gui_variables.project.save_dem_raster = false;
-                    self.gui_variables.project.save_slope_raster = false;
-                    self.gui_variables.project.save_hillshade_raster = false;
-                    self.gui_variables.project.save_intensity_raster = false;
-                    self.gui_variables.project.save_last_return_raster = false;
-                    self.gui_variables.project.save_canopy_height_raster = false;
-                    self.gui_variables.project.save_surface_objects_raster = false;
-                    self.gui_variables.project.save_ndvd_raster = false;
-                    self.gui_variables.project.save_point_density_raster = false;
-                    self.gui_variables.project.save_flow_accumulation_raster = false;
-                    self.gui_variables.project.save_building_height_raster = false;
-                    self.gui_variables.project.save_building_planarity_raster = false;
-                    self.gui_variables.project.save_building_residual_raster = false;
-                    self.gui_variables.project.save_building_probability_raster = false;
-                }
-
-                ui.indent("indented raster checkboxes", |ui| {
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_dem_raster,
-                            "Save DEM raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_slope_raster,
-                            "Save slope raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_hillshade_raster,
-                            "Save hillshade raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_intensity_raster,
-                            "Save intensity raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_last_return_raster,
-                            "Save last-return raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_canopy_height_raster,
-                            "Save canopy height raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_surface_objects_raster,
-                            "Save surface objects raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_ndvd_raster,
-                            "Save NDVD raster",
-                        ),
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_point_density_raster,
-                            "Save lidar point-density raster",
-                        ),
-                    )
+                ui.label("Rasters:");
+                egui::ScrollArea::vertical().max_height(200.).show(ui, |ui| {
+                    ui.checkbox(&mut self.gui_variables.project.save_dem_raster, "Save DEM raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_slope_raster,"Save slope raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_hillshade_raster,"Save hillshade raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_intensity_raster,"Save intensity raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_last_return_raster,"Save last-return raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_canopy_height_raster,"Save canopy height raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_surface_objects_raster,"Save surface objects raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_ndvd_raster,"Save NDVD raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_point_density_raster,"Save lidar point-density raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_flow_accumulation_raster, "Save flow accumulation raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_building_height_raster,"Save building height diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_building_planarity_raster,"Save building planarity diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_building_residual_raster,"Save building plane-residual diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_building_probability_raster,"Save building probability diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_marsh_probability_raster,"Save marsh probability diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_marsh_support_raster,"Save marsh observation-support diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_marsh_wetness_raster,"Save marsh wetness diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_marsh_reason_raster,"Save marsh reason-code diagnostic")
                     .on_hover_text(
-                        "Calculate points per square metre for each cell and scale the merged raster for image viewers.",
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self
-                                .gui_variables
-                                .project
-                                .save_flow_accumulation_raster,
-                            "Save flow accumulation raster",
-                        ),
-                    )
-                    .on_hover_text(
-                        "Save the D8 contributing catchment area as a merged GeoTIFF scaled for image viewers.",
-                    );
-
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_building_height_raster,
-                            "Save building height diagnostic",
-                        ),
-                    );
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_building_planarity_raster,
-                            "Save building planarity diagnostic",
-                        ),
-                    );
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_building_residual_raster,
-                            "Save building plane-residual diagnostic",
-                        ),
-                    );
-                    ui.add_enabled(
-                        self.gui_variables.project.save_rasters,
-                        egui::Checkbox::new(
-                            &mut self.gui_variables.project.save_building_probability_raster,
-                            "Save building probability diagnostic",
-                        ),
+                        "Codes: 1 insufficient support, 2 open water, 3 building, 4 non-planar surface, 5 edge-dependent drainage, 10 terrain planarity, 11 hydrology.",
                     );
                 });
             });
@@ -867,6 +747,149 @@ impl OmapMaker {
                     )
                     .on_hover_text(
                         "Minimum upstream area needed to map a small crossable watercourse. Candidates must also have positive cross-channel curvature in the original elevation model.",
+                    );
+                    ui.add_space(20.);
+                    ui.label(egui::RichText::new("Marsh detection").strong());
+                    ui.checkbox(
+                        &mut self.gui_variables.generation.params.marsh.enabled,
+                        "Generate marsh polygons",
+                    );
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self.gui_variables.generation.params.marsh.sensitivity,
+                            0.0..=1.0,
+                        )
+                        .text("Sensitivity")
+                        .show_value(true),
+                    )
+                    .on_hover_text(
+                        "Higher sensitivity lowers both seed and growth thresholds while retaining the expert evidence weights.",
+                    );
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .marsh
+                                .minimum_polygon_area_m2,
+                            1.0..=2_000.0,
+                        )
+                        .logarithmic(true)
+                        .text("Minimum marsh area (m²)")
+                        .show_value(true),
+                    );
+                    egui::CollapsingHeader::new("Advanced marsh evidence")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            let marsh = &mut self.gui_variables.generation.params.marsh;
+                            ui.add(
+                                egui::Slider::new(&mut marsh.planarity_radius_m, 0.5..=10.0)
+                                    .text("Local planarity radius (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.maximum_planarity_rmse_m,
+                                    0.01..=0.5,
+                                )
+                                .text("Maximum plane residual (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.drainage_initiation_area_m2,
+                                    100.0..=50_000.0,
+                                )
+                                .logarithmic(true)
+                                .text("Drainage initiation (m²)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.maximum_height_above_drainage_m,
+                                    0.1..=5.0,
+                                )
+                                .text("Maximum HAND (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.maximum_downslope_distance_m,
+                                    2.0..=150.0,
+                                )
+                                .text("Maximum drainage distance (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.preferred_depression_depth_m,
+                                    0.05..=1.5,
+                                )
+                                .text("Preferred depression depth (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.minimum_wetness_score,
+                                    0.0..=1.0,
+                                )
+                                .text("Minimum wetness"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut marsh.seed_threshold, 0.05..=1.0)
+                                    .text("Seed threshold"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut marsh.growth_threshold, 0.0..=0.95)
+                                    .text("Growth threshold"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut marsh.closing_radius_m, 0.0..=10.0)
+                                    .text("Closing radius (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut marsh.opening_radius_m, 0.0..=10.0)
+                                    .text("Opening radius (m)"),
+                            );
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut marsh.maximum_hole_area_m2,
+                                    0.0..=500.0,
+                                )
+                                .text("Fill holes up to (m²)"),
+                            );
+                            ui.separator();
+                            ui.label("Relative evidence weights");
+                            ui.add(
+                                egui::Slider::new(&mut marsh.weights.terrain, 0.0..=1.0)
+                                    .text("Terrain"),
+                            );
+                            ui.add(
+                                egui::Slider::new(&mut marsh.weights.hydrology, 0.0..=1.0)
+                                    .text("Hydrology"),
+                            );
+                        });
+                    ui.add_space(12.);
+                    ui.label(egui::RichText::new("Marsh Bezier simplification").strong());
+                    Self::render_bezier_parameters(
+                        ui,
+                        &mut self.gui_variables.generation.params.geometry.marsh.bezier,
+                    );
+                    ui.checkbox(
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .marsh
+                            .min_size_filter,
+                        "Filter marsh polygons by minimum symbol size.",
+                    );
+                    Self::render_buffer_rules(
+                        ui,
+                        "marsh_output_buffer_rule",
+                        &mut self
+                            .gui_variables
+                            .generation
+                            .params
+                            .geometry
+                            .marsh
+                            .buffer_rules,
                     );
                     ui.add_space(20.);
                     ui.label(egui::RichText::new("Water Bezier simplification").strong());

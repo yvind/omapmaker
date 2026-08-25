@@ -42,7 +42,7 @@ las = { version = "0.11.0", features = ["laz-parallel"] }
 copc_converter = "0.11.0"
 
 # write omap files
-omap = { path = "../omap-rs", features = ["geo_ref"] }
+omap = { version = "0.11.1", features = ["geo_ref"] }
 
 # better errors
 thiserror = "2"
@@ -50,5 +50,9 @@ anyhow = "1"
 
 # logging warnings and non-panic errors
 log = "0.4"
+
+# writing geotiffs
 geotiff-writer = "0.7.0"
+
+# needed??
 ndarray = "0.17.2"

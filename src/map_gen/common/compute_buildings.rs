@@ -42,6 +42,13 @@ pub struct BuildingDetection {
     accepted_mask: Dfm<BuildingProbability>,
 }
 
+impl BuildingDetection {
+    /// Accepted building cells for hard exclusion in other feature detectors.
+    pub fn accepted_mask(&self) -> &Dfm<BuildingProbability> {
+        &self.accepted_mask
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct Moments {
     count: f64,

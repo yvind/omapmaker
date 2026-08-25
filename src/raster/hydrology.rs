@@ -3,7 +3,10 @@ use std::{
     collections::{BinaryHeap, VecDeque},
 };
 
-use super::{Dfm, Elevation, FloodFill, FlowAccumulation, HydroCorrected, RasterMarker};
+use super::{
+    DepressionDepth, Dfm, DownslopeDistanceToDrainage, Elevation, FloodFill, FlowAccumulation,
+    HeightAboveDrainage, HydroCorrected, RasterMarker,
+};
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
 const NO_FLOW: u8 = u8::MAX;
@@ -35,11 +38,129 @@ pub struct D8Flow {
     positive_cross_channel_curvature: Box<[bool]>,
 }
 
+/// Terrain products shared by marsh scoring for one drainage-network
+/// initiation threshold.
+///
+/// `height_above_drainage` and `downslope_distance_to_drainage` are infinite
+/// when a cell does not reach a drainage cell inside the available processing
+/// halo. This keeps an edge-dependent or unsupported route distinguishable
+/// from a genuine zero value.
+pub struct MarshHydrology {
+    pub height_above_drainage: Dfm<HeightAboveDrainage>,
+    pub downslope_distance_to_drainage: Dfm<DownslopeDistanceToDrainage>,
+    pub depression_depth: Dfm<DepressionDepth>,
+}
+
 impl D8Flow {
     /// Contributing catchment area in square metres, including each cell's own
     /// area. Exposed for optional raster export and diagnostics.
     pub fn flow_accumulation(&self) -> &Dfm<FlowAccumulation> {
         &self.accumulation
+    }
+
+    /// Compute HAND, downslope distance to the connected drainage network,
+    /// and raw-versus-conditioned depression depth.
+    ///
+    /// The D8 field determines connectivity; a geometrically nearby channel
+    /// on the other side of a ridge is deliberately not accepted. Drainage
+    /// cells are selected by contributing area in square metres.
+    pub fn marsh_hydrology(
+        &self,
+        raw_dem: &Dfm<Elevation>,
+        hydro_corrected: &Dfm<HydroCorrected>,
+        drainage_initiation_area_m2: f32,
+    ) -> crate::Result<MarshHydrology> {
+        raw_dem.grid.ensure_compatible(&self.accumulation.grid)?;
+        raw_dem.grid.ensure_compatible(&hydro_corrected.grid)?;
+        anyhow::ensure!(
+            drainage_initiation_area_m2.is_finite() && drainage_initiation_area_m2 > 0.,
+            "marsh drainage-initiation area must be positive and finite"
+        );
+
+        let len = self.accumulation.field.len();
+        let no_target = usize::MAX;
+        let mut target = vec![no_target; len];
+        let mut distance = vec![f32::INFINITY; len];
+        let mut resolved = vec![false; len];
+        for (index, area) in self.accumulation.field.iter().copied().enumerate() {
+            if area.is_finite() && area >= drainage_initiation_area_m2 {
+                target[index] = index;
+                distance[index] = 0.;
+                resolved[index] = true;
+            }
+        }
+
+        // Resolve each downstream chain once. The corrected D8 graph is
+        // acyclic, but the local `on_path` guard keeps malformed external
+        // inputs from turning into an infinite loop.
+        let mut on_path = vec![false; len];
+        for start in 0..len {
+            if resolved[start] {
+                continue;
+            }
+            let mut path = Vec::new();
+            let mut node = start;
+            let endpoint = loop {
+                if resolved[node] {
+                    break Some(node);
+                }
+                if on_path[node] {
+                    break None;
+                }
+                on_path[node] = true;
+                path.push(node);
+                let Some(receiver) = receiver_index(node, self.directions[node]) else {
+                    break None;
+                };
+                node = receiver;
+            };
+
+            if let Some(endpoint) = endpoint
+                && target[endpoint] != no_target
+            {
+                let drainage_target = target[endpoint];
+                let mut downstream_distance = distance[endpoint];
+                let mut receiver = endpoint;
+                for &cell in path.iter().rev() {
+                    downstream_distance +=
+                        receiver_step_distance(cell, receiver, raw_dem.grid.cell_size_m as f32);
+                    target[cell] = drainage_target;
+                    distance[cell] = downstream_distance;
+                    resolved[cell] = true;
+                    receiver = cell;
+                }
+            } else {
+                for &cell in &path {
+                    resolved[cell] = true;
+                }
+            }
+            for cell in path {
+                on_path[cell] = false;
+            }
+        }
+
+        let mut height_above_drainage = Dfm::<HeightAboveDrainage>::new_like(raw_dem);
+        let mut downslope_distance_to_drainage =
+            Dfm::<DownslopeDistanceToDrainage>::new_like(raw_dem);
+        let mut depression_depth = Dfm::<DepressionDepth>::new_like(raw_dem);
+        for index in 0..len {
+            if target[index] == no_target {
+                height_above_drainage.field[index] = f32::INFINITY;
+                downslope_distance_to_drainage.field[index] = f32::INFINITY;
+            } else {
+                height_above_drainage.field[index] =
+                    (raw_dem.field[index] - raw_dem.field[target[index]]).max(0.);
+                downslope_distance_to_drainage.field[index] = distance[index];
+            }
+            depression_depth.field[index] =
+                (hydro_corrected.field[index] - raw_dem.field[index]).max(0.);
+        }
+
+        Ok(MarshHydrology {
+            height_above_drainage,
+            downslope_distance_to_drainage,
+            depression_depth,
+        })
     }
 
     /// Add every downstream D8 receiver reached by the supplied mask.
@@ -69,6 +190,51 @@ impl D8Flow {
                 queue.push_back(receiver);
             }
         }
+    }
+
+    /// Grow seed cells only across edges in the D8 flow graph.
+    ///
+    /// Both receiver and donor directions are traversed, so a wet seed can
+    /// expand down its flow path and across the contributing wet surface, but
+    /// cannot leak sideways into an unrelated adjacent hollow.
+    pub(crate) fn grow_mask_along_flow(&self, seeds: &[bool], candidates: &[bool]) -> Vec<bool> {
+        assert_eq!(seeds.len(), self.directions.len());
+        assert_eq!(candidates.len(), self.directions.len());
+        let mut retained = seeds.to_vec();
+        let mut queue = retained
+            .iter()
+            .enumerate()
+            .filter_map(|(index, retained)| retained.then_some(index))
+            .collect::<VecDeque<_>>();
+
+        while let Some(index) = queue.pop_front() {
+            if let Some(receiver) = receiver_index(index, self.directions[index])
+                && candidates[receiver]
+                && !retained[receiver]
+            {
+                retained[receiver] = true;
+                queue.push_back(receiver);
+            }
+
+            let y = index / TILE_SIZE_PIXELS;
+            let x = index % TILE_SIZE_PIXELS;
+            for direction in 0..8 {
+                let ny = y as isize + DY[direction];
+                let nx = x as isize + DX[direction];
+                if !in_grid(ny, nx) {
+                    continue;
+                }
+                let donor = ny as usize * TILE_SIZE_PIXELS + nx as usize;
+                if candidates[donor]
+                    && !retained[donor]
+                    && receiver_index(donor, self.directions[donor]) == Some(index)
+                {
+                    retained[donor] = true;
+                    queue.push_back(donor);
+                }
+            }
+        }
+        retained
     }
 
     /// Convert cells meeting `minimum_catchment_area_m2` into directed stream
@@ -138,6 +304,18 @@ impl D8Flow {
     fn coord(&self, index: usize) -> geo::Coord {
         self.accumulation
             .index2coord(index / TILE_SIZE_PIXELS, index % TILE_SIZE_PIXELS)
+    }
+}
+
+fn receiver_step_distance(source: usize, receiver: usize, cell_size_m: f32) -> f32 {
+    let source_y = source / TILE_SIZE_PIXELS;
+    let source_x = source % TILE_SIZE_PIXELS;
+    let receiver_y = receiver / TILE_SIZE_PIXELS;
+    let receiver_x = receiver % TILE_SIZE_PIXELS;
+    if source_x != receiver_x && source_y != receiver_y {
+        cell_size_m * std::f32::consts::SQRT_2
+    } else {
+        cell_size_m
     }
 }
 
@@ -731,6 +909,50 @@ mod tests {
         assert!(streams.0.iter().flatten().any(|coord| {
             (coord.x - centre as f64 * CELL_SIZE_METERS).abs() <= CELL_SIZE_METERS
         }));
+    }
+
+    #[test]
+    fn marsh_growth_follows_connected_flow_edges_not_lateral_adjacency() {
+        let flow = descending_valley().hydrological_analysis();
+        let centre = TILE_SIZE_PIXELS / 2;
+        let seed = 100 * TILE_SIZE_PIXELS + centre;
+        let upstream = 99 * TILE_SIZE_PIXELS + centre;
+        let downstream = 101 * TILE_SIZE_PIXELS + centre;
+        let farther_downstream = 102 * TILE_SIZE_PIXELS + centre;
+        let disconnected = 100 * TILE_SIZE_PIXELS + centre + 20;
+
+        let mut seeds = vec![false; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+        let mut candidates = vec![false; seeds.len()];
+        seeds[seed] = true;
+        for index in [upstream, downstream, farther_downstream, disconnected] {
+            candidates[index] = true;
+        }
+
+        let retained = flow.grow_mask_along_flow(&seeds, &candidates);
+        assert!(retained[seed]);
+        assert!(retained[upstream]);
+        assert!(retained[downstream]);
+        assert!(retained[farther_downstream]);
+        assert!(!retained[disconnected]);
+    }
+
+    #[test]
+    fn marsh_metrics_follow_connected_drainage_and_preserve_depression_depth() {
+        let mut dem = descending_valley();
+        let middle = TILE_SIZE_PIXELS / 2;
+        dem[(middle, middle + 30)] -= 20.;
+        let corrected = dem.hydrological_correction();
+        let flow = dem.hydrological_analysis_with_corrected(&corrected);
+        let outlet = (TILE_SIZE_PIXELS - 1, middle);
+        let outlet_area = flow.accumulation[outlet];
+        let metrics = flow.marsh_hydrology(&dem, &corrected, outlet_area).unwrap();
+
+        assert_eq!(metrics.height_above_drainage[outlet], 0.);
+        assert_eq!(metrics.downslope_distance_to_drainage[outlet], 0.);
+        let upstream = (TILE_SIZE_PIXELS - 20, middle);
+        assert!(metrics.height_above_drainage[upstream] > 0.);
+        assert!(metrics.downslope_distance_to_drainage[upstream] > 0.);
+        assert!(metrics.depression_depth[(middle, middle + 30)] > 0.);
     }
 
     #[test]
