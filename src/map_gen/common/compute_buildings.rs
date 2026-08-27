@@ -14,13 +14,11 @@ use crate::{
     },
 };
 
-const MINIMUM_FIT_SUPPORT: u32 = 6;
-const FIT_ELEVATION_FLOOR_M: f64 = 0.5;
 const FIT_ELEVATION_CEILING_M: f64 = 100.;
-const PLANAR_POINT_TOLERANCE_M: f64 = 0.25;
+const MINIMUM_RANSAC_SAMPLE_SIZE: usize = 3;
 
-/// Expensive point-derived products. This is cached independently of the
-/// candidate thresholds so changing those thresholds does not repeat fitting.
+/// Candidate-local RANSAC diagnostics. The expensive fit cache tracks only
+/// candidate discovery and plane-model parameters, not acceptance scoring.
 pub struct BuildingSurfaceFit {
     pub height_mean: Dfm<HeightAboveGroundMean>,
     pub height_max: Dfm<HeightAboveGroundMax>,
@@ -39,6 +37,9 @@ pub struct BuildingSurfaceFit {
 pub struct BuildingDetection {
     pub probability: Dfm<BuildingProbability>,
     pub candidate_id: Dfm<BuildingCandidateId>,
+    /// Non-vegetation elevated candidates that lacked enough planar support.
+    /// The independent cliff detector can confirm the rocky subset as boulders.
+    pub plane_rejected_mask: Dfm<BuildingProbability>,
     accepted_mask: Dfm<BuildingProbability>,
 }
 
@@ -46,67 +47,6 @@ impl BuildingDetection {
     /// Accepted building cells for hard exclusion in other feature detectors.
     pub fn accepted_mask(&self) -> &Dfm<BuildingProbability> {
         &self.accepted_mask
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-struct Moments {
-    count: f64,
-    x: f64,
-    y: f64,
-    z: f64,
-    xx: f64,
-    xy: f64,
-    yy: f64,
-    xz: f64,
-    yz: f64,
-    zz: f64,
-}
-
-impl Moments {
-    fn sample(x: f64, y: f64, z: f64) -> Self {
-        Self {
-            count: 1.,
-            x,
-            y,
-            z,
-            xx: x * x,
-            xy: x * y,
-            yy: y * y,
-            xz: x * z,
-            yz: y * z,
-            zz: z * z,
-        }
-    }
-
-    fn add(self, rhs: Self) -> Self {
-        Self {
-            count: self.count + rhs.count,
-            x: self.x + rhs.x,
-            y: self.y + rhs.y,
-            z: self.z + rhs.z,
-            xx: self.xx + rhs.xx,
-            xy: self.xy + rhs.xy,
-            yy: self.yy + rhs.yy,
-            xz: self.xz + rhs.xz,
-            yz: self.yz + rhs.yz,
-            zz: self.zz + rhs.zz,
-        }
-    }
-
-    fn sub(self, rhs: Self) -> Self {
-        Self {
-            count: self.count - rhs.count,
-            x: self.x - rhs.x,
-            y: self.y - rhs.y,
-            z: self.z - rhs.z,
-            xx: self.xx - rhs.xx,
-            xy: self.xy - rhs.xy,
-            yy: self.yy - rhs.yy,
-            xz: self.xz - rhs.xz,
-            yz: self.yz - rhs.yz,
-            zz: self.zz - rhs.zz,
-        }
     }
 }
 
@@ -124,33 +64,113 @@ struct ElevatedSample {
     number_of_returns: u8,
 }
 
-/// Fits one deterministic least-squares plane around every occupied elevated
-/// cell. Exact duplicate returns are removed before moments are accumulated,
-/// preventing overlapping source files from increasing support artificially.
+#[derive(Clone, Copy)]
+struct Plane {
+    // ax + by + cz + d = 0; the normal is always unit length and points up.
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+}
+
+struct CandidatePlaneModel {
+    plane: Plane,
+    inliers: Vec<usize>,
+    rmse: f64,
+}
+
+struct CandidateComponent {
+    cells: Vec<usize>,
+    samples: Vec<ElevatedSample>,
+}
+
+/// Finds candidates in a single-return DSM-minus-DEM raster, then fits one or
+/// more planes to the last returns around each candidate using RANSAC.
 pub fn compute_building_surface_fit(
     cloud: &PointCloud,
     dem: &Dfm<Elevation>,
-    plane_fit_radius_m: f64,
+    params: &BuildingParameters,
 ) -> crate::Result<BuildingSurfaceFit> {
     anyhow::ensure!(
-        plane_fit_radius_m.is_finite() && plane_fit_radius_m >= dem.grid.cell_size_m,
-        "building plane-fit radius must be finite and at least one raster cell"
+        valid_ransac_parameters(params, dem.grid.cell_size_m),
+        "invalid building candidate or RANSAC parameters"
     );
 
     let width = dem.width();
     let height = dem.height();
     let cell_count = width * height;
-    let mut samples = Vec::new();
+    let mut single_return_dsm_minus_dem = vec![0_f32; cell_count];
+    let mut authoritative_class_6 = vec![false; cell_count];
 
+    // Candidate discovery is deliberately raster-only and linear in the point
+    // count. An exact cell maximum is more appropriate for a DSM than the
+    // power-mean canopy raster used by the vegetation pipeline.
     for point in &cloud.points {
-        let xi = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
-        let yi = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
-        if xi < 0 || yi < 0 || xi >= width as isize || yi >= height as isize {
+        let Some(cell) = point_cell(point.x(), point.y(), dem) else {
+            continue;
+        };
+        let point_height = point.0.z - f64::from(dem.field[cell]);
+        if !point_height.is_finite() || !(0.0..=FIT_ELEVATION_CEILING_M).contains(&point_height) {
             continue;
         }
-        let cell = yi as usize * width + xi as usize;
+        if point.0.return_number == 1 && point.0.number_of_returns == 1 {
+            single_return_dsm_minus_dem[cell] =
+                single_return_dsm_minus_dem[cell].max(point_height as f32);
+        }
+        if params.class_6_evidence == BuildingClassificationEvidence::Authoritative
+            && point.0.classification == Classification::Building
+            && point_height > f64::from(params.minimum_roof_height_m)
+            && point_height <= f64::from(params.maximum_roof_height_m)
+        {
+            authoritative_class_6[cell] = true;
+        }
+    }
+
+    let mut candidate_mask = single_return_dsm_minus_dem
+        .iter()
+        .zip(authoritative_class_6)
+        .map(|(&height, class_6)| {
+            class_6
+                || (height > params.minimum_roof_height_m && height <= params.maximum_roof_height_m)
+        })
+        .collect::<Vec<_>>();
+    let merge_radius = ((params.merge_gap_m / (2. * dem.grid.cell_size_m)).ceil() as usize)
+        .max(usize::from(params.merge_gap_m > 0.));
+    candidate_mask = close_mask(&candidate_mask, width, height, merge_radius);
+    fill_small_holes(
+        &mut candidate_mask,
+        width,
+        height,
+        dem.grid.cell_size_m.powi(2),
+        params.maximum_candidate_hole_area_m2,
+    );
+    let (candidate_ids, candidate_cells) =
+        label_candidate_components(&candidate_mask, width, height);
+    let mut candidates = candidate_cells
+        .into_iter()
+        .map(|cells| CandidateComponent {
+            cells,
+            samples: Vec::new(),
+        })
+        .collect::<Vec<_>>();
+
+    // RANSAC sees only last/only returns strictly above the configured roof
+    // floor. Points just outside a raster component are assigned to the
+    // nearest candidate within the search radius, which fills sampling holes
+    // without ever fitting the rest of the tile.
+    let mut samples = Vec::new();
+    for point in &cloud.points {
+        if point.0.number_of_returns == 0 || point.0.return_number != point.0.number_of_returns {
+            continue;
+        }
+        let Some(cell) = point_cell(point.x(), point.y(), dem) else {
+            continue;
+        };
         let point_height = point.0.z - f64::from(dem.field[cell]);
-        if !(FIT_ELEVATION_FLOOR_M..=FIT_ELEVATION_CEILING_M).contains(&point_height) {
+        if point_height <= f64::from(params.minimum_roof_height_m)
+            || point_height > f64::from(params.maximum_roof_height_m)
+            || point_height > FIT_ELEVATION_CEILING_M
+        {
             continue;
         }
         let vegetation_class = matches!(
@@ -178,7 +198,6 @@ pub fn compute_building_surface_fit(
             number_of_returns: point.0.number_of_returns,
         });
     }
-
     samples.sort_by(|a, b| {
         a.x.total_cmp(&b.x)
             .then_with(|| a.y.total_cmp(&b.y))
@@ -194,35 +213,19 @@ pub fn compute_building_surface_fit(
             && a.return_number == b.return_number
             && a.number_of_returns == b.number_of_returns
     });
-
-    let mut cell_moments = vec![Moments::default(); cell_count];
-    let mut height_sums = vec![0.; cell_count];
-    let mut height_maxima = vec![0_f64; cell_count];
-    let mut point_counts = vec![0_u32; cell_count];
-    let mut vegetation_counts = vec![0_u32; cell_count];
-    let mut class_6_counts = vec![0_u32; cell_count];
-    for sample in &samples {
-        cell_moments[sample.cell] =
-            cell_moments[sample.cell].add(Moments::sample(sample.x, sample.y, sample.z));
-        height_sums[sample.cell] += sample.height;
-        height_maxima[sample.cell] = height_maxima[sample.cell].max(sample.height);
-        point_counts[sample.cell] += 1;
-        vegetation_counts[sample.cell] += u32::from(sample.vegetation_evidence);
-        class_6_counts[sample.cell] += u32::from(sample.class_6);
+    let assignment_radius = (params.plane_fit_radius_m / dem.grid.cell_size_m).ceil() as usize;
+    for sample in samples {
+        let Some(candidate_id) = nearest_candidate_id(
+            sample.cell,
+            &candidate_ids,
+            width,
+            height,
+            assignment_radius,
+        ) else {
+            continue;
+        };
+        candidates[candidate_id as usize - 1].samples.push(sample);
     }
-
-    let prefix_width = width + 1;
-    let mut prefix = vec![Moments::default(); prefix_width * (height + 1)];
-    for y in 0..height {
-        for x in 0..width {
-            let destination = (y + 1) * prefix_width + x + 1;
-            prefix[destination] = cell_moments[y * width + x]
-                .add(prefix[y * prefix_width + x + 1])
-                .add(prefix[(y + 1) * prefix_width + x])
-                .sub(prefix[y * prefix_width + x]);
-        }
-    }
-    drop(cell_moments);
 
     let mut height_mean = Dfm::<HeightAboveGroundMean>::new_like(dem);
     let mut height_max = Dfm::<HeightAboveGroundMax>::new_like(dem);
@@ -244,77 +247,72 @@ pub fn compute_building_surface_fit(
         raster.fill(0.);
     }
     plane_residual.field.fill(f32::INFINITY);
-
     let mut vegetation_fraction = vec![0.; cell_count].into_boxed_slice();
     let mut class_6_fraction = vec![0.; cell_count].into_boxed_slice();
-    let mut plane_coefficients = vec![None; cell_count];
-    let radius_cells = (plane_fit_radius_m / dem.grid.cell_size_m).ceil() as usize;
 
-    for y in 0..height {
-        for x in 0..width {
-            let index = y * width + x;
-            let own_count = point_counts[index];
-            if own_count == 0 {
-                continue;
-            }
-            height_mean.field[index] = (height_sums[index] / f64::from(own_count)) as f32;
-            height_max.field[index] = height_maxima[index] as f32;
-            elevated_point_count.field[index] = own_count as f32;
-            vegetation_fraction[index] = vegetation_counts[index] as f32 / own_count as f32;
-            class_6_fraction[index] = class_6_counts[index] as f32 / own_count as f32;
-
-            let top = y.saturating_sub(radius_cells);
-            let bottom = (y + radius_cells + 1).min(height);
-            let left = x.saturating_sub(radius_cells);
-            let right = (x + radius_cells + 1).min(width);
-            let neighborhood = rectangle_sum(&prefix, prefix_width, top, left, bottom, right);
-            if neighborhood.count < f64::from(MINIMUM_FIT_SUPPORT) {
-                continue;
-            }
-
-            let mean_x = neighborhood.x / neighborhood.count;
-            let mean_y = neighborhood.y / neighborhood.count;
-            let mean_z = neighborhood.z / neighborhood.count;
-            let xx = neighborhood.xx - neighborhood.x * mean_x;
-            let xy = neighborhood.xy - neighborhood.x * mean_y;
-            let yy = neighborhood.yy - neighborhood.y * mean_y;
-            let xz = neighborhood.xz - neighborhood.x * mean_z;
-            let yz = neighborhood.yz - neighborhood.y * mean_z;
-            let zz = (neighborhood.zz - neighborhood.z * mean_z).max(0.);
-            let determinant = xx * yy - xy * xy;
-            if determinant <= 1e-10 * (xx * yy).max(1.) {
-                continue;
-            }
-            let slope_x = (xz * yy - yz * xy) / determinant;
-            let slope_y = (yz * xx - xz * xy) / determinant;
-            let residual_sum = (zz - slope_x * xz - slope_y * yz).max(0.);
-            let residual = (residual_sum / neighborhood.count).sqrt();
-            let normal_length = (slope_x * slope_x + slope_y * slope_y + 1.).sqrt();
-            normal_x.field[index] = (-slope_x / normal_length) as f32;
-            normal_y.field[index] = (-slope_y / normal_length) as f32;
-            normal_z.field[index] = (1. / normal_length) as f32;
-            plane_residual.field[index] = residual as f32;
-            plane_coefficients[index] = Some((
-                slope_x,
-                slope_y,
-                mean_z - slope_x * mean_x - slope_y * mean_y,
-            ));
+    for (candidate_index, candidate) in candidates.into_iter().enumerate() {
+        let point_count = candidate.samples.len();
+        if point_count == 0 {
+            continue;
         }
-    }
-    drop(prefix);
+        let divisor = point_count as f64;
+        let mean_height = (candidate
+            .samples
+            .iter()
+            .map(|point| point.height)
+            .sum::<f64>()
+            / divisor) as f32;
+        let maximum_height = candidate
+            .samples
+            .iter()
+            .map(|point| point.height)
+            .fold(0_f64, f64::max) as f32;
+        let vegetation = candidate
+            .samples
+            .iter()
+            .filter(|point| point.vegetation_evidence)
+            .count() as f32
+            / point_count as f32;
+        let class_6 = candidate
+            .samples
+            .iter()
+            .filter(|point| point.class_6)
+            .count() as f32
+            / point_count as f32;
+        let models = fit_candidate_planes(&candidate.samples, params, candidate_index as u64 + 1);
+        let inlier_count = models
+            .iter()
+            .map(|model| model.inliers.len())
+            .sum::<usize>();
+        let planarity = inlier_count as f32 / point_count as f32;
+        let residual = if inlier_count == 0 {
+            f32::INFINITY
+        } else {
+            (models
+                .iter()
+                .map(|model| model.rmse.powi(2) * model.inliers.len() as f64)
+                .sum::<f64>()
+                / inlier_count as f64)
+                .sqrt() as f32
+        };
+        let dominant_plane = models
+            .iter()
+            .max_by_key(|model| model.inliers.len())
+            .map(|model| model.plane);
 
-    let mut planar_counts = vec![0_u32; cell_count];
-    for sample in &samples {
-        if let Some((slope_x, slope_y, intercept)) = plane_coefficients[sample.cell] {
-            let predicted = slope_x * sample.x + slope_y * sample.y + intercept;
-            planar_counts[sample.cell] +=
-                u32::from((sample.z - predicted).abs() <= PLANAR_POINT_TOLERANCE_M);
-        }
-    }
-    for (index, &planar_count) in planar_counts.iter().enumerate() {
-        let count = elevated_point_count.field[index];
-        if count > 0. {
-            planar_point_fraction.field[index] = planar_count as f32 / count;
+        for cell in candidate.cells {
+            height_mean.field[cell] = mean_height;
+            height_max.field[cell] = maximum_height;
+            elevated_point_count.field[cell] = point_count as f32;
+            planar_point_fraction.field[cell] = planarity;
+            plane_residual.field[cell] = residual;
+            vegetation_fraction[cell] = vegetation;
+            class_6_fraction[cell] = class_6;
+            if let Some(plane) = dominant_plane {
+                normal_x.field[cell] = plane.a as f32;
+                normal_y.field[cell] = plane.b as f32;
+                normal_z.field[cell] = plane.c as f32;
+            }
         }
     }
 
@@ -332,39 +330,333 @@ pub fn compute_building_surface_fit(
     })
 }
 
-fn rectangle_sum(
-    prefix: &[Moments],
-    stride: usize,
-    top: usize,
-    left: usize,
-    bottom: usize,
-    right: usize,
-) -> Moments {
-    prefix[bottom * stride + right]
-        .sub(prefix[top * stride + right])
-        .sub(prefix[bottom * stride + left])
-        .add(prefix[top * stride + left])
+fn point_cell<T: crate::raster::RasterMarker>(x: f64, y: f64, raster: &Dfm<T>) -> Option<usize> {
+    let xi = ((x - raster.grid.top_left.x) / raster.grid.cell_size_m).round() as isize;
+    let yi = ((raster.grid.top_left.y - y) / raster.grid.cell_size_m).round() as isize;
+    (xi >= 0 && yi >= 0 && xi < raster.width() as isize && yi < raster.height() as isize)
+        .then_some(yi as usize * raster.width() + xi as usize)
+}
+
+fn label_candidate_components(
+    mask: &[bool],
+    width: usize,
+    height: usize,
+) -> (Vec<u32>, Vec<Vec<usize>>) {
+    let mut ids = vec![0_u32; mask.len()];
+    let mut components = Vec::new();
+    for start in 0..mask.len() {
+        if !mask[start] || ids[start] != 0 {
+            continue;
+        }
+        let id = components.len() as u32 + 1;
+        ids[start] = id;
+        let mut queue = VecDeque::from([start]);
+        let mut cells = Vec::new();
+        while let Some(cell) = queue.pop_front() {
+            cells.push(cell);
+            let y = cell / width;
+            let x = cell % width;
+            for neighbor in neighbors8(y, x, width, height) {
+                if mask[neighbor] && ids[neighbor] == 0 {
+                    ids[neighbor] = id;
+                    queue.push_back(neighbor);
+                }
+            }
+        }
+        components.push(cells);
+    }
+    (ids, components)
+}
+
+fn nearest_candidate_id(
+    cell: usize,
+    candidate_ids: &[u32],
+    width: usize,
+    height: usize,
+    radius: usize,
+) -> Option<u32> {
+    if candidate_ids[cell] != 0 {
+        return Some(candidate_ids[cell]);
+    }
+    let y = cell / width;
+    let x = cell % width;
+    let top = y.saturating_sub(radius);
+    let bottom = (y + radius).min(height - 1);
+    let left = x.saturating_sub(radius);
+    let right = (x + radius).min(width - 1);
+    let mut best = None;
+    let mut best_distance = usize::MAX;
+    for yi in top..=bottom {
+        for xi in left..=right {
+            let id = candidate_ids[yi * width + xi];
+            if id == 0 {
+                continue;
+            }
+            let distance = yi.abs_diff(y).pow(2) + xi.abs_diff(x).pow(2);
+            if distance <= radius.pow(2)
+                && (distance < best_distance || (distance == best_distance && Some(id) < best))
+            {
+                best = Some(id);
+                best_distance = distance;
+            }
+        }
+    }
+    best
+}
+
+fn fit_candidate_planes(
+    points: &[ElevatedSample],
+    params: &BuildingParameters,
+    seed: u64,
+) -> Vec<CandidatePlaneModel> {
+    let mut remaining = (0..points.len()).collect::<Vec<_>>();
+    let mut models = Vec::new();
+    let mut rng = DeterministicRng::new(seed);
+    while models.len() < params.maximum_roof_planes {
+        let Some(model) = fit_ransac_plane(points, &remaining, params, &mut rng) else {
+            break;
+        };
+        let mut inlier = vec![false; points.len()];
+        for &index in &model.inliers {
+            inlier[index] = true;
+        }
+        remaining.retain(|&index| !inlier[index]);
+        models.push(model);
+        if remaining.len() < params.minimum_plane_inliers.max(params.ransac_sample_size) {
+            break;
+        }
+    }
+    models
+}
+
+fn fit_ransac_plane(
+    points: &[ElevatedSample],
+    remaining: &[usize],
+    params: &BuildingParameters,
+    rng: &mut DeterministicRng,
+) -> Option<CandidatePlaneModel> {
+    let sample_size = params.ransac_sample_size.max(MINIMUM_RANSAC_SAMPLE_SIZE);
+    let minimum_inliers = params.minimum_plane_inliers.max(sample_size);
+    if remaining.len() < minimum_inliers {
+        return None;
+    }
+    let mut best: Option<CandidatePlaneModel> = None;
+    for _ in 0..params.ransac_iterations {
+        let sample = sample_without_replacement(remaining, sample_size, rng);
+        let Some(model) = Plane::from_points(points, &sample) else {
+            continue;
+        };
+        if model.slope_degrees() > f64::from(params.maximum_roof_slope_degrees) {
+            continue;
+        }
+        let inliers = plane_inliers(model, points, remaining, params.maximum_plane_residual_m);
+        if inliers.len() < minimum_inliers {
+            continue;
+        }
+        let Some(refined) = Plane::from_points(points, &inliers) else {
+            continue;
+        };
+        if refined.slope_degrees() > f64::from(params.maximum_roof_slope_degrees) {
+            continue;
+        }
+        let refined_inliers =
+            plane_inliers(refined, points, remaining, params.maximum_plane_residual_m);
+        if refined_inliers.len() < minimum_inliers {
+            continue;
+        }
+        let rmse = refined.rmse(points, &refined_inliers);
+        let replace = best.as_ref().is_none_or(|current| {
+            refined_inliers.len() > current.inliers.len()
+                || (refined_inliers.len() == current.inliers.len() && rmse < current.rmse)
+        });
+        if replace {
+            best = Some(CandidatePlaneModel {
+                plane: refined,
+                inliers: refined_inliers,
+                rmse,
+            });
+        }
+    }
+    best
+}
+
+fn plane_inliers(
+    plane: Plane,
+    points: &[ElevatedSample],
+    candidates: &[usize],
+    threshold: f32,
+) -> Vec<usize> {
+    candidates
+        .iter()
+        .copied()
+        .filter(|&index| plane.residual(&points[index]) <= f64::from(threshold))
+        .collect()
+}
+
+impl Plane {
+    /// Orthogonal least-squares plane using the best-conditioned covariance
+    /// minor, adapted from WhiteboxTools' `LidarRansacPlanes` implementation.
+    fn from_points(points: &[ElevatedSample], indices: &[usize]) -> Option<Self> {
+        if indices.len() < MINIMUM_RANSAC_SAMPLE_SIZE {
+            return None;
+        }
+        let count = indices.len() as f64;
+        let mut centroid = [0.; 3];
+        for &index in indices {
+            centroid[0] += points[index].x;
+            centroid[1] += points[index].y;
+            centroid[2] += points[index].z;
+        }
+        for value in &mut centroid {
+            *value /= count;
+        }
+        let (mut xx, mut xy, mut xz, mut yy, mut yz, mut zz) = (0., 0., 0., 0., 0., 0.);
+        for &index in indices {
+            let x = points[index].x - centroid[0];
+            let y = points[index].y - centroid[1];
+            let z = points[index].z - centroid[2];
+            xx += x * x;
+            xy += x * y;
+            xz += x * z;
+            yy += y * y;
+            yz += y * z;
+            zz += z * z;
+        }
+        let det_x = yy * zz - yz * yz;
+        let det_y = xx * zz - xz * xz;
+        let det_z = xx * yy - xy * xy;
+        let det_max = det_x.max(det_y).max(det_z);
+        if !det_max.is_finite() || det_max <= 1e-12 {
+            return None;
+        }
+        let (mut a, mut b, mut c) = if det_max == det_x {
+            (1., (xz * yz - xy * zz) / det_x, (xy * yz - xz * yy) / det_x)
+        } else if det_max == det_y {
+            ((yz * xz - xy * zz) / det_y, 1., (xy * xz - yz * xx) / det_y)
+        } else {
+            ((yz * xy - xz * yy) / det_z, (xz * xy - yz * xx) / det_z, 1.)
+        };
+        let norm = (a * a + b * b + c * c).sqrt();
+        if !norm.is_finite() || norm <= f64::EPSILON {
+            return None;
+        }
+        a /= norm;
+        b /= norm;
+        c /= norm;
+        if c < 0. {
+            a = -a;
+            b = -b;
+            c = -c;
+        }
+        let d = -a * centroid[0] - b * centroid[1] - c * centroid[2];
+        Some(Self { a, b, c, d })
+    }
+
+    fn residual(self, point: &ElevatedSample) -> f64 {
+        // The normal is normalized in `from_points`, so this is an orthogonal
+        // point-to-plane distance rather than a vertical z residual.
+        (self.a * point.x + self.b * point.y + self.c * point.z + self.d).abs()
+    }
+
+    fn rmse(self, points: &[ElevatedSample], indices: &[usize]) -> f64 {
+        (indices
+            .iter()
+            .map(|&index| self.residual(&points[index]).powi(2))
+            .sum::<f64>()
+            / indices.len().max(1) as f64)
+            .sqrt()
+    }
+
+    fn slope_degrees(self) -> f64 {
+        self.c.abs().clamp(0., 1.).acos().to_degrees()
+    }
+}
+
+struct DeterministicRng(u64);
+
+impl DeterministicRng {
+    fn new(seed: u64) -> Self {
+        Self(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15).max(1))
+    }
+
+    fn index(&mut self, upper_bound: usize) -> usize {
+        let mut value = self.0;
+        value ^= value << 13;
+        value ^= value >> 7;
+        value ^= value << 17;
+        self.0 = value;
+        ((u128::from(value) * upper_bound as u128) >> 64) as usize
+    }
+}
+
+fn sample_without_replacement(
+    population: &[usize],
+    sample_size: usize,
+    rng: &mut DeterministicRng,
+) -> Vec<usize> {
+    let mut positions = Vec::with_capacity(sample_size);
+    for current in population.len() - sample_size..population.len() {
+        let draw = rng.index(current + 1);
+        positions.push(if positions.contains(&draw) {
+            current
+        } else {
+            draw
+        });
+    }
+    positions
+        .into_iter()
+        .map(|position| population[position])
+        .collect()
+}
+
+fn valid_ransac_parameters(params: &BuildingParameters, cell_size_m: f64) -> bool {
+    params.minimum_roof_height_m.is_finite()
+        && params.maximum_roof_height_m.is_finite()
+        && params.maximum_roof_height_m > params.minimum_roof_height_m
+        && params.plane_fit_radius_m.is_finite()
+        && params.plane_fit_radius_m >= cell_size_m
+        && params.maximum_plane_residual_m.is_finite()
+        && params.maximum_plane_residual_m > 0.
+        && params.ransac_iterations > 0
+        && params.ransac_sample_size >= MINIMUM_RANSAC_SAMPLE_SIZE
+        && params.minimum_plane_inliers >= params.ransac_sample_size
+        && params.maximum_roof_planes > 0
+        && params.maximum_roof_slope_degrees.is_finite()
+        && (0.0..90.0).contains(&params.maximum_roof_slope_degrees)
+        && params.maximum_candidate_hole_area_m2.is_finite()
+        && params.maximum_candidate_hole_area_m2 >= 0.
+        && params.merge_gap_m.is_finite()
+        && params.merge_gap_m >= 0.
 }
 
 pub fn detect_buildings(
     fit: &BuildingSurfaceFit,
     params: &BuildingParameters,
 ) -> BuildingDetection {
+    debug_assert!(
+        fit.normal_x.grid.same_layout(&fit.height_mean.grid)
+            && fit.normal_y.grid.same_layout(&fit.height_mean.grid)
+            && fit.normal_z.grid.same_layout(&fit.height_mean.grid),
+        "building fit diagnostics must use one grid"
+    );
     let width = fit.height_mean.width();
     let height = fit.height_mean.height();
     let cell_count = width * height;
     let mut probability = Dfm::<BuildingProbability>::new_like(&fit.height_mean);
     let mut candidate_id = Dfm::<BuildingCandidateId>::new_like(&fit.height_mean);
     let mut accepted_mask = Dfm::<BuildingProbability>::new_like(&fit.height_mean);
+    let mut plane_rejected_mask = Dfm::<BuildingProbability>::new_like(&fit.height_mean);
     probability.field.fill(0.);
     candidate_id.field.fill(0.);
     accepted_mask.field.fill(0.);
+    plane_rejected_mask.field.fill(0.);
 
     if !params.enabled || !valid_parameters(params) {
         return BuildingDetection {
             probability,
             candidate_id,
             accepted_mask,
+            plane_rejected_mask,
         };
     }
 
@@ -384,7 +676,7 @@ pub fn detect_buildings(
             && fit.planar_point_fraction.field[index] >= params.minimum_planar_point_fraction
             && fit.vegetation_fraction[index] <= params.maximum_vegetation_fraction
             && fit.normal_z.field[index] > 0.;
-        if !regular_seed && !(authoritative && height_max >= FIT_ELEVATION_FLOOR_M as f32) {
+        if !regular_seed && !(authoritative && height_max > params.minimum_roof_height_m) {
             continue;
         }
 
@@ -412,10 +704,10 @@ pub fn detect_buildings(
         local_scores[index] = score;
     }
 
-    let retained_facets = retain_roof_facets(&seeds, fit, params, width, height);
+    let retained_candidates = retain_candidate_components(&seeds, fit, params, width, height);
     let radius = ((params.merge_gap_m / (2. * fit.height_mean.grid.cell_size_m)).ceil() as usize)
         .max(usize::from(params.merge_gap_m > 0.));
-    let mut merged = close_mask(&retained_facets, width, height, radius);
+    let mut merged = close_mask(&retained_candidates, width, height, radius);
     fill_small_holes(
         &mut merged,
         width,
@@ -434,10 +726,26 @@ pub fn detect_buildings(
         &mut accepted_mask.field,
     );
 
+    for index in 0..cell_count {
+        let authoritative = params.class_6_evidence
+            == BuildingClassificationEvidence::Authoritative
+            && fit.class_6_fraction[index] >= 0.5;
+        let failed_plane_fit = fit.elevated_point_count.field[index] > 0.
+            && (fit.normal_z.field[index] <= 0.
+                || fit.planar_point_fraction.field[index] < params.minimum_planar_point_fraction);
+        if !authoritative
+            && failed_plane_fit
+            && fit.vegetation_fraction[index] <= params.maximum_vegetation_fraction
+        {
+            plane_rejected_mask.field[index] = 1.;
+        }
+    }
+
     BuildingDetection {
         probability,
         candidate_id,
         accepted_mask,
+        plane_rejected_mask,
     }
 }
 
@@ -447,12 +755,13 @@ fn valid_parameters(params: &BuildingParameters) -> bool {
         && params.maximum_roof_height_m > params.minimum_roof_height_m
         && params.maximum_plane_residual_m.is_finite()
         && params.maximum_plane_residual_m > 0.
+        && params.ransac_iterations > 0
+        && params.ransac_sample_size >= MINIMUM_RANSAC_SAMPLE_SIZE
+        && params.minimum_plane_inliers >= params.ransac_sample_size
+        && params.maximum_roof_planes > 0
+        && params.maximum_roof_slope_degrees.is_finite()
+        && (0.0..90.0).contains(&params.maximum_roof_slope_degrees)
         && (0.0..=1.0).contains(&params.minimum_planar_point_fraction)
-        && params
-            .maximum_neighboring_normal_difference_degrees
-            .is_finite()
-        && params.maximum_facet_height_discontinuity_m.is_finite()
-        && params.maximum_facet_height_discontinuity_m >= 0.
         && params.minimum_building_area_m2.is_finite()
         && params.minimum_building_area_m2 >= 0.
         && params.maximum_candidate_hole_area_m2.is_finite()
@@ -464,7 +773,7 @@ fn valid_parameters(params: &BuildingParameters) -> bool {
         && (0.0..=1.0).contains(&params.confidence_threshold)
 }
 
-fn retain_roof_facets(
+fn retain_candidate_components(
     seeds: &[bool],
     fit: &BuildingSurfaceFit,
     params: &BuildingParameters,
@@ -473,14 +782,9 @@ fn retain_roof_facets(
 ) -> Vec<bool> {
     let mut visited = vec![false; seeds.len()];
     let mut retained = vec![false; seeds.len()];
-    let minimum_facet_area = (params.minimum_building_area_m2 * 0.08).clamp(0.5, 2.);
+    let minimum_component_area = (params.minimum_building_area_m2 * 0.08).clamp(0.5, 2.);
     let cell_area = fit.height_mean.grid.cell_size_m.powi(2);
-    let minimum_cells = (minimum_facet_area / cell_area).ceil() as usize;
-    let maximum_angle = params
-        .maximum_neighboring_normal_difference_degrees
-        .to_radians()
-        .cos();
-
+    let minimum_cells = (minimum_component_area / cell_area).ceil() as usize;
     for start in 0..seeds.len() {
         if !seeds[start] || visited[start] {
             continue;
@@ -494,17 +798,6 @@ fn retain_roof_facets(
             let x = index % width;
             for neighbor in neighbors8(y, x, width, height) {
                 if !seeds[neighbor] || visited[neighbor] {
-                    continue;
-                }
-                if (fit.height_mean.field[index] - fit.height_mean.field[neighbor]).abs()
-                    > params.maximum_facet_height_discontinuity_m
-                {
-                    continue;
-                }
-                let dot = fit.normal_x.field[index] * fit.normal_x.field[neighbor]
-                    + fit.normal_y.field[index] * fit.normal_y.field[neighbor]
-                    + fit.normal_z.field[index] * fit.normal_z.field[neighbor];
-                if dot < maximum_angle {
                     continue;
                 }
                 visited[neighbor] = true;
@@ -536,10 +829,14 @@ fn close_mask(mask: &[bool], width: usize, height: usize, radius: usize) -> Vec<
         }
     }
     let mut closed = vec![false; mask.len()];
-    for y in radius..height.saturating_sub(radius) {
-        for x in radius..width.saturating_sub(radius) {
-            closed[y * width + x] = (y - radius..=y + radius)
-                .all(|yi| (x - radius..=x + radius).all(|xi| dilated[yi * width + xi]));
+    for y in 0..height {
+        for x in 0..width {
+            let top = y.saturating_sub(radius);
+            let bottom = (y + radius).min(height - 1);
+            let left = x.saturating_sub(radius);
+            let right = (x + radius).min(width - 1);
+            closed[y * width + x] =
+                (top..=bottom).all(|yi| (left..=right).all(|xi| dilated[yi * width + xi]));
         }
     }
     closed
@@ -734,21 +1031,34 @@ pub fn building_objects(
     detection: &BuildingDetection,
     convex_hull: &geo::Polygon,
     cut_overlay: &geo::Polygon,
+    parameters: &BuildingParameters,
     buffer_rules: &[BufferRule],
 ) -> Vec<MapObject> {
     debug_assert!(
         detection
             .candidate_id
             .grid
-            .same_layout(&detection.accepted_mask.grid),
+            .same_layout(&detection.accepted_mask.grid)
+            && detection
+                .plane_rejected_mask
+                .grid
+                .same_layout(&detection.accepted_mask.grid),
         "building diagnostics must use one grid"
     );
     let contours = detection.accepted_mask.marching_squares(0.5);
-    let mut polygons = geo::MultiPolygon::from_contours(contours, convex_hull, false)
-        .simplify(crate::SIMPLIFICATION_DIST.max(detection.accepted_mask.grid.cell_size_m / 5.));
+    let mut traced = geo::MultiPolygon::from_contours(contours, convex_hull, false);
     for rule in buffer_rules {
-        polygons = polygons.apply_buffer_rule(rule);
+        traced = traced.apply_buffer_rule(rule);
     }
+    let mut polygons = geo::MultiPolygon::new(
+        traced
+            .into_iter()
+            .map(|polygon| {
+                super::building_regularization::regularize_building_footprint(&polygon, parameters)
+            })
+            .collect(),
+    )
+    .simplify(crate::SIMPLIFICATION_DIST);
     polygons = cut_overlay.intersection(&polygons);
     polygons
         .into_iter()
@@ -791,21 +1101,22 @@ mod tests {
             for x in 5..=16 {
                 for offset in [-0.2, 0.2] {
                     let z = 5. + 0.08 * x as f64 + 0.03 * y as f64;
-                    points.push(crate::geometry::PointLaz::new(
-                        x as f64 + offset,
-                        30. - y as f64,
-                        z,
-                    ));
+                    let mut point =
+                        crate::geometry::PointLaz::new(x as f64 + offset, 30. - y as f64, z);
+                    point.0.return_number = 1;
+                    point.0.number_of_returns = 1;
+                    points.push(point);
                 }
             }
         }
         // A similarly elevated but volume-like, multi-return tree patch.
         for y in 8..=14 {
             for x in 22..=26 {
-                for level in [3., 6., 9.] {
+                let canopy_top = 7. + ((x * 11 + y * 7) % 9) as f64 * 0.45;
+                for (return_number, level) in [(1, 3.), (2, 6.), (3, canopy_top)] {
                     let mut point = crate::geometry::PointLaz::new(x as f64, 30. - y as f64, level);
                     point.0.number_of_returns = 3;
-                    point.0.return_number = (level / 3.) as u8;
+                    point.0.return_number = return_number;
                     points.push(point);
                 }
             }
@@ -819,24 +1130,27 @@ mod tests {
     #[test]
     fn plane_fit_recovers_a_sloped_roof_and_rejects_volume_returns() {
         let (dem, cloud) = synthetic_roof(false);
-        let fit = compute_building_surface_fit(&cloud, &dem, 2.5).unwrap();
+        let params = BuildingParameters {
+            minimum_building_area_m2: 10.,
+            ..Default::default()
+        };
+        let fit = compute_building_surface_fit(&cloud, &dem, &params).unwrap();
         let roof = 12 * dem.width() + 10;
         let tree = 11 * dem.width() + 24;
         assert!(fit.plane_residual.field[roof] < 0.05);
         assert!(fit.normal_z.field[roof] > 0.98);
-        assert!(fit.plane_residual.field[tree] > 1.);
-        assert!(fit.vegetation_fraction[tree] > 0.9);
+        assert_eq!(fit.elevated_point_count.field[tree], 0.);
     }
 
     #[test]
     fn detector_emits_one_building_and_is_input_order_deterministic() {
         let (dem, cloud) = synthetic_roof(false);
         let (_, reversed) = synthetic_roof(true);
-        let fit = compute_building_surface_fit(&cloud, &dem, 2.5).unwrap();
-        let reversed_fit = compute_building_surface_fit(&reversed, &dem, 2.5).unwrap();
         let mut params = crate::parameters::MapParameters::default();
         params.building.minimum_building_area_m2 = 20.;
         params.building.confidence_threshold = 0.6;
+        let fit = compute_building_surface_fit(&cloud, &dem, &params.building).unwrap();
+        let reversed_fit = compute_building_surface_fit(&reversed, &dem, &params.building).unwrap();
         let detection = detect_buildings(&fit, &params.building);
         let reversed_detection = detect_buildings(&reversed_fit, &params.building);
         assert_eq!(
@@ -857,6 +1171,7 @@ mod tests {
             &detection,
             &hull,
             &hull,
+            &params.building,
             &params.geometry.buildings.buffer_rules,
         );
         assert_eq!(objects.len(), 1);
@@ -877,21 +1192,189 @@ mod tests {
                 point.0.classification = Classification::Building;
             }
         }
-        let fit = compute_building_surface_fit(&cloud, &dem, 2.5).unwrap();
         let ignored_params = BuildingParameters {
             minimum_building_area_m2: 10.,
             class_6_evidence: BuildingClassificationEvidence::Ignore,
             ..Default::default()
         };
+        let fit = compute_building_surface_fit(&cloud, &dem, &ignored_params).unwrap();
         let ignored = detect_buildings(&fit, &ignored_params);
         let authoritative_params = BuildingParameters {
             class_6_evidence: BuildingClassificationEvidence::Authoritative,
             ..ignored_params
         };
-        let authoritative = detect_buildings(&fit, &authoritative_params);
+        let authoritative_fit =
+            compute_building_surface_fit(&cloud, &dem, &authoritative_params).unwrap();
+        let authoritative = detect_buildings(&authoritative_fit, &authoritative_params);
 
         let tree = 11 * dem.width() + 24;
         assert_eq!(ignored.accepted_mask.field[tree], 0.);
         assert_eq!(authoritative.accepted_mask.field[tree], 1.);
+    }
+
+    #[test]
+    fn ransac_accepts_a_two_plane_roof_and_ignores_non_last_returns() {
+        let grid = DfmGrid::new(31, 31, 1., geo::coord! { x: 0., y: 30. }).unwrap();
+        let mut dem = Dfm::<Elevation>::new(grid);
+        dem.field.fill(0.);
+        let mut points = Vec::new();
+        for y in 8..=18 {
+            for x in 5..=19 {
+                for offset in [-0.2, 0.2] {
+                    let ridge_distance = (x as f64 - 12.).abs();
+                    let mut roof = crate::geometry::PointLaz::new(
+                        x as f64 + offset,
+                        30. - y as f64,
+                        7. - 0.18 * ridge_distance,
+                    );
+                    roof.0.return_number = 1;
+                    roof.0.number_of_returns = 1;
+                    points.push(roof);
+                }
+
+                // Neither point may influence the fit: the first is not a last
+                // return and the last lies below the roof-height threshold.
+                let mut canopy_first = crate::geometry::PointLaz::new(
+                    x as f64,
+                    30. - y as f64,
+                    12. + ((x + y) % 5) as f64,
+                );
+                canopy_first.0.return_number = 1;
+                canopy_first.0.number_of_returns = 2;
+                points.push(canopy_first);
+                let mut canopy_last = crate::geometry::PointLaz::new(x as f64, 30. - y as f64, 1.);
+                canopy_last.0.return_number = 2;
+                canopy_last.0.number_of_returns = 2;
+                points.push(canopy_last);
+            }
+        }
+        let cloud = PointCloud::new(points, bounds());
+        let params = BuildingParameters {
+            maximum_plane_residual_m: 0.05,
+            minimum_planar_point_fraction: 0.9,
+            minimum_building_area_m2: 40.,
+            confidence_threshold: 0.55,
+            ..Default::default()
+        };
+        let fit = compute_building_surface_fit(&cloud, &dem, &params).unwrap();
+        let center = 12 * dem.width() + 12;
+        assert!(fit.planar_point_fraction.field[center] > 0.95);
+        assert!(
+            fit.plane_residual.field[center] < 0.03,
+            "residual was {}",
+            fit.plane_residual.field[center]
+        );
+        let detection = detect_buildings(&fit, &params);
+        assert_eq!(detection.accepted_mask.field[center], 1.);
+    }
+
+    #[test]
+    fn nonplanar_candidate_is_exposed_for_boulder_review_but_trees_are_not() {
+        let grid = DfmGrid::new(31, 31, 1., geo::coord! { x: 0., y: 30. }).unwrap();
+        let mut dem = Dfm::<Elevation>::new(grid);
+        dem.field.fill(0.);
+        let make_cloud = |vegetation: bool| {
+            let mut points = Vec::new();
+            for y in 8..=16 {
+                for x in 8..=16 {
+                    let z = 4. + ((x * 17 + y * 31) % 11) as f64 * 0.23;
+                    let mut point = crate::geometry::PointLaz::new(x as f64, 30. - y as f64, z);
+                    point.0.return_number = 1;
+                    point.0.number_of_returns = 1;
+                    if vegetation {
+                        point.0.classification = Classification::HighVegetation;
+                    }
+                    points.push(point);
+                }
+            }
+            PointCloud::new(points, bounds())
+        };
+        let params = BuildingParameters {
+            maximum_plane_residual_m: 0.02,
+            minimum_planar_point_fraction: 0.8,
+            minimum_building_area_m2: 20.,
+            minimum_plane_inliers: 10,
+            maximum_roof_planes: 1,
+            ..Default::default()
+        };
+        let center = 12 * dem.width() + 12;
+
+        let fit = compute_building_surface_fit(&make_cloud(false), &dem, &params).unwrap();
+        let detection = detect_buildings(&fit, &params);
+        assert_eq!(detection.accepted_mask.field[center], 0.);
+        assert_eq!(detection.plane_rejected_mask.field[center], 1.);
+
+        let tree_fit = compute_building_surface_fit(&make_cloud(true), &dem, &params).unwrap();
+        let tree_detection = detect_buildings(&tree_fit, &params);
+        assert_eq!(tree_detection.accepted_mask.field[center], 0.);
+        assert_eq!(tree_detection.plane_rejected_mask.field[center], 0.);
+    }
+
+    #[test]
+    fn raster_stair_steps_regularize_to_the_roof_direction() {
+        let grid = DfmGrid::new(61, 61, 0.5, geo::coord! { x: 0., y: 15. }).unwrap();
+        let mut probability = Dfm::<BuildingProbability>::new(grid.clone());
+        let mut candidate_id = Dfm::<BuildingCandidateId>::new(grid.clone());
+        let mut accepted_mask = Dfm::<BuildingProbability>::new(grid);
+        probability.field.fill(0.);
+        candidate_id.field.fill(0.);
+        accepted_mask.field.fill(0.);
+
+        let roof_angle = 17_f64.to_radians();
+        for y in 0..accepted_mask.height() {
+            for x in 0..accepted_mask.width() {
+                let coordinate = accepted_mask.index2coord(y, x);
+                let dx = coordinate.x - 15.;
+                let dy = coordinate.y;
+                let along = dx * roof_angle.cos() + dy * roof_angle.sin();
+                let across = -dx * roof_angle.sin() + dy * roof_angle.cos();
+                if along.abs() <= 6. && across.abs() <= 3. {
+                    let index = y * accepted_mask.width() + x;
+                    probability.field[index] = 1.;
+                    candidate_id.field[index] = 1.;
+                    accepted_mask.field[index] = 1.;
+                }
+            }
+        }
+        let mut plane_rejected_mask = Dfm::<BuildingProbability>::new_like(&accepted_mask);
+        plane_rejected_mask.field.fill(0.);
+        let detection = BuildingDetection {
+            probability,
+            candidate_id,
+            accepted_mask,
+            plane_rejected_mask,
+        };
+        let hull = geo::Rect::new(
+            geo::coord! { x: -1., y: -16. },
+            geo::coord! { x: 31., y: 16. },
+        )
+        .to_polygon();
+        let parameters = BuildingParameters {
+            regularization_simplification_tolerance_m: 0.6,
+            regularization_maximum_boundary_displacement_m: 1.,
+            regularization_minimum_iou: 0.75,
+            ..Default::default()
+        };
+
+        let objects = building_objects(&detection, &hull, &hull, &parameters, &[]);
+        assert_eq!(objects.len(), 1);
+        let MapObject::Area { object, .. } = &objects[0] else {
+            panic!("building detector emitted a non-area object");
+        };
+        let longest_edge = object
+            .exterior()
+            .lines()
+            .max_by(|first, second| {
+                first
+                    .dx()
+                    .hypot(first.dy())
+                    .total_cmp(&second.dx().hypot(second.dy()))
+            })
+            .unwrap();
+        let regularized_direction = longest_edge
+            .dy()
+            .atan2(longest_edge.dx())
+            .rem_euclid(std::f64::consts::FRAC_PI_2);
+        assert!((regularized_direction - roof_angle).abs().to_degrees() < 2.);
     }
 }

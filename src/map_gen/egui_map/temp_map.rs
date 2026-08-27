@@ -286,7 +286,7 @@ impl MapObject {
     }
 
     pub fn add_elevation_tag(&mut self, elevation: f32) {
-        let key = "Elevation".to_string();
+        let key = "elev".to_string();
         let value = elevation.to_string();
 
         match self {
@@ -363,7 +363,7 @@ impl RTreeObject for IndexedPolygonEnvelope {
 
 impl MergeLine {
     fn elevation_key(&self) -> Option<String> {
-        self.tags.get("Elevation").cloned()
+        self.tags.get("elev").cloned()
     }
 
     fn requires_exact_contour_merge(&self) -> bool {

@@ -114,6 +114,26 @@ pub struct MediumVegetation;
 pub struct HighVegetation;
 #[derive(Clone, Copy, Debug)]
 pub struct SurfaceObjects;
+/// Signed residual from the canonical DEM relative to a 2 m local terrain
+/// baseline. Positive values are locally proud of the surrounding terrain.
+#[derive(Clone, Copy, Debug)]
+pub struct GroundRelief2m;
+/// Signed residual from the canonical DEM relative to a 5 m local terrain
+/// baseline. Positive values are locally proud of the surrounding terrain.
+#[derive(Clone, Copy, Debug)]
+pub struct GroundRelief5m;
+/// Vegetation-suppressed object height above the canonical DEM, in metres.
+#[derive(Clone, Copy, Debug)]
+pub struct HardObjectHeight;
+/// Observation and surface-coherence confidence for [`HardObjectHeight`].
+#[derive(Clone, Copy, Debug)]
+pub struct HardObjectConfidence;
+/// Likelihood that local elevated returns came from vegetation.
+#[derive(Clone, Copy, Debug)]
+pub struct VegetationLikelihood;
+/// Canonical DEM with accepted hard-object heights added back in.
+#[derive(Clone, Copy, Debug)]
+pub struct FilteredSurface;
 #[derive(Clone, Copy, Debug)]
 pub struct Water;
 #[derive(Clone, Copy, Debug)]
@@ -218,6 +238,12 @@ continuous_raster_markers!(
     MediumVegetation,
     HighVegetation,
     SurfaceObjects,
+    GroundRelief2m,
+    GroundRelief5m,
+    HardObjectHeight,
+    HardObjectConfidence,
+    VegetationLikelihood,
+    FilteredSurface,
     Water,
     Ndvd,
     PointDensity,
@@ -238,3 +264,4 @@ impl RasterMarker for MarshReason {}
 
 impl TerrainRasterMarker for Elevation {}
 impl TerrainRasterMarker for ContourTerrain {}
+impl TerrainRasterMarker for FilteredSurface {}

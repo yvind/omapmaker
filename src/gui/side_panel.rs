@@ -128,6 +128,13 @@ impl OmapMaker {
                 );
 
                 ui.label("Rasters:");
+                ui.checkbox(
+                    &mut self.gui_variables.project.write_raw_raster_values,
+                    "Write raw numeric raster values",
+                )
+                .on_hover_text(
+                    "Preserve metres, densities, probabilities, and other numeric samples as float32. When disabled, numeric rasters are scaled to 8-bit for ordinary image viewers. Hillshades, masks, and reason-code rasters are always viewer-scaled.",
+                );
                 egui::ScrollArea::vertical().max_height(200.).show(ui, |ui| {
                     ui.checkbox(&mut self.gui_variables.project.save_dem_raster, "Save DEM raster");
                     ui.checkbox(&mut self.gui_variables.project.save_slope_raster,"Save slope raster");
@@ -136,6 +143,12 @@ impl OmapMaker {
                     ui.checkbox(&mut self.gui_variables.project.save_last_return_raster,"Save last-return raster");
                     ui.checkbox(&mut self.gui_variables.project.save_canopy_height_raster,"Save canopy height raster");
                     ui.checkbox(&mut self.gui_variables.project.save_surface_objects_raster,"Save surface objects raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_ground_relief_2m_raster,"Save 2 m ground-relief raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_ground_relief_5m_raster,"Save 5 m ground-relief raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_hard_object_height_raster,"Save filtered hard-object height raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_hard_object_confidence_raster,"Save hard-object confidence raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_vegetation_likelihood_raster,"Save vegetation-likelihood raster");
+                    ui.checkbox(&mut self.gui_variables.project.save_filtered_surface_raster,"Save vegetation-filtered surface raster");
                     ui.checkbox(&mut self.gui_variables.project.save_ndvd_raster,"Save NDVD raster");
                     ui.checkbox(&mut self.gui_variables.project.save_point_density_raster,"Save lidar point-density raster");
                     ui.checkbox(&mut self.gui_variables.project.save_flow_accumulation_raster, "Save flow accumulation raster");
@@ -143,6 +156,7 @@ impl OmapMaker {
                     ui.checkbox(&mut self.gui_variables.project.save_building_planarity_raster,"Save building planarity diagnostic");
                     ui.checkbox(&mut self.gui_variables.project.save_building_residual_raster,"Save building plane-residual diagnostic");
                     ui.checkbox(&mut self.gui_variables.project.save_building_probability_raster,"Save building probability diagnostic");
+                    ui.checkbox(&mut self.gui_variables.project.save_building_plane_rejected_raster,"Save rejected building-plane mask");
                     ui.checkbox(&mut self.gui_variables.project.save_marsh_probability_raster,"Save marsh probability diagnostic");
                     ui.checkbox(&mut self.gui_variables.project.save_marsh_support_raster,"Save marsh observation-support diagnostic");
                     ui.checkbox(&mut self.gui_variables.project.save_marsh_wetness_raster,"Save marsh wetness diagnostic");
@@ -1397,33 +1411,42 @@ impl OmapMaker {
             );
             ui.add(
                 egui::Slider::new(&mut parameters.plane_fit_radius_m, 0.5..=8.)
-                    .text("Plane-fit radius (m)"),
+                    .text("Candidate point radius (m)"),
             );
             ui.add(
                 egui::Slider::new(&mut parameters.maximum_plane_residual_m, 0.02..=1.)
-                    .text("Maximum plane residual (m)"),
+                    .text("RANSAC inlier distance (m)"),
             );
             ui.add(
                 egui::Slider::new(&mut parameters.minimum_planar_point_fraction, 0.0..=1.)
                     .text("Minimum planar fraction"),
             );
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_roof_slope_degrees, 1.0..=89.)
+                    .text("Maximum roof slope (°)"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.ransac_iterations, 10..=300)
+                    .text("RANSAC iterations"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.ransac_sample_size, 3..=8)
+                    .text("RANSAC sample size"),
+            );
+            if parameters.minimum_plane_inliers < parameters.ransac_sample_size {
+                parameters.minimum_plane_inliers = parameters.ransac_sample_size;
+            }
+            ui.add(
+                egui::Slider::new(&mut parameters.minimum_plane_inliers, 3..=100)
+                    .text("Minimum plane inliers"),
+            );
+            ui.add(
+                egui::Slider::new(&mut parameters.maximum_roof_planes, 1..=20)
+                    .text("Maximum roof planes"),
+            );
 
             ui.add_space(12.);
-            ui.label(egui::RichText::new("Facet assembly").strong());
-            ui.add(
-                egui::Slider::new(
-                    &mut parameters.maximum_neighboring_normal_difference_degrees,
-                    0.0..=90.,
-                )
-                .text("Maximum normal difference (°)"),
-            );
-            ui.add(
-                egui::Slider::new(
-                    &mut parameters.maximum_facet_height_discontinuity_m,
-                    0.0..=4.,
-                )
-                .text("Maximum height step (m)"),
-            );
+            ui.label(egui::RichText::new("Candidate assembly").strong());
             ui.add(egui::Slider::new(&mut parameters.merge_gap_m, 0.0..=4.).text("Merge gap (m)"));
             ui.add(
                 egui::Slider::new(&mut parameters.maximum_candidate_hole_area_m2, 0.0..=50.)
@@ -1473,6 +1496,66 @@ impl OmapMaker {
                             "Ignore",
                         );
                     });
+            });
+
+            ui.add_space(12.);
+            ui.label(egui::RichText::new("Footprint regularization").strong());
+            ui.checkbox(
+                &mut parameters.regularize_footprints,
+                "Align edges to a dominant building direction",
+            );
+            ui.add_enabled_ui(parameters.regularize_footprints, |ui| {
+                ui.add(
+                    egui::Slider::new(
+                        &mut parameters.regularization_simplification_tolerance_m,
+                        0.0..=2.0,
+                    )
+                    .text("Pre-simplification (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut parameters.regularization_parallel_threshold_m,
+                        0.0..=2.0,
+                    )
+                    .text("Parallel-edge merge (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut parameters.regularization_maximum_boundary_displacement_m,
+                        0.1..=3.0,
+                    )
+                    .text("Maximum boundary movement (m)"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut parameters.regularization_maximum_angle_deviation_degrees,
+                        1.0..=45.0,
+                    )
+                    .text("Maximum snap angle (°)"),
+                );
+                ui.add(
+                    egui::Slider::new(
+                        &mut parameters.regularization_minimum_supported_edge_fraction,
+                        0.0..=1.0,
+                    )
+                    .text("Minimum supported edge fraction"),
+                );
+                ui.add(
+                    egui::Slider::new(&mut parameters.regularization_minimum_iou, 0.1..=1.0)
+                        .text("Minimum footprint IoU"),
+                );
+                ui.checkbox(
+                    &mut parameters.regularization_allow_45_degree_edges,
+                    "Allow 45° edges",
+                );
+                ui.add_enabled(
+                    parameters.regularization_allow_45_degree_edges,
+                    egui::Slider::new(
+                        &mut parameters.regularization_diagonal_bias_degrees,
+                        0.0..=22.5,
+                    )
+                    .text("Diagonal snap bias (°)"),
+                );
             });
         });
     }

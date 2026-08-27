@@ -1,9 +1,10 @@
 use crate::geometry::{PointCloud, PointLaz};
 use crate::parameters::VegetationWeights;
 use crate::raster::{
-    Dfm, Elevation, Ground, GroundPointDensity, HeightAboveGround, HighVegetation, Intensity,
+    Dfm, Elevation, FilteredSurface, Ground, GroundPointDensity, GroundRelief2m, GroundRelief5m,
+    HardObjectConfidence, HardObjectHeight, HeightAboveGround, HighVegetation, Intensity,
     LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns,
-    SurfaceObjects, Water,
+    SurfaceObjects, VegetationLikelihood, Water,
 };
 use crate::statistics::LidarStats;
 use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
@@ -27,6 +28,12 @@ pub struct ComputedDfms {
     pub medium_vegetation: Dfm<MediumVegetation>,
     pub high_vegetation: Dfm<HighVegetation>,
     pub surface_objects: Dfm<SurfaceObjects>,
+    pub ground_relief_2m: Dfm<GroundRelief2m>,
+    pub ground_relief_5m: Dfm<GroundRelief5m>,
+    pub hard_object_height: Dfm<HardObjectHeight>,
+    pub hard_object_confidence: Dfm<HardObjectConfidence>,
+    pub vegetation_likelihood: Dfm<VegetationLikelihood>,
+    pub filtered_surface: Dfm<FilteredSurface>,
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub point_density: Dfm<PointDensity>,
@@ -116,15 +123,18 @@ pub fn compute_dfms(
         .canopy_height_model(&dem, CHM_SPIKINESS)
         .hillshade_as::<LastReturn>(CHM_HILLSHADE_SUN_ANGLE);
 
-    let surface_object_cloud = filter_height_above_ground(
-        &last_return_cloud,
-        &dem,
-        -1.,
-        MEDIUM_VEGETATION_MAX_HEIGHT_METERS,
-    );
-    let surface_objects = surface_object_cloud
-        .canopy_height_model(&dem, -CHM_SPIKINESS)
-        .hillshade_as::<SurfaceObjects>(CHM_HILLSHADE_SUN_ANGLE);
+    let super::SurfaceFeatureRasters {
+        ground_relief_2m,
+        ground_relief_5m,
+        hard_object_height,
+        hard_object_confidence,
+        vegetation_likelihood,
+        filtered_surface,
+    } = super::compute_surface_features(all_point_cloud, &dem);
+    // Preserve the legacy display product, now rendered from the actual
+    // vegetation-filtered elevation surface instead of a mean of low last
+    // returns. The raw metric products above remain available independently.
+    let surface_objects = filtered_surface.hillshade_as::<SurfaceObjects>(CHM_HILLSHADE_SUN_ANGLE);
 
     let vegetation_density =
         compute_vegetation_density_dfms(all_point_cloud, &dem, VEGETATION_DENSITY_RADIUS_METERS);
@@ -140,6 +150,12 @@ pub fn compute_dfms(
         medium_vegetation: vegetation_density.medium,
         high_vegetation: vegetation_density.high,
         surface_objects,
+        ground_relief_2m,
+        ground_relief_5m,
+        hard_object_height,
+        hard_object_confidence,
+        vegetation_likelihood,
+        filtered_surface,
         water,
         canopy_height,
         point_density,
@@ -162,27 +178,6 @@ fn filter_last_returns(point_cloud: &PointCloud) -> PointCloud {
             .iter()
             .filter(|point| {
                 point.0.number_of_returns > 0 && point.0.return_number == point.0.number_of_returns
-            })
-            .cloned()
-            .collect(),
-        point_cloud.bounds,
-    )
-}
-
-fn filter_height_above_ground(
-    point_cloud: &PointCloud,
-    dem: &Dfm<Elevation>,
-    min_height: f32,
-    max_height: f32,
-) -> PointCloud {
-    PointCloud::new(
-        point_cloud
-            .points
-            .iter()
-            .filter(|point| {
-                height_above_ground(point, dem).is_some_and(|height| {
-                    height >= f64::from(min_height) && height <= f64::from(max_height)
-                })
             })
             .cloned()
             .collect(),
@@ -306,19 +301,4 @@ pub fn compute_ndvd(
     }
 
     ndvd
-}
-
-fn height_above_ground(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<f64> {
-    let x_index = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
-    let y_index = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
-
-    if x_index < 0
-        || y_index < 0
-        || x_index >= TILE_SIZE_PIXELS as isize
-        || y_index >= TILE_SIZE_PIXELS as isize
-    {
-        return None;
-    }
-
-    Some(point.0.z - f64::from(dem[(y_index as usize, x_index as usize)]))
 }

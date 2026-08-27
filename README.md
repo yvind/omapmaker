@@ -33,9 +33,9 @@ Overlapping lidar files not yet handled
 - AI contours
 - Form lines
 - Water detection
+- Building detection
 
 ### Wish List:
-- Building detection
 - Vegetation boundaries
 - Boulder detection
 - Road/path detection

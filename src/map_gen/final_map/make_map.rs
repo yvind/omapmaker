@@ -9,10 +9,11 @@ use crate::{
     neighbors::NeighborSide,
     parameters::{FileParameters, MapParameters},
     raster::{
-        BuildingProbability, Dfm, Elevation, FlowAccumulation, HeightAboveGround,
+        BuildingProbability, Dfm, Elevation, FilteredSurface, FlowAccumulation, GroundRelief2m,
+        GroundRelief5m, HardObjectConfidence, HardObjectHeight, HeightAboveGround,
         HeightAboveGroundMean, Hillshade, Intensity, LastReturn, MarshProbability, MarshReason,
         MarshSupport, Ndvd, PlanarPointFraction, PlaneResidual, PointDensity, RasterMarker, Slope,
-        SurfaceObjects, WetnessScore,
+        SurfaceObjects, VegetationLikelihood, WetnessScore,
     },
     statistics::LidarStats,
 };
@@ -77,6 +78,24 @@ pub fn make_map(
     let saved_surface_objects_rasters = file_params
         .save_surface_objects_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<SurfaceObjects>>::new())));
+    let saved_ground_relief_2m_rasters = file_params
+        .save_ground_relief_2m_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<GroundRelief2m>>::new())));
+    let saved_ground_relief_5m_rasters = file_params
+        .save_ground_relief_5m_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<GroundRelief5m>>::new())));
+    let saved_hard_object_height_rasters = file_params
+        .save_hard_object_height_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<HardObjectHeight>>::new())));
+    let saved_hard_object_confidence_rasters = file_params
+        .save_hard_object_confidence_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<HardObjectConfidence>>::new())));
+    let saved_vegetation_likelihood_rasters = file_params
+        .save_vegetation_likelihood_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<VegetationLikelihood>>::new())));
+    let saved_filtered_surface_rasters = file_params
+        .save_filtered_surface_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<FilteredSurface>>::new())));
     let saved_ndvd_rasters = file_params
         .save_ndvd_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<Ndvd>>::new())));
@@ -97,6 +116,9 @@ pub fn make_map(
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<PlaneResidual>>::new())));
     let saved_building_probability_rasters = file_params
         .save_building_probability_raster
+        .then(|| Arc::new(Mutex::new(Vec::<Dfm<BuildingProbability>>::new())));
+    let saved_building_plane_rejected_rasters = file_params
+        .save_building_plane_rejected_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<BuildingProbability>>::new())));
     let saved_marsh_probability_rasters = file_params
         .save_marsh_probability_raster
@@ -282,6 +304,25 @@ pub fn make_map(
                         }
                     }
                 }
+                if let Some(saved_rasters) = &saved_building_plane_rejected_rasters {
+                    match tile.building_detection(&map_params.building) {
+                        Ok(Some(detection)) => {
+                            if !push_saved_raster(
+                                saved_rasters,
+                                detection.plane_rejected_mask.clone(),
+                                "Rejected building-plane mask",
+                                &sender,
+                            ) {
+                                return;
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            let _ = sender.send(FrontendTask::Error(e.to_string(), true));
+                            return;
+                        }
+                    }
+                }
 
                 if let Some(saved_rasters) = &saved_dem_rasters
                     && !push_saved_raster(saved_rasters, tile.rasters.dem.clone(), "DEM", &sender)
@@ -349,6 +390,72 @@ pub fn make_map(
                         saved_rasters,
                         tile.rasters.surface_objects.clone(),
                         "Surface objects",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_ground_relief_2m_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.ground_relief_2m.clone(),
+                        "2 m ground relief",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_ground_relief_5m_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.ground_relief_5m.clone(),
+                        "5 m ground relief",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_hard_object_height_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.hard_object_height.clone(),
+                        "Hard-object height",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_hard_object_confidence_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.hard_object_confidence.clone(),
+                        "Hard-object confidence",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_vegetation_likelihood_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.vegetation_likelihood.clone(),
+                        "Vegetation likelihood",
+                        &sender,
+                    )
+                {
+                    return;
+                }
+
+                if let Some(saved_rasters) = &saved_filtered_surface_rasters
+                    && !push_saved_raster(
+                        saved_rasters,
+                        tile.rasters.filtered_surface.clone(),
+                        "Vegetation-filtered surface",
                         &sender,
                     )
                 {
@@ -573,7 +680,7 @@ pub fn make_map(
         ref_point,
         map_params.output.crs.as_ref(),
     )?;
-    write_saved_rasters(
+    write_saved_viewer_rasters(
         &sender,
         saved_marsh_reason_rasters,
         ("marsh reason code", "marsh_reason"),
@@ -589,7 +696,7 @@ pub fn make_map(
         ref_point,
         map_params.output.crs.as_ref(),
     )?;
-    write_saved_rasters(
+    write_saved_viewer_rasters(
         &sender,
         saved_hillshade_rasters,
         ("hillshade", "hillshade"),
@@ -597,7 +704,7 @@ pub fn make_map(
         ref_point,
         map_params.output.crs.as_ref(),
     )?;
-    write_saved_rasters(
+    write_saved_viewer_rasters(
         &sender,
         saved_last_return_rasters,
         ("last-return", "last_return"),
@@ -621,10 +728,58 @@ pub fn make_map(
         ref_point,
         map_params.output.crs.as_ref(),
     )?;
-    write_saved_rasters(
+    write_saved_viewer_rasters(
         &sender,
         saved_surface_objects_rasters,
         ("surface objects", "surface_objects"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_ground_relief_2m_rasters,
+        ("2 m ground relief", "ground_relief_2m"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_ground_relief_5m_rasters,
+        ("5 m ground relief", "ground_relief_5m"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_hard_object_height_rasters,
+        ("hard-object height", "hard_object_height"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_hard_object_confidence_rasters,
+        ("hard-object confidence", "hard_object_confidence"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_vegetation_likelihood_rasters,
+        ("vegetation likelihood", "vegetation_likelihood"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
+    write_saved_rasters(
+        &sender,
+        saved_filtered_surface_rasters,
+        ("vegetation-filtered surface", "filtered_surface"),
         &file_params,
         ref_point,
         map_params.output.crs.as_ref(),
@@ -685,6 +840,14 @@ pub fn make_map(
         ref_point,
         map_params.output.crs.as_ref(),
     )?;
+    write_saved_viewer_rasters(
+        &sender,
+        saved_building_plane_rejected_rasters,
+        ("rejected building-plane mask", "building_plane_rejected"),
+        &file_params,
+        ref_point,
+        map_params.output.crs.as_ref(),
+    )?;
 
     let _ = sender.send(FrontendTask::Log("Done!".to_string()));
     Ok(())
@@ -709,6 +872,67 @@ fn push_saved_raster<T: RasterMarker>(
 }
 
 fn write_saved_rasters<T: RasterMarker>(
+    sender: &FrontendSender,
+    saved_rasters: Option<Arc<Mutex<Vec<Dfm<T>>>>>,
+    naming: (&str, &str),
+    file_params: &FileParameters,
+    ref_point: geo::Coord,
+    crs: Option<&proj_core::CrsDef>,
+) -> Result<()> {
+    let (label, suffix) = naming;
+    let Some(saved_rasters) = saved_rasters else {
+        return Ok(());
+    };
+
+    let rasters = Arc::<Mutex<Vec<Dfm<T>>>>::into_inner(saved_rasters)
+        .with_context(|| {
+            format!("Could not get saved {label} rasters; a worker still holds a reference")
+        })?
+        .into_inner()
+        .map_err(|_| anyhow::anyhow!("{label} raster mutex was poisoned during generation"))?;
+
+    if rasters.is_empty() {
+        return Ok(());
+    }
+
+    let raw_values = file_params.write_raw_raster_values;
+    let encoding = if raw_values {
+        "raw-valued float32"
+    } else {
+        "viewer-scaled 8-bit"
+    };
+    let _ = sender.send(FrontendTask::Log(format!(
+        "Writing {label} {encoding} GeoTIFF..."
+    )));
+    let path = if raw_values {
+        crate::raster::geotiff::write_merged_dfm_geotiff_f32(
+            &file_params.save_location,
+            suffix,
+            &rasters,
+            ref_point,
+            crs,
+        )?
+    } else {
+        crate::raster::geotiff::write_merged_dfm_geotiff(
+            &file_params.save_location,
+            suffix,
+            &rasters,
+            ref_point,
+            crs,
+        )?
+    };
+    let _ = sender.send(FrontendTask::Log(format!(
+        "Wrote {label} raster to {}",
+        path.display()
+    )));
+
+    Ok(())
+}
+
+/// Display-only rasters deliberately bypass the raw-value toggle. Their
+/// samples are render products or categorical diagnostics rather than a
+/// physical/numeric field that downstream GIS analysis should consume.
+fn write_saved_viewer_rasters<T: RasterMarker>(
     sender: &FrontendSender,
     saved_rasters: Option<Arc<Mutex<Vec<Dfm<T>>>>>,
     naming: (&str, &str),

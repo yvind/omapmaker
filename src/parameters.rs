@@ -246,8 +246,11 @@ pub struct BuildingParameters {
     pub plane_fit_radius_m: f64,
     pub maximum_plane_residual_m: f32,
     pub minimum_planar_point_fraction: f32,
-    pub maximum_neighboring_normal_difference_degrees: f32,
-    pub maximum_facet_height_discontinuity_m: f32,
+    pub ransac_iterations: usize,
+    pub ransac_sample_size: usize,
+    pub minimum_plane_inliers: usize,
+    pub maximum_roof_planes: usize,
+    pub maximum_roof_slope_degrees: f32,
     pub minimum_building_area_m2: f64,
     pub maximum_candidate_hole_area_m2: f64,
     pub merge_gap_m: f64,
@@ -255,6 +258,15 @@ pub struct BuildingParameters {
     pub maximum_vegetation_fraction: f32,
     pub confidence_threshold: f32,
     pub class_6_evidence: BuildingClassificationEvidence,
+    pub regularize_footprints: bool,
+    pub regularization_simplification_tolerance_m: f64,
+    pub regularization_parallel_threshold_m: f64,
+    pub regularization_maximum_boundary_displacement_m: f64,
+    pub regularization_maximum_angle_deviation_degrees: f64,
+    pub regularization_minimum_supported_edge_fraction: f64,
+    pub regularization_minimum_iou: f64,
+    pub regularization_allow_45_degree_edges: bool,
+    pub regularization_diagonal_bias_degrees: f64,
 }
 
 impl Default for BuildingParameters {
@@ -266,8 +278,11 @@ impl Default for BuildingParameters {
             plane_fit_radius_m: 2.5,
             maximum_plane_residual_m: 0.2,
             minimum_planar_point_fraction: 0.7,
-            maximum_neighboring_normal_difference_degrees: 25.,
-            maximum_facet_height_discontinuity_m: 0.75,
+            ransac_iterations: 75,
+            ransac_sample_size: 3,
+            minimum_plane_inliers: 8,
+            maximum_roof_planes: 8,
+            maximum_roof_slope_degrees: 80.,
             minimum_building_area_m2: 12.,
             maximum_candidate_hole_area_m2: 4.,
             merge_gap_m: 0.75,
@@ -275,6 +290,15 @@ impl Default for BuildingParameters {
             maximum_vegetation_fraction: 0.45,
             confidence_threshold: 0.7,
             class_6_evidence: BuildingClassificationEvidence::Supporting,
+            regularize_footprints: true,
+            regularization_simplification_tolerance_m: 1.0,
+            regularization_parallel_threshold_m: 1.0,
+            regularization_maximum_boundary_displacement_m: 3.0,
+            regularization_maximum_angle_deviation_degrees: 45.,
+            regularization_minimum_supported_edge_fraction: 0.5,
+            regularization_minimum_iou: 0.5,
+            regularization_allow_45_degree_edges: false,
+            regularization_diagonal_bias_degrees: 5.,
         }
     }
 }
@@ -312,6 +336,7 @@ pub struct GeometryParameters {
 impl Default for GeometryParameters {
     fn default() -> Self {
         let mut buildings = BufferedGeometryParameters::default();
+        buildings.bezier.enabled = false;
         buildings.bezier.error = 0.25;
         Self {
             contours: Default::default(),
@@ -603,6 +628,9 @@ pub struct BufferedGeometryParameters {
 pub struct FileParameters {
     pub paths: Vec<PathBuf>,
     pub save_location: PathBuf,
+    /// Preserve numeric raster samples instead of normalizing them to an
+    /// 8-bit viewer image. Display-only rasters ignore this setting.
+    pub write_raw_raster_values: bool,
     pub save_dem_raster: bool,
     pub save_slope_raster: bool,
     pub save_hillshade_raster: bool,
@@ -610,6 +638,12 @@ pub struct FileParameters {
     pub save_last_return_raster: bool,
     pub save_canopy_height_raster: bool,
     pub save_surface_objects_raster: bool,
+    pub save_ground_relief_2m_raster: bool,
+    pub save_ground_relief_5m_raster: bool,
+    pub save_hard_object_height_raster: bool,
+    pub save_hard_object_confidence_raster: bool,
+    pub save_vegetation_likelihood_raster: bool,
+    pub save_filtered_surface_raster: bool,
     pub save_ndvd_raster: bool,
     pub save_point_density_raster: bool,
     pub save_flow_accumulation_raster: bool,
@@ -617,6 +651,7 @@ pub struct FileParameters {
     pub save_building_planarity_raster: bool,
     pub save_building_residual_raster: bool,
     pub save_building_probability_raster: bool,
+    pub save_building_plane_rejected_raster: bool,
     pub save_marsh_probability_raster: bool,
     pub save_marsh_support_raster: bool,
     pub save_marsh_wetness_raster: bool,

@@ -9,10 +9,11 @@ use crate::{
         BuildingParameters, CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights,
     },
     raster::{
-        BuildingProbability, ContourTerrain, D8Flow, Dfm, Elevation, Ground, GroundPointDensity,
+        BuildingProbability, ContourTerrain, D8Flow, Dfm, Elevation, FilteredSurface, Ground,
+        GroundPointDensity, GroundRelief2m, GroundRelief5m, HardObjectConfidence, HardObjectHeight,
         HeightAboveGround, HighVegetation, HydroCorrected, Intensity, LastReturn, LowVegetation,
         MarshHydrology, MediumVegetation, Ndvd, PointDensity, Returns, Slope, SurfaceObjects,
-        Threshold, Water,
+        Threshold, VegetationLikelihood, Water,
     },
     statistics::LidarStats,
 };
@@ -43,6 +44,12 @@ pub struct TileRasters {
     pub medium_vegetation: Dfm<MediumVegetation>,
     pub high_vegetation: Dfm<HighVegetation>,
     pub surface_objects: Dfm<SurfaceObjects>,
+    pub ground_relief_2m: Dfm<GroundRelief2m>,
+    pub ground_relief_5m: Dfm<GroundRelief5m>,
+    pub hard_object_height: Dfm<HardObjectHeight>,
+    pub hard_object_confidence: Dfm<HardObjectConfidence>,
+    pub vegetation_likelihood: Dfm<VegetationLikelihood>,
+    pub filtered_surface: Dfm<FilteredSurface>,
     pub water: Dfm<Water>,
     pub canopy_height: Dfm<HeightAboveGround>,
     pub point_density: Dfm<PointDensity>,
@@ -96,14 +103,40 @@ struct ContourFieldCacheKey {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct BuildingFitCacheKey {
     tile_revision: u64,
+    minimum_roof_height_bits: u32,
+    maximum_roof_height_bits: u32,
     plane_fit_radius_bits: u64,
+    maximum_plane_residual_bits: u32,
+    ransac_iterations: usize,
+    ransac_sample_size: usize,
+    minimum_plane_inliers: usize,
+    maximum_roof_planes: usize,
+    maximum_roof_slope_bits: u32,
+    maximum_candidate_hole_area_bits: u64,
+    merge_gap_bits: u64,
+    class_6_evidence: u8,
 }
 
 impl BuildingFitCacheKey {
     fn new(tile_revision: u64, params: &BuildingParameters) -> Self {
         Self {
             tile_revision,
+            minimum_roof_height_bits: params.minimum_roof_height_m.to_bits(),
+            maximum_roof_height_bits: params.maximum_roof_height_m.to_bits(),
             plane_fit_radius_bits: params.plane_fit_radius_m.to_bits(),
+            maximum_plane_residual_bits: params.maximum_plane_residual_m.to_bits(),
+            ransac_iterations: params.ransac_iterations,
+            ransac_sample_size: params.ransac_sample_size,
+            minimum_plane_inliers: params.minimum_plane_inliers,
+            maximum_roof_planes: params.maximum_roof_planes,
+            maximum_roof_slope_bits: params.maximum_roof_slope_degrees.to_bits(),
+            maximum_candidate_hole_area_bits: params.maximum_candidate_hole_area_m2.to_bits(),
+            merge_gap_bits: params.merge_gap_m.to_bits(),
+            class_6_evidence: match params.class_6_evidence {
+                crate::parameters::BuildingClassificationEvidence::Authoritative => 0,
+                crate::parameters::BuildingClassificationEvidence::Supporting => 1,
+                crate::parameters::BuildingClassificationEvidence::Ignore => 2,
+            },
         }
     }
 }
@@ -356,6 +389,12 @@ impl PreparedTile {
             medium_vegetation,
             high_vegetation,
             surface_objects,
+            ground_relief_2m,
+            ground_relief_5m,
+            hard_object_height,
+            hard_object_confidence,
+            vegetation_likelihood,
+            filtered_surface,
             water,
             canopy_height,
             point_density,
@@ -380,6 +419,12 @@ impl PreparedTile {
                 medium_vegetation,
                 high_vegetation,
                 surface_objects,
+                ground_relief_2m,
+                ground_relief_5m,
+                hard_object_height,
+                hard_object_confidence,
+                vegetation_likelihood,
+                filtered_surface,
                 water,
                 canopy_height,
                 point_density,
@@ -490,7 +535,7 @@ impl PreparedTile {
         let fit = Arc::new(map_gen::common::compute_building_surface_fit(
             cloud,
             &self.rasters.dem,
-            params.plane_fit_radius_m,
+            params,
         )?);
         cache.insert(key, Arc::clone(&fit));
         Ok(Some(fit))
@@ -585,6 +630,7 @@ impl PreparedTile {
                         detection,
                         &self.hull,
                         &self.cut_overlay,
+                        &params.building,
                         &params.geometry.buildings.buffer_rules,
                     )
                     .into_iter()
@@ -670,6 +716,7 @@ pub fn compute_marsh(tile: &PreparedTile, params: &MapParameters) -> crate::Resu
                 &buildings,
                 &tile.hull,
                 &tile.cut_overlay,
+                &params.building,
                 &params.geometry.buildings.buffer_rules,
             )
             .into_iter()
@@ -838,6 +885,7 @@ pub fn compute_tile(
             &detection,
             &tile.hull,
             &tile.cut_overlay,
+            &params.building,
             &params.geometry.buildings.buffer_rules,
         ));
     }
@@ -1090,8 +1138,11 @@ mod tests {
         let mut threshold_change = params.building.clone();
         threshold_change.confidence_threshold += 0.1;
         threshold_change.minimum_building_area_m2 += 10.;
-        threshold_change.maximum_plane_residual_m += 0.1;
         assert_eq!(BuildingFitCacheKey::new(7, &threshold_change), expected);
+
+        let mut residual_change = params.building.clone();
+        residual_change.maximum_plane_residual_m += 0.1;
+        assert_ne!(BuildingFitCacheKey::new(7, &residual_change), expected);
 
         let mut radius_change = params.building.clone();
         radius_change.plane_fit_radius_m += 0.5;
