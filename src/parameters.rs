@@ -16,6 +16,7 @@ pub struct MapParameters {
     pub cliff: CliffParameters,
     pub water: WaterParameters,
     pub marsh: MarshParameters,
+    pub streams: StreamParameters,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -275,17 +276,17 @@ impl Default for BuildingParameters {
             enabled: true,
             minimum_roof_height_m: 2.,
             maximum_roof_height_m: 40.,
-            plane_fit_radius_m: 2.5,
-            maximum_plane_residual_m: 0.2,
+            plane_fit_radius_m: 1.0,
+            maximum_plane_residual_m: 0.1,
             minimum_planar_point_fraction: 0.7,
-            ransac_iterations: 75,
-            ransac_sample_size: 3,
-            minimum_plane_inliers: 8,
-            maximum_roof_planes: 8,
-            maximum_roof_slope_degrees: 80.,
-            minimum_building_area_m2: 12.,
+            ransac_iterations: 150,
+            ransac_sample_size: 5,
+            minimum_plane_inliers: 12,
+            maximum_roof_planes: 15,
+            maximum_roof_slope_degrees: 60.,
+            minimum_building_area_m2: 8.,
             maximum_candidate_hole_area_m2: 4.,
-            merge_gap_m: 0.75,
+            merge_gap_m: 1.5,
             minimum_rectangularity_or_compactness: 0.35,
             maximum_vegetation_fraction: 0.45,
             confidence_threshold: 0.7,
@@ -331,22 +332,84 @@ pub struct GeometryParameters {
     pub intensity: BufferedGeometryParameters,
     pub water: BufferedGeometryParameters,
     pub marsh: BufferedGeometryParameters,
+    pub streams: BezierParameters,
 }
 
 impl Default for GeometryParameters {
     fn default() -> Self {
-        let mut buildings = BufferedGeometryParameters::default();
-        buildings.bezier.enabled = false;
-        buildings.bezier.error = 0.25;
+        let buildings = BufferedGeometryParameters {
+            bezier: BezierParameters {
+                error: 0.25,
+                enabled: false,
+            },
+            buffer_rules: vec![
+                BufferRule {
+                    direction: BufferDirection::Shrink,
+                    amount: 2.,
+                },
+                BufferRule {
+                    direction: BufferDirection::Grow,
+                    amount: 2.,
+                },
+            ],
+            min_size_filter: true,
+        };
+
+        let mut cliffs = BufferedGeometryParameters::default();
+        cliffs.bezier.enabled = false;
+
+        let openness = BufferedGeometryParameters {
+            bezier: BezierParameters::default(),
+            buffer_rules: vec![
+                BufferRule {
+                    direction: BufferDirection::Shrink,
+                    amount: 2.5,
+                },
+                BufferRule {
+                    direction: BufferDirection::Grow,
+                    amount: 5.,
+                },
+                BufferRule {
+                    direction: BufferDirection::Shrink,
+                    amount: 2.5,
+                },
+            ],
+            min_size_filter: true,
+        };
+
+        let vegetation = BufferedGeometryParameters {
+            bezier: BezierParameters::default(),
+            buffer_rules: vec![
+                BufferRule {
+                    direction: BufferDirection::Grow,
+                    amount: 1.,
+                },
+                BufferRule {
+                    direction: BufferDirection::Shrink,
+                    amount: 2.5,
+                },
+                BufferRule {
+                    direction: BufferDirection::Grow,
+                    amount: 5.,
+                },
+                BufferRule {
+                    direction: BufferDirection::Shrink,
+                    amount: 2.5,
+                },
+            ],
+            min_size_filter: true,
+        };
+
         Self {
             contours: Default::default(),
-            openness: Default::default(),
-            vegetation: Default::default(),
+            openness,
+            vegetation,
             buildings,
-            cliffs: Default::default(),
+            cliffs,
             intensity: Default::default(),
             water: Default::default(),
             marsh: Default::default(),
+            streams: Default::default(),
         }
     }
 }
@@ -362,7 +425,6 @@ pub struct WaterParameters {
     pub elevation_tolerance_m: f32,
     /// Continue a filled water region through the existing D8 receivers.
     pub allow_downhill_flow: bool,
-    pub stream_min_catchment_area_m2: f32,
 }
 
 impl Default for WaterParameters {
@@ -372,8 +434,98 @@ impl Default for WaterParameters {
             seed_buffer_rules: Vec::new(),
             elevation_tolerance_m: 0.05,
             allow_downhill_flow: false,
-            stream_min_catchment_area_m2: 10_000.0,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct StreamParameters {
+    pub algorithm: StreamAlgorithm,
+    /// Minimum upstream area needed to initiate a hydrological stream.
+    pub minimum_catchment_area_m2: f32,
+    /// Raster-to-vector controls used by the ONNX stream detector.
+    pub onnx_vectorization: OnnxStreamVectorizationParameters,
+}
+
+impl Default for StreamParameters {
+    fn default() -> Self {
+        Self {
+            algorithm: StreamAlgorithm::Hydrological,
+            minimum_catchment_area_m2: 10_000.0,
+            onnx_vectorization: Default::default(),
+        }
+    }
+}
+
+impl StreamParameters {
+    pub(crate) fn endpoint_merge_distance_m(&self) -> f64 {
+        #[cfg(feature = "deep-learning")]
+        if self.algorithm == StreamAlgorithm::DitchesStreamsSvfSlope {
+            return self.onnx_vectorization.endpoint_merge_distance_m;
+        }
+
+        5. * crate::SIMPLIFICATION_DIST
+    }
+}
+
+/// Physical raster-to-vector controls for ONNX stream predictions.
+///
+/// Defaults reproduce the original fixed post-processing for the model's
+/// canonical 0.5 m output grid.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OnnxStreamVectorizationParameters {
+    /// Minimum probability of the winning foreground class. A value of zero
+    /// leaves extraction as pure background/ditch/stream argmax.
+    pub confidence_threshold: f32,
+    /// Signed buffer applied to prediction polygons before centerlining.
+    pub polygon_buffer_m: f64,
+    /// Maximum spacing of boundary samples used to construct medial axes.
+    pub centerline_sampling_distance_m: f64,
+    /// Terminal medial-axis branches shorter than this are pruned.
+    pub minimum_branch_length_m: f64,
+    /// Components below this area bypass branch-length pruning.
+    pub branch_length_exemption_area_m2: f64,
+    /// Douglas-Peucker tolerance applied to extracted centerlines.
+    pub simplification_tolerance_m: f64,
+    /// Maximum endpoint gap used to join adjacent extracted line objects.
+    pub endpoint_merge_distance_m: f64,
+}
+
+impl Default for OnnxStreamVectorizationParameters {
+    fn default() -> Self {
+        Self {
+            confidence_threshold: 0.5,
+            polygon_buffer_m: 1.0,
+            centerline_sampling_distance_m: 0.5,
+            minimum_branch_length_m: 3.0,
+            branch_length_exemption_area_m2: 3.,
+            simplification_tolerance_m: 0.1,
+            endpoint_merge_distance_m: 10.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StreamAlgorithm {
+    #[default]
+    Hydrological,
+    #[cfg(feature = "deep-learning")]
+    DitchesStreamsSvfSlope,
+}
+
+impl StreamAlgorithm {
+    pub const fn uses_deferred_hydrology(self) -> bool {
+        matches!(self, Self::Hydrological)
+    }
+}
+
+impl Display for StreamAlgorithm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Hydrological => "Hydrological flow accumulation",
+            #[cfg(feature = "deep-learning")]
+            Self::DitchesStreamsSvfSlope => "AI sky-view factor and slope",
+        })
     }
 }
 
@@ -415,7 +567,7 @@ pub struct MarshEvidenceWeights {
 impl Default for MarshParameters {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             sensitivity: 0.5,
             minimum_polygon_area_m2: 45.,
             planarity_radius_m: 1.5,
@@ -472,8 +624,8 @@ impl Default for CliffParameters {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum CliffAlgorithm {
-    SobelSlope,
     #[default]
+    SobelSlope,
     PolynomialFit,
 }
 
@@ -592,7 +744,7 @@ impl GeometryParameters {
             | Symbol::Line(LineSymbol::Cliff)
             | Symbol::Line(LineSymbol::ImpassableCliff) => &self.cliffs.bezier,
             Symbol::Area(AreaSymbol::UncrossableWaterWithBankLine) => &self.water.bezier,
-            Symbol::Line(LineSymbol::SmallCrossableWatercourse) => &self.water.bezier,
+            Symbol::Line(LineSymbol::SmallCrossableWatercourse) => &self.streams,
             Symbol::Area(AreaSymbol::Marsh) => &self.marsh.bezier,
             Symbol::Area(_) => &self.intensity.bezier,
             Symbol::Line(_) | Symbol::Point(_) => return None,

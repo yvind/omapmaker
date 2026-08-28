@@ -14,7 +14,7 @@ pub fn compute_streams(
     cut_overlay: &geo::Polygon,
     params: &MapParameters,
 ) -> Vec<MapObject> {
-    let streams = flow.stream_lines(params.water.stream_min_catchment_area_m2);
+    let streams = flow.stream_lines(params.streams.minimum_catchment_area_m2);
     let streams = cut_overlay
         .clip(&streams, false)
         .simplify(crate::CELL_SIZE_METERS * 0.5);

@@ -1,0 +1,36 @@
+schema_version = 1
+contract_version = 1
+id = "ditches_streams_svf_slope"
+name = "Ditches and streams from sky-view factor and slope"
+revision = "1"
+
+[input]
+layout = "nchw"
+dtype = "f32"
+width = 500
+height = 500
+cell_size = 0.5
+halo_cells = 6
+channels = ["sky_view_factor", "slope"]
+invalid_policy = "reject_tile"
+
+[[input.normalization]]
+channel = "sky_view_factor"
+kind = "min_max"
+minimum = 0.0
+maximum = 1.0
+
+[[input.normalization]]
+channel = "slope"
+kind = "min_max"
+minimum = 0.0
+maximum = 1.0
+
+[output]
+layout = "nchw"
+dtype = "f32"
+width = 500
+height = 500
+channels = ["background", "ditch", "stream"]
+# The checked-in graph ends in Softmax, so inference must not apply it again.
+activation = "identity"

@@ -3,7 +3,7 @@ use crate::{
     comms::{FrontendSender, messages::*},
     map_gen::{
         self,
-        egui_map::{AreaSymbol, TempMap},
+        egui_map::{AreaSymbol, LineSymbol, TempMap},
         pipeline::{DeferredHydrologyTile, PreparedTile},
     },
     neighbors::NeighborSide,
@@ -560,12 +560,14 @@ pub fn make_map(
     // owning tiles.
     final_marsh_params.marsh.minimum_polygon_area_m2 = 0.;
     for tile in &stream_tiles {
-        for object in map_gen::common::compute_streams(
-            &tile.tile.stream_flow,
-            &tile.tile.cut_overlay,
-            &map_params,
-        ) {
-            map.add_object(object);
+        if map_params.streams.algorithm.uses_deferred_hydrology() {
+            for object in map_gen::common::compute_streams(
+                &tile.tile.stream_flow,
+                &tile.tile.cut_overlay,
+                &map_params,
+            ) {
+                map.add_object(object);
+            }
         }
 
         if map_params.marsh.enabled {
@@ -633,7 +635,11 @@ pub fn make_map(
 
     map.mark_basemap_depressions();
 
-    map.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+    map.merge_lines_with_symbol_distance(
+        5. * crate::SIMPLIFICATION_DIST,
+        LineSymbol::SmallCrossableWatercourse,
+        map_params.streams.endpoint_merge_distance_m(),
+    );
 
     // convert the smallest knolls and depressions to point symbols
     map.make_dotknolls_and_depressions(

@@ -10,7 +10,7 @@ use super::graph::Graph;
 
 /// Builds a polygon's Voronoi medial axis and returns its significant branches.
 /// Distances are expressed in the input geometry's units.
-pub(super) fn extract(
+pub(crate) fn extract(
     polygon: &Polygon<f64>,
     densify_spacing: f64,
     minimum_branch_length: f64,

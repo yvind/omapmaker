@@ -22,7 +22,9 @@ pub fn compute_tile_map_objects(
             cliffs: true,
             intensity: true,
             water: true,
-            streams: false,
+            // Hydrological streams are deferred until accumulation has been
+            // reconciled across tiles. ONNX streams are tile-local.
+            streams: !args.streams.algorithm.uses_deferred_hydrology(),
             // Marsh uses the globally reconciled accumulation field and is
             // therefore deferred by final-map generation.
             marsh: false,

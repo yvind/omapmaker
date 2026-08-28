@@ -20,6 +20,10 @@ impl LidarStats {
         let mut reader = CopcReader::from_path(path)?;
         let header = reader.header();
         let num_points = header.number_of_points();
+        anyhow::ensure!(
+            num_points > 0,
+            "Cannot calculate statistics for an empty lidar file"
+        );
         let bounds = header.bounds();
         let density_area = ((bounds.max.x - bounds.min.x) * (bounds.max.y - bounds.min.y)).max(0.);
         let average_density = if density_area > f64::EPSILON {
@@ -33,7 +37,7 @@ impl LidarStats {
             .collect::<Vec<_>>();
 
         let mut return_number_stat = Stat {
-            num_points: num_points as f32,
+            num_points,
             ..Default::default()
         };
 
@@ -66,11 +70,8 @@ impl LidarStats {
             / num_points as f64)
             .sqrt() as f32;
 
-        let mut intensities = Vec::with_capacity(num_points as usize);
-        let mut intensity_stat = Stat {
-            num_points: num_points as f32,
-            ..Default::default()
-        };
+        let mut intensities = Vec::with_capacity(STATS_SAMPLE_SIZE);
+        let mut intensity_stat = Stat::default();
 
         let mut intensity_sum = 0_f64;
         let mut num_taken_points = 0_u64;
@@ -87,12 +88,18 @@ impl LidarStats {
             intensities.push(i);
             if i < f64::from(intensity_stat.min) {
                 intensity_stat.min = i as f32;
-            } else if i > f64::from(intensity_stat.max) {
+            }
+            if i > f64::from(intensity_stat.max) {
                 intensity_stat.max = i as f32;
             }
             intensity_sum += i;
             num_taken_points += 1;
         }
+        anyhow::ensure!(
+            num_taken_points > 0,
+            "Cannot calculate intensity statistics without readable finite points"
+        );
+        intensity_stat.num_points = num_taken_points;
         let intensity_mean = intensity_sum / num_taken_points as f64;
         intensity_stat.mean = intensity_mean as f32;
 
@@ -143,22 +150,46 @@ pub struct Stat {
     pub max: f32,
     pub mean: f32,
     pub std_dev: f32,
-    pub num_points: f32,
+    pub num_points: u64,
 }
 
 impl Stat {
+    pub fn normalize(self, value: f32) -> f32 {
+        if !value.is_finite() {
+            return value;
+        }
+        let range = self.max - self.min;
+        if !range.is_finite() || range <= f32::EPSILON {
+            return 0.;
+        }
+        ((value - self.min) / range).clamp(0., 1.)
+    }
+
     pub fn combine_stats(self, other: Stat) -> Stat {
-        let self_points = f64::from(self.num_points);
-        let other_points = f64::from(other.num_points);
+        if self.num_points == 0 {
+            return other;
+        }
+        if other.num_points == 0 {
+            return self;
+        }
+
+        let self_points = self.num_points as f64;
+        let other_points = other.num_points as f64;
         let total_points = self_points + other_points;
+        let self_mean = f64::from(self.mean);
+        let other_mean = f64::from(other.mean);
+        let mean = (self_mean * self_points + other_mean * other_points) / total_points;
+        let mean_delta = other_mean - self_mean;
+        let second_moment = f64::from(self.std_dev).powi(2) * self_points
+            + f64::from(other.std_dev).powi(2) * other_points
+            + mean_delta.powi(2) * self_points * other_points / total_points;
 
         Stat {
             min: self.min.min(other.min),
             max: self.max.max(other.max),
-            mean: ((f64::from(self.mean) * self_points + f64::from(other.mean) * other_points)
-                / total_points) as f32,
-            std_dev: (f64::from(self.std_dev).hypot(f64::from(other.std_dev))) as f32,
-            num_points: total_points as f32,
+            mean: mean as f32,
+            std_dev: (second_moment / total_points).sqrt() as f32,
+            num_points: self.num_points + other.num_points,
         }
     }
 }
@@ -170,7 +201,71 @@ impl Default for Stat {
             max: f32::MIN,
             mean: 0.,
             std_dev: 0.,
-            num_points: 0.,
+            num_points: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalization_uses_the_full_range() {
+        let stat = Stat {
+            min: 10.,
+            max: 30.,
+            ..Default::default()
+        };
+        assert_eq!(stat.normalize(10.), 0.);
+        assert_eq!(stat.normalize(20.), 0.5);
+        assert_eq!(stat.normalize(30.), 1.);
+        assert_eq!(stat.normalize(40.), 1.);
+    }
+
+    #[test]
+    fn constant_samples_have_a_stable_normalization() {
+        let stat = Stat {
+            min: 4.,
+            max: 4.,
+            ..Default::default()
+        };
+        assert_eq!(stat.normalize(4.), 0.);
+        assert!(stat.normalize(f32::NAN).is_nan());
+    }
+
+    #[test]
+    fn variance_merge_matches_the_combined_population() {
+        let left = Stat {
+            min: 1.,
+            max: 2.,
+            mean: 1.5,
+            std_dev: 0.5,
+            num_points: 2,
+        };
+        let right = Stat {
+            min: 3.,
+            max: 4.,
+            mean: 3.5,
+            std_dev: 0.5,
+            num_points: 2,
+        };
+        let merged = left.combine_stats(right);
+        assert_eq!(merged.num_points, 4);
+        assert_eq!(merged.mean, 2.5);
+        assert!((merged.std_dev - 1.25_f32.sqrt()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn empty_statistics_are_identity_for_merging() {
+        let populated = Stat {
+            min: 2.,
+            max: 6.,
+            mean: 4.,
+            std_dev: 2.,
+            num_points: 3,
+        };
+        assert_eq!(Stat::default().combine_stats(populated).num_points, 3);
+        assert_eq!(populated.combine_stats(Stat::default()).mean, 4.);
     }
 }

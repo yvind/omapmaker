@@ -6,7 +6,8 @@ use crate::{
         egui_map::{AreaSymbol, MapObject},
     },
     parameters::{
-        BuildingParameters, CliffAlgorithm, ContourAlgo, MapParameters, VegetationWeights,
+        BuildingParameters, CliffAlgorithm, ContourAlgo, MapParameters, StreamAlgorithm,
+        VegetationWeights,
     },
     raster::{
         BuildingProbability, ContourTerrain, D8Flow, Dfm, Elevation, FilteredSurface, Ground,
@@ -28,6 +29,8 @@ const TERRAIN_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 const BUILDING_FIT_CACHE_ENTRIES_PER_TILE: usize = 2;
 const BUILDING_DETECTION_CACHE_ENTRIES_PER_TILE: usize = 2;
 const MARSH_HYDROLOGY_CACHE_ENTRIES_PER_TILE: usize = 2;
+#[cfg(feature = "deep-learning")]
+const PREDICTION_CACHE_ENTRIES_PER_TILE: usize = 2;
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
@@ -70,6 +73,58 @@ pub struct PreparedTile {
     building_fit_cache: Mutex<BuildingFitCache>,
     building_detection_cache: Mutex<BuildingDetectionCache>,
     marsh_hydrology_cache: Mutex<MarshHydrologyCache>,
+    #[cfg(feature = "deep-learning")]
+    prediction_cache: Mutex<PredictionCache>,
+}
+
+#[cfg(feature = "deep-learning")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PredictionCacheKey {
+    tile_revision: u64,
+    model_id: &'static str,
+    onnx_sha256: &'static str,
+    manifest_sha256: &'static str,
+    contract_version: u32,
+}
+
+#[cfg(feature = "deep-learning")]
+#[derive(Default)]
+struct PredictionCache {
+    entries: VecDeque<(
+        PredictionCacheKey,
+        Arc<crate::feature_extraction::PredictionRaster>,
+    )>,
+}
+
+#[cfg(feature = "deep-learning")]
+impl PredictionCache {
+    fn get(
+        &mut self,
+        key: PredictionCacheKey,
+    ) -> Option<Arc<crate::feature_extraction::PredictionRaster>> {
+        let position = self
+            .entries
+            .iter()
+            .position(|(candidate, _)| *candidate == key)?;
+        let entry = self
+            .entries
+            .remove(position)
+            .expect("cache position exists");
+        let prediction = Arc::clone(&entry.1);
+        self.entries.push_back(entry);
+        Some(prediction)
+    }
+
+    fn insert(
+        &mut self,
+        key: PredictionCacheKey,
+        prediction: Arc<crate::feature_extraction::PredictionRaster>,
+    ) {
+        if self.entries.len() == PREDICTION_CACHE_ENTRIES_PER_TILE {
+            self.entries.pop_front();
+        }
+        self.entries.push_back((key, prediction));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -442,6 +497,8 @@ impl PreparedTile {
             building_fit_cache: Mutex::new(BuildingFitCache::default()),
             building_detection_cache: Mutex::new(BuildingDetectionCache::default()),
             marsh_hydrology_cache: Mutex::new(MarshHydrologyCache::default()),
+            #[cfg(feature = "deep-learning")]
+            prediction_cache: Mutex::new(PredictionCache::default()),
         }
     }
 
@@ -611,6 +668,40 @@ impl PreparedTile {
                 .map(map_gen::common::BuildingDetection::accepted_mask),
             &params.marsh,
         )
+    }
+
+    #[cfg(feature = "deep-learning")]
+    pub fn prediction(
+        &self,
+        inference: &crate::feature_extraction::InferenceLane,
+        cancellation: &crate::comms::messages::CancellationToken,
+    ) -> crate::Result<Arc<crate::feature_extraction::PredictionRaster>> {
+        cancellation.check()?;
+        let descriptor = inference.descriptor();
+        let key = PredictionCacheKey {
+            tile_revision: self.revision,
+            model_id: descriptor.id,
+            onnx_sha256: descriptor.onnx_sha256,
+            manifest_sha256: descriptor.manifest_sha256,
+            contract_version: descriptor.contract_version,
+        };
+        if let Some(prediction) = self
+            .prediction_cache
+            .lock()
+            .expect("prediction cache poisoned")
+            .get(key)
+        {
+            return Ok(prediction);
+        }
+        let input = crate::feature_extraction::build_input(&descriptor.input, &self.rasters)?;
+        cancellation.check()?;
+        let prediction = Arc::new(inference.predict(input, cancellation)?);
+        cancellation.check()?;
+        self.prediction_cache
+            .lock()
+            .expect("prediction cache poisoned")
+            .insert(key, Arc::clone(&prediction));
+        Ok(prediction)
     }
 
     pub fn into_deferred_hydrology(
@@ -798,6 +889,23 @@ pub fn compute_tile(
     steps: PipelineSteps,
     compute_contour_score: bool,
 ) -> crate::Result<PipelineOutput> {
+    compute_tile_cancellable(
+        tile,
+        params,
+        steps,
+        compute_contour_score,
+        &crate::comms::messages::CancellationToken::default(),
+    )
+}
+
+pub fn compute_tile_cancellable(
+    tile: &PreparedTile,
+    params: &MapParameters,
+    steps: PipelineSteps,
+    compute_contour_score: bool,
+    cancellation: &crate::comms::messages::CancellationToken,
+) -> crate::Result<PipelineOutput> {
+    cancellation.check()?;
     let mut objects = Vec::new();
     let mut contour_error = 0.;
     let mut contour_energy = 0.;
@@ -939,11 +1047,28 @@ pub fn compute_tile(
     }
 
     if steps.streams {
-        objects.extend(map_gen::common::compute_streams(
-            &tile.rasters.stream_flow,
-            &tile.cut_overlay,
-            params,
-        ));
+        match params.streams.algorithm {
+            StreamAlgorithm::Hydrological => {
+                objects.extend(map_gen::common::compute_streams(
+                    &tile.rasters.stream_flow,
+                    &tile.cut_overlay,
+                    params,
+                ));
+            }
+            #[cfg(feature = "deep-learning")]
+            StreamAlgorithm::DitchesStreamsSvfSlope => {
+                cancellation.check()?;
+                let inference = crate::feature_extraction::inference_lane()?;
+                let prediction = tile.prediction(&inference, cancellation)?;
+                cancellation.check()?;
+                objects.extend(crate::feature_extraction::postprocess::stream_features(
+                    &prediction,
+                    &tile.cut_overlay,
+                    params,
+                )?);
+                cancellation.check()?;
+            }
+        }
     }
 
     if steps.intensity {
@@ -957,6 +1082,7 @@ pub fn compute_tile(
     }
 
     resolve_building_conflicts(&mut objects);
+    cancellation.check()?;
 
     Ok(PipelineOutput {
         objects,

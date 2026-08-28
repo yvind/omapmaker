@@ -164,6 +164,9 @@ pub struct MarshSupport;
 pub struct MarshReason;
 #[derive(Clone, Copy, Debug)]
 pub struct MarshMask;
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(feature = "deep-learning"), allow(dead_code))]
+pub struct ModelPrediction;
 
 /// Zero sized marker trait for strict typing on Dfm
 pub trait RasterMarker: Copy {}
@@ -200,6 +203,7 @@ macro_rules! continuous_raster_markers {
 
 continuous_raster_markers!(
     Elevation,
+    ModelPrediction,
     ContourTerrain,
     AdjustedElevation,
     TargetElevation,

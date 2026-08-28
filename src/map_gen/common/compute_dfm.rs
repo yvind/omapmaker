@@ -107,12 +107,12 @@ pub fn compute_dfms(
 
     // normalize the return numbers
     for r in drm.field.iter_mut() {
-        *r = (*r - stats.return_number.min) / stats.return_number.max;
+        *r = stats.return_number.normalize(*r);
     }
 
     // normalize the intensity
     for i in dim.field.iter_mut() {
-        *i = (*i - stats.intensity.min) / stats.intensity.max
+        *i = stats.intensity.normalize(*i);
     }
 
     let canopy_height = all_point_cloud.canopy_height_model(&dem, CHM_SPIKINESS);

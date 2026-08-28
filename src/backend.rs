@@ -125,7 +125,7 @@ impl Backend {
                     }
                 }
 
-                BackendTask::RegenerateMap(job_id, params, scope) => {
+                BackendTask::RegenerateMap(job_id, params, scope, cancellation) => {
                     assert!(!self.map_tiles.is_empty());
                     if let RegenerationScope::Section(section) = scope {
                         self.preview_section_reached = Some(
@@ -144,9 +144,12 @@ impl Backend {
                         &self.map_params,
                         scope,
                         self.preview_section_reached,
+                        &cancellation,
                     );
 
-                    self.map_params = Some(*params);
+                    if !cancellation.is_cancelled() {
+                        self.map_params = Some(*params);
+                    }
                 }
 
                 BackendTask::MakeMap(task) => {

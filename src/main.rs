@@ -7,6 +7,8 @@ mod consts;
 mod convert_copc;
 mod drawable;
 mod error;
+#[cfg(feature = "deep-learning")]
+mod feature_extraction;
 mod frontend;
 mod geometry;
 mod gui;

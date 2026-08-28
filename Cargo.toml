@@ -2,9 +2,21 @@
 name = "omap_maker"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.95"
 authors = ["Øyvind Hjermstad"]
 description = "An application for generating orienteering maps from lidar data"
 repository = "https://github.com/yvind/omapmaker"
+
+[features]
+default = []
+deep-learning = [
+    "dep:burn",
+    "dep:burn-store",
+    "dep:burn-onnx",
+    "dep:serde",
+    "dep:sha2",
+    "dep:toml",
+]
 
 [[bin]]
 name = "OmapMaker"
@@ -55,3 +67,26 @@ geotiff-writer = "0.7.0"
 
 # needed??
 ndarray = "0.17.2"
+
+[dependencies.burn]
+version = "=0.22.0-pre.3"
+optional = true
+default-features = false
+features = ["std", "wgpu", "fusion"]
+
+[dependencies.burn-store]
+version = "=0.22.0-pre.3"
+optional = true
+default-features = false
+features = ["std"]
+
+[build-dependencies]
+serde = { version = "1", optional = true, features = ["derive"] }
+sha2 = { version = "0.10", optional = true }
+toml = { version = "1", optional = true }
+
+[build-dependencies.burn-onnx]
+version = "=0.22.0-pre.3"
+optional = true
+default-features = false
+features = ["import"]

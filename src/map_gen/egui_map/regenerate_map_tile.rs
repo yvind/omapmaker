@@ -22,6 +22,7 @@ pub fn regenerate_map_tile(
     old_params: &Option<MapParameters>,
     scope: RegenerationScope,
     preview_section_reached: Option<MapPreviewSection>,
+    cancellation: &CancellationToken,
 ) {
     let mut omap = TempMap::new(ref_point, params.scale, params.output.crs.clone());
 
@@ -47,17 +48,35 @@ pub fn regenerate_map_tile(
     let outputs = thread_pool.install(|| {
         tiles
             .par_iter()
-            .map(|tile| pipeline::compute_tile(tile, params, steps, steps.contours))
+            .map(|tile| {
+                cancellation.check()?;
+                let output = pipeline::compute_tile_cancellable(
+                    tile,
+                    params,
+                    steps,
+                    steps.contours,
+                    cancellation,
+                )?;
+                cancellation.check()?;
+                Ok(output)
+            })
             .collect::<anyhow::Result<Vec<_>>>()
     });
 
     let outputs = match outputs {
         Ok(o) => o,
         Err(e) => {
+            if cancellation.is_cancelled() {
+                return;
+            }
             let _ = sender.send(FrontendTask::Error(e.to_string(), true));
             return;
         }
     };
+
+    if cancellation.is_cancelled() {
+        return;
+    }
 
     for output in outputs {
         tot_energy += f64::from(output.contour_energy);
@@ -131,8 +150,19 @@ pub fn regenerate_map_tile(
         }
     }
 
-    if steps.contours {
+    if steps.contours && steps.streams {
+        omap.merge_lines_with_symbol_distance(
+            5. * crate::SIMPLIFICATION_DIST,
+            LineSymbol::SmallCrossableWatercourse,
+            params.streams.endpoint_merge_distance_m(),
+        );
+    } else if steps.contours {
         omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+    } else if steps.streams {
+        omap.merge_lines(params.streams.endpoint_merge_distance_m());
+    }
+
+    if steps.contours {
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
@@ -150,6 +180,10 @@ pub fn regenerate_map_tile(
             return;
         }
     };
+
+    if cancellation.is_cancelled() {
+        return;
+    }
 
     if steps.contours {
         tot_energy /= tiles.len() as f64;
@@ -215,7 +249,7 @@ fn changed_steps(
         || new.cliff.collapse_linearity != old.cliff.collapse_linearity
         || polynomial_fit_changed;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
-    steps.streams = steps.water;
+    steps.streams = new.streams != old.streams || new.geometry.streams != old.geometry.streams;
     steps.marsh = new.marsh != old.marsh || new.geometry.marsh != old.geometry.marsh || steps.water;
 
     // Building precedence changes the geometry of these layers. Regenerate
@@ -288,8 +322,12 @@ fn limit_to_reached_sections(
     }
     if reached < MapPreviewSection::Water {
         steps.water = false;
-        steps.streams = false;
+    }
+    if reached < MapPreviewSection::Marsh {
         steps.marsh = false;
+    }
+    if reached < MapPreviewSection::Streams {
+        steps.streams = false;
     }
     if reached < MapPreviewSection::Intensity {
         steps.intensity = false;
@@ -322,10 +360,13 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
         }
         RegenerationScope::Section(MapPreviewSection::Water) => {
             steps.water = true;
-            steps.streams = true;
+            steps.buildings = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::Marsh) => {
             steps.marsh = true;
             steps.buildings = true;
         }
+        RegenerationScope::Section(MapPreviewSection::Streams) => steps.streams = true,
         RegenerationScope::Section(MapPreviewSection::Intensity) => {
             steps.intensity = true;
             steps.buildings = true;
@@ -381,6 +422,23 @@ mod tests {
         assert!(!buildings.water);
         assert!(!buildings.streams);
         assert!(!buildings.intensity);
+
+        let water = first_generation_steps(MapPreviewSection::Water);
+        assert!(water.water);
+        assert!(water.buildings);
+        assert!(!water.marsh);
+        assert!(!water.streams);
+
+        let marsh = first_generation_steps(MapPreviewSection::Marsh);
+        assert!(marsh.marsh);
+        assert!(marsh.buildings);
+        assert!(!marsh.water);
+        assert!(!marsh.streams);
+
+        let streams = first_generation_steps(MapPreviewSection::Streams);
+        assert!(streams.streams);
+        assert!(!streams.water);
+        assert!(!streams.marsh);
     }
 
     #[test]
@@ -464,5 +522,49 @@ mod tests {
         assert!(!steps.water);
         assert!(!steps.streams);
         assert!(!steps.contours);
+    }
+
+    #[test]
+    fn water_and_stream_parameters_regenerate_independent_sections() {
+        let old = MapParameters::default();
+
+        let mut water_changed = old.clone();
+        water_changed.water.threshold += 0.05;
+        let water_steps = changed_steps(
+            &water_changed,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(water_steps.water);
+        assert!(water_steps.marsh);
+        assert!(!water_steps.streams);
+
+        let mut streams_changed = old.clone();
+        streams_changed.streams.minimum_catchment_area_m2 += 100.;
+        let stream_steps = changed_steps(
+            &streams_changed,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(stream_steps.streams);
+        assert!(!stream_steps.water);
+        assert!(!stream_steps.marsh);
+
+        let mut vectorization_changed = old.clone();
+        vectorization_changed
+            .streams
+            .onnx_vectorization
+            .confidence_threshold = 0.6;
+        let vectorization_steps = changed_steps(
+            &vectorization_changed,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(vectorization_steps.streams);
+        assert!(!vectorization_steps.water);
+        assert!(!vectorization_steps.marsh);
     }
 }

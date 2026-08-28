@@ -861,11 +861,34 @@ impl TempMap {
     /// units apart are merged. Elevation tags are respected and only elements
     /// with equal elevation tags can be merged.
     pub fn merge_lines(&mut self, delta: f64) {
+        self.merge_lines_with_override(delta, None);
+    }
+
+    /// Merge lines while using a different endpoint distance for one symbol.
+    pub fn merge_lines_with_symbol_distance(
+        &mut self,
+        default_delta: f64,
+        symbol: LineSymbol,
+        symbol_delta: f64,
+    ) {
+        self.merge_lines_with_override(default_delta, Some((symbol, symbol_delta)));
+    }
+
+    fn merge_lines_with_override(
+        &mut self,
+        default_delta: f64,
+        symbol_override: Option<(LineSymbol, f64)>,
+    ) {
         for (key, map_objects) in self.objects.iter_mut() {
             if !matches!(key, Symbol::Line(_)) {
                 continue;
             }
+            let delta = match symbol_override {
+                Some((symbol, delta)) if *key == Symbol::Line(symbol) => delta,
+                _ => default_delta,
+            };
             let delta = delta * delta;
+            let allow_self_merge = *key != Symbol::Line(LineSymbol::SmallCrossableWatercourse);
 
             let mut unclosed_objects = Vec::with_capacity(map_objects.len());
 
@@ -927,7 +950,9 @@ impl TempMap {
 
                 let mut merges = Vec::with_capacity(line_starts.len());
                 for (start_i, line_start) in line_starts.iter().enumerate() {
-                    if let Some(nn) = end_tree.nearest_neighbor(*line_start)
+                    if let Some(nn) = end_tree
+                        .nearest_neighbor_iter(*line_start)
+                        .find(|candidate| allow_self_merge || start_i != candidate.data)
                         && nn.distance_2(line_start) <= merge_delta
                     {
                         merges.push((start_i, nn.data));
@@ -989,7 +1014,9 @@ impl TempMap {
                     let start = line_object.object.0[0];
                     let end = line_object.object.0[line_object.object.0.len() - 1];
 
-                    if (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= merge_delta {
+                    if allow_self_merge
+                        && (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= merge_delta
+                    {
                         line_object.object.close();
                     }
 
@@ -1369,6 +1396,88 @@ mod tests {
         assert_eq!(
             opposite_orientation.objects[&Symbol::Line(LineSymbol::FormLine)].len(),
             2
+        );
+    }
+
+    #[test]
+    fn symbol_specific_endpoint_distance_overrides_the_default() {
+        let line = |symbol, start, end| MapObject::Line {
+            object: geo::LineString::new(vec![
+                geo::coord! { x: start, y: 0. },
+                geo::coord! { x: end, y: 0. },
+            ]),
+            symbol,
+            tags: HashMap::new(),
+        };
+        let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        for symbol in [LineSymbol::Cliff, LineSymbol::SmallCrossableWatercourse] {
+            map.add_object(line(symbol, 0., 1.));
+            map.add_object(line(symbol, 1.25, 2.));
+        }
+
+        map.merge_lines_with_symbol_distance(0.5, LineSymbol::SmallCrossableWatercourse, 0.1);
+
+        assert_eq!(map.objects[&Symbol::Line(LineSymbol::Cliff)].len(), 1);
+        assert_eq!(
+            map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].len(),
+            2
+        );
+    }
+
+    #[test]
+    fn stream_does_not_merge_with_itself() {
+        let almost_closed = |symbol| MapObject::Line {
+            object: geo::LineString::new(vec![
+                geo::coord! { x: 0., y: 0. },
+                geo::coord! { x: 1., y: 0. },
+                geo::coord! { x: 0.1, y: 0. },
+            ]),
+            symbol,
+            tags: HashMap::new(),
+        };
+        let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(almost_closed(LineSymbol::Cliff));
+        map.add_object(almost_closed(LineSymbol::SmallCrossableWatercourse));
+
+        map.merge_lines(0.2);
+
+        let [MapObject::Line { object: cliff, .. }] =
+            map.objects[&Symbol::Line(LineSymbol::Cliff)].as_slice()
+        else {
+            panic!("expected one cliff");
+        };
+        let [MapObject::Line { object: stream, .. }] =
+            map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].as_slice()
+        else {
+            panic!("expected one stream");
+        };
+        assert!(cliff.is_closed());
+        assert!(!stream.is_closed());
+    }
+
+    #[test]
+    fn stream_skips_itself_to_merge_with_another_stream() {
+        let mut map = TempMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        for coordinates in [
+            vec![
+                geo::coord! { x: 0., y: 0. },
+                geo::coord! { x: 1., y: 0. },
+                geo::coord! { x: 0.05, y: 0. },
+            ],
+            vec![geo::coord! { x: -1., y: 0. }, geo::coord! { x: 0.1, y: 0. }],
+        ] {
+            map.add_object(MapObject::Line {
+                object: geo::LineString::new(coordinates),
+                symbol: LineSymbol::SmallCrossableWatercourse,
+                tags: HashMap::new(),
+            });
+        }
+
+        map.merge_lines(0.2);
+
+        assert_eq!(
+            map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].len(),
+            1
         );
     }
 }

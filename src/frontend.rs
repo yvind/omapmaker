@@ -32,6 +32,7 @@ pub struct OmapMaker {
     // backend communication
     comms: OmapComms<BackendTask, FrontendTask>,
     active_preview_job_id: Option<JobId>,
+    active_preview_cancellation: Option<CancellationToken>,
     next_preview_job_id: JobId,
 }
 
@@ -74,6 +75,8 @@ impl eframe::App for OmapMaker {
                     | ProcessStage::AdjustBuildings
                     | ProcessStage::AdjustCliffs
                     | ProcessStage::AdjustWater
+                    | ProcessStage::AdjustMarsh
+                    | ProcessStage::AdjustStreams
                     | ProcessStage::AdjustIntensity => self.render_adjust_slider_panel(ui),
                     ProcessStage::MakeMap => self.render_generating_map_panel(ui),
                     ProcessStage::ExportDone => self.render_done_panel(ui),
@@ -94,6 +97,8 @@ impl eframe::App for OmapMaker {
                 | ProcessStage::AdjustBuildings
                 | ProcessStage::AdjustCliffs
                 | ProcessStage::AdjustWater
+                | ProcessStage::AdjustMarsh
+                | ProcessStage::AdjustStreams
                 | ProcessStage::AdjustIntensity
                 | ProcessStage::ShowComponents => {
                     self.render_map(ui);
@@ -137,6 +142,7 @@ impl OmapMaker {
             ctx,
             comms: frontend_comms,
             active_preview_job_id: None,
+            active_preview_cancellation: None,
             next_preview_job_id: 0,
             open_modal: OmapModal::None,
             home: walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
@@ -378,6 +384,7 @@ impl OmapMaker {
                 if self.active_preview_job_id == Some(job_id) {
                     self.gui_variables.preview.generating_map_tile = false;
                     self.active_preview_job_id = None;
+                    self.active_preview_cancellation = None;
                 }
             }
             TaskComplete::MakeMap => self.start_task(Task::NextState),
@@ -429,6 +436,8 @@ impl OmapMaker {
                     ProcessStage::AdjustBuildings => MapPreviewSection::Buildings,
                     ProcessStage::AdjustCliffs => MapPreviewSection::Cliffs,
                     ProcessStage::AdjustWater => MapPreviewSection::Water,
+                    ProcessStage::AdjustMarsh => MapPreviewSection::Marsh,
+                    ProcessStage::AdjustStreams => MapPreviewSection::Streams,
                     ProcessStage::AdjustIntensity => MapPreviewSection::Intensity,
                     _ => unreachable!("The next adjustment stage must be adjustable"),
                 };
@@ -584,18 +593,27 @@ impl OmapMaker {
     }
 
     fn regenerate_map(&mut self, scope: RegenerationScope) {
+        if let Some(cancellation) = self.active_preview_cancellation.take() {
+            cancellation.cancel();
+        }
         self.next_preview_job_id = self.next_preview_job_id.wrapping_add(1);
         let job_id = self.next_preview_job_id;
+        let cancellation = CancellationToken::default();
         self.active_preview_job_id = Some(job_id);
+        self.active_preview_cancellation = Some(cancellation.clone());
         self.gui_variables.preview.generating_map_tile = true;
         let _ = self.comms.send(BackendTask::RegenerateMap(
             job_id,
             Box::new(self.gui_variables.generation.params.clone()),
             scope,
+            cancellation,
         ));
     }
 
     fn reset(&mut self) {
+        if let Some(cancellation) = self.active_preview_cancellation.take() {
+            cancellation.cancel();
+        }
         self.home = walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1);
         self.gui_variables = Default::default();
         self.active_preview_job_id = None;

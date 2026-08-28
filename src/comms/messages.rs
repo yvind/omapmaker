@@ -7,8 +7,28 @@ use crate::{
     statistics::LidarStats,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub type JobId = u64;
+
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken(Arc<AtomicBool>);
+
+impl CancellationToken {
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    pub fn check(&self) -> crate::Result<()> {
+        anyhow::ensure!(!self.is_cancelled(), "preview job was cancelled");
+        Ok(())
+    }
+}
 
 /// Notifications produced by backend work and applied by the frontend.
 ///
@@ -31,7 +51,12 @@ pub enum BackendTask {
     ParseCrs(Vec<PathBuf>),
     MapSpatialLidarRelations(Vec<PathBuf>, Option<Vec<Option<CrsDef>>>),
     ConvertCopc(Box<ConvertCopcTask>),
-    RegenerateMap(JobId, Box<MapParameters>, RegenerationScope),
+    RegenerateMap(
+        JobId,
+        Box<MapParameters>,
+        RegenerationScope,
+        CancellationToken,
+    ),
     Reset,
     MakeMap(Box<MakeMapTask>),
 }
@@ -107,6 +132,8 @@ pub enum MapPreviewSection {
     Buildings,
     Cliffs,
     Water,
+    Marsh,
+    Streams,
     Intensity,
 }
 
@@ -141,4 +168,19 @@ pub enum Variable {
     ContourScore(JobId, (f32, f32)),
     Stats(Box<LidarStats>),
     SingleCopcPath(PathBuf),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_is_shared_between_job_participants() {
+        let frontend = CancellationToken::default();
+        let backend = frontend.clone();
+        assert!(backend.check().is_ok());
+        frontend.cancel();
+        assert!(backend.is_cancelled());
+        assert!(backend.check().is_err());
+    }
 }

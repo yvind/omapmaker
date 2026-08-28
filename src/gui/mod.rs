@@ -17,6 +17,8 @@ pub enum ProcessStage {
     AdjustBuildings,
     AdjustCliffs,
     AdjustWater,
+    AdjustMarsh,
+    AdjustStreams,
     AdjustIntensity,
     CheckLidar,
     ShowComponents,
@@ -43,7 +45,9 @@ impl ProcessStage {
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustBuildings,
             ProcessStage::AdjustBuildings => *self = ProcessStage::AdjustCliffs,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustWater,
-            ProcessStage::AdjustWater => *self = ProcessStage::AdjustIntensity,
+            ProcessStage::AdjustWater => *self = ProcessStage::AdjustMarsh,
+            ProcessStage::AdjustMarsh => *self = ProcessStage::AdjustStreams,
+            ProcessStage::AdjustStreams => *self = ProcessStage::AdjustIntensity,
             ProcessStage::AdjustIntensity => *self = ProcessStage::MakeMap,
             ProcessStage::MakeMap => *self = ProcessStage::ExportDone,
             _ => unreachable!("Should not call next on state for {:?} variant.", self),
@@ -57,7 +61,9 @@ impl ProcessStage {
             ProcessStage::AdjustVegetation => *self = ProcessStage::AdjustOpenness,
             ProcessStage::AdjustBuildings => *self = ProcessStage::AdjustVegetation,
             ProcessStage::AdjustCliffs => *self = ProcessStage::AdjustBuildings,
-            ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustWater,
+            ProcessStage::AdjustIntensity => *self = ProcessStage::AdjustStreams,
+            ProcessStage::AdjustStreams => *self = ProcessStage::AdjustMarsh,
+            ProcessStage::AdjustMarsh => *self = ProcessStage::AdjustWater,
             ProcessStage::AdjustWater => *self = ProcessStage::AdjustCliffs,
             ProcessStage::ShowComponents => *self = ProcessStage::CheckLidar,
             _ => unreachable!("Should not call prev on state for {:?} variant.", self),
@@ -73,7 +79,32 @@ impl ProcessStage {
                 | ProcessStage::AdjustBuildings
                 | ProcessStage::AdjustCliffs
                 | ProcessStage::AdjustWater
+                | ProcessStage::AdjustMarsh
+                | ProcessStage::AdjustStreams
                 | ProcessStage::AdjustIntensity
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProcessStage;
+
+    #[test]
+    fn water_marsh_and_streams_are_separate_consecutive_adjustment_steps() {
+        let mut stage = ProcessStage::AdjustWater;
+        stage.next();
+        assert_eq!(stage, ProcessStage::AdjustMarsh);
+        stage.next();
+        assert_eq!(stage, ProcessStage::AdjustStreams);
+        stage.next();
+        assert_eq!(stage, ProcessStage::AdjustIntensity);
+
+        stage.prev();
+        assert_eq!(stage, ProcessStage::AdjustStreams);
+        stage.prev();
+        assert_eq!(stage, ProcessStage::AdjustMarsh);
+        stage.prev();
+        assert_eq!(stage, ProcessStage::AdjustWater);
     }
 }
