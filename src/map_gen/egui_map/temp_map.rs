@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use geo::{Area, BooleanOps, BoundingRect, Buffer, Intersects, MapCoords, MapCoordsInPlace};
 use omap::{
-    Omap,
-    objects::{AreaObject, BezierPath, BezierPolygon, LineObject, PointObject},
-    symbols::{WeakAreaPathSymbol, WeakLinePathSymbol},
+    NonNegativeF64, Omap,
+    objects::{AreaObject, BezierPath, LineObject, PointObject},
+    symbols::{AreaPathSymbolId, LinePathSymbolId, PointSymbolId},
 };
 use proj_core::CrsDef;
 use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
@@ -25,21 +25,6 @@ impl std::fmt::Display for Symbol {
             Symbol::Line(line_symbol) => write!(f, "{:?}", line_symbol),
             Symbol::Point(point_symbol) => write!(f, "{:?}", point_symbol),
         }
-    }
-}
-
-impl Symbol {
-    pub fn get_omap_symbol<'a>(
-        &self,
-        symbol_set: &'a omap::symbols::SymbolSet,
-    ) -> anyhow::Result<Option<&'a omap::symbols::Symbol>> {
-        let code = match self {
-            Symbol::Area(area_symbol) => area_symbol.get_code(),
-            Symbol::Line(line_symbol) => line_symbol.get_code(),
-            Symbol::Point(point_symbol) => point_symbol.get_code(),
-        };
-
-        Ok(symbol_set.symbol_by_code(code)?)
     }
 }
 
@@ -101,6 +86,17 @@ impl AreaSymbol {
         }
     }
 
+    /// The handle of the symbol set entry with this symbol's code, if the set
+    /// holds one and it renders areas.
+    pub fn get_omap_symbol_id(
+        &self,
+        symbol_set: &omap::symbols::SymbolSet,
+    ) -> Option<AreaPathSymbolId> {
+        symbol_set
+            .find_by_code(self.get_code())
+            .and_then(|symbol| symbol.as_area_path())
+    }
+
     pub fn min_size(&self, scale: &Scale) -> f64 {
         let a = match self {
             AreaSymbol::WhiteForest => 64.,
@@ -151,6 +147,17 @@ impl LineSymbol {
             LineSymbol::Cliff => omap::Code::new(202, 0, 0),
             LineSymbol::ImpassableCliff => omap::Code::new(201, 0, 0),
         }
+    }
+
+    /// The handle of the symbol set entry with this symbol's code, if the set
+    /// holds one and it renders lines.
+    pub fn get_omap_symbol_id(
+        &self,
+        symbol_set: &omap::symbols::SymbolSet,
+    ) -> Option<LinePathSymbolId> {
+        symbol_set
+            .find_by_code(self.get_code())
+            .and_then(|symbol| symbol.as_line_path())
     }
 
     pub fn min_length(&self, scale: Scale, is_closed: bool) -> f64 {
@@ -205,6 +212,17 @@ impl PointSymbol {
             PointSymbol::SmallBoulder => omap::Code::new(204, 0, 0),
             PointSymbol::LargeBoulder => omap::Code::new(205, 0, 0),
         }
+    }
+
+    /// The handle of the symbol set entry with this symbol's code, if the set
+    /// holds one and it is a point symbol.
+    pub fn get_omap_symbol_id(
+        &self,
+        symbol_set: &omap::symbols::SymbolSet,
+    ) -> Option<PointSymbolId> {
+        symbol_set
+            .find_by_code(self.get_code())
+            .and_then(|symbol| symbol.as_point())
     }
 }
 
@@ -616,6 +634,14 @@ impl TempMap {
         };
         let transform = omap.geo_referencing.create_transform();
 
+        // symbol handles are looked up in the symbol set and the objects are added to the
+        // first map part. Disjoint fields, so both borrows can be held across the loop.
+        let symbols = &omap.symbols;
+        let part = omap
+            .parts
+            .get_mut(0)
+            .ok_or_else(|| anyhow::anyhow!("The default map contains no map parts"))?;
+
         for (sym, objects) in self.objects.drain() {
             let bezier_error = geo_params
                 .bezier_error_for_symbol(sym)
@@ -629,27 +655,12 @@ impl TempMap {
                         tags,
                     } => {
                         object.map_coords_in_place(|c| c + self.ref_point);
-
-                        let geometry = transform.to_map_polygon(object);
-                        let geometry = if let Some(bezier) = bezier_error {
-                            match BezierPolygon::fit_polygon(geometry.clone(), bezier.try_into()?) {
-                                Ok(s) => s,
-                                Err(_) => geometry.into(),
-                            }
-                        } else {
-                            geometry.into()
-                        };
-
-                        let mut area = AreaObject::new(
-                            WeakAreaPathSymbol::try_from(
-                                Symbol::Area(symbol)
-                                    .get_omap_symbol(&omap.symbols)?
-                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
-                                    .downgrade(),
-                            )?,
-                            geometry,
-                        );
-                        area.tags = tags;
+                        let symbol_id = symbol
+                            .get_omap_symbol_id(symbols)
+                            .ok_or(omap::Error::MissingSymbolId)?;
+                        let mut area =
+                            AreaObject::new(Some(symbol_id), transform.to_map_polygon(object));
+                        *area.tags_mut() = tags;
                         area.into()
                     }
                     MapObject::Line {
@@ -660,28 +671,29 @@ impl TempMap {
                         tags.remove(PRESERVE_CONTOUR_GEOMETRY_TAG);
                         tags.remove(STABLE_CONTOUR_SEAM_TAG);
                         let object = object.map_coords(|c| c + self.ref_point);
+                        let symbol_id = symbol
+                            .get_omap_symbol_id(symbols)
+                            .ok_or(omap::Error::MissingSymbolId)?;
 
-                        let geometry = transform.to_map_linestring(object);
-                        let geometry = if let Some(bezier) = bezier_error {
-                            match BezierPath::fit_line_string(geometry.clone(), bezier.try_into()?)
-                            {
-                                Ok(s) => s,
-                                Err(_) => geometry.into(),
-                            }
-                        } else {
-                            geometry.into()
+                        // the geometry is fitted to beziers up front now, as the objects
+                        // hold their curves instead of fitting them at write time
+                        let line_string = transform.to_map_linestring(object);
+                        let fit_error = bezier_error
+                            .filter(|_| {
+                                !matches!(
+                                    symbol,
+                                    LineSymbol::BasemapContour | LineSymbol::NegBasemapContour
+                                )
+                            })
+                            .and_then(|err| NonNegativeF64::try_from(err).ok());
+
+                        let geometry = match fit_error {
+                            Some(err) => BezierPath::fit_line_string(line_string, err)?,
+                            None => BezierPath::from(line_string),
                         };
 
-                        let mut line = LineObject::new(
-                            WeakLinePathSymbol::try_from(
-                                Symbol::Line(symbol)
-                                    .get_omap_symbol(&omap.symbols)?
-                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
-                                    .downgrade(),
-                            )?,
-                            geometry,
-                        );
-                        line.tags = tags;
+                        let mut line = LineObject::new(Some(symbol_id), geometry);
+                        *line.tags_mut() = tags;
                         line.into()
                     }
                     MapObject::Point {
@@ -691,23 +703,19 @@ impl TempMap {
                         tags,
                     } => {
                         let object = object.map_coords(|c| c + self.ref_point);
-                        let omap_symbol = Symbol::Point(symbol)
-                            .get_omap_symbol(&omap.symbols)?
-                            .ok_or_else(|| omap::Error::MissingSymbolId)?;
-                        let symbol = match omap_symbol {
-                            omap::symbols::Symbol::Point(symbol) => std::rc::Rc::downgrade(symbol),
-                            _ => Err(omap::Error::MissingSymbolId)?,
-                        };
-                        let mut point = PointObject::new(symbol, transform.to_map_point(object));
+                        let symbol_id = symbol
+                            .get_omap_symbol_id(symbols)
+                            .ok_or(omap::Error::MissingSymbolId)?;
+                        let mut point =
+                            PointObject::new(Some(symbol_id), transform.to_map_point(object));
                         point.rotation = rotation;
-                        point.tags = tags;
+                        *point.tags_mut() = tags;
                         point.into()
                     }
                 };
-                omap.parts.get_mut(0).unwrap().add_object(omap_object);
+                part.add_object(omap_object);
             }
         }
-
         Ok(omap)
     }
 

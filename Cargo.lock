@@ -2728,16 +2728,6 @@ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
 name = "linestring2bezier"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86b84cab67e739f48302c57ac691c3db749088eba7f228651d9d0c8a60ec2f85"
-dependencies = [
- "geo-types",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "linestring2bezier"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "415d96d19df33b05c779c0b79f3b63048b6f8797b5c25f463e10d54a76e75db8"
@@ -3396,16 +3386,17 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4580c4668a80c870b2cb8abfed2101646666aa6d63d70784ed5aa7340907bc6"
+checksum = "61b0badced41cb054e53ecd6d6b16f22785c4cc0decc53a9c2767d008182852f"
 dependencies = [
  "chrono",
  "geo-types",
- "linestring2bezier 0.8.0",
+ "linestring2bezier",
  "proj-core",
  "proj-wkt",
  "quick-xml",
+ "slotmap",
  "thiserror 2.0.20",
  "world_magnetic_model",
 ]
@@ -3422,7 +3413,6 @@ dependencies = [
  "geo",
  "geotiff-writer",
  "las 0.11.0",
- "linestring2bezier 0.5.2",
  "log",
  "ndarray",
  "omap",
