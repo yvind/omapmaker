@@ -9,7 +9,8 @@ repository = "https://github.com/yvind/omapmaker"
 
 [features]
 default = []
-deep-learning = [
+deep-learning = ["stream-svf-slope"]
+stream-svf-slope = [
     "dep:burn",
     "dep:burn-store",
     "dep:burn-onnx",

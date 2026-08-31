@@ -3,6 +3,7 @@ pub mod contour_set;
 pub mod graph;
 pub mod line_string;
 pub mod multi_polygon;
+pub(crate) mod neighbors;
 pub mod point_cloud;
 pub mod point_lidar;
 pub mod rectangle;

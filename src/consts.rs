@@ -4,7 +4,6 @@ pub const MIN_NEIGHBOR_MARGIN_METERS_USIZE: usize = 14;
 pub const INV_CELL_SIZE_METERS_USIZE: usize = 2;
 pub const STANDARD_CELL_SIZE_METERS: f64 = 0.5;
 pub const SIMPLIFICATION_DIST: f64 = 0.1;
-pub const MERGE_DELTA: f64 = 0.1;
 
 pub const MIN_GRAD_LENGTH: f32 = 1.0;
 

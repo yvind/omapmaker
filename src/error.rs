@@ -6,19 +6,24 @@ pub type Result<T> = anyhow::Result<T>;
 #[derive(Error, Debug)]
 pub enum Error {
     #[error(transparent)]
-    EframeError(#[from] eframe::Error),
+    Eframe(#[from] eframe::Error),
     #[error(transparent)]
-    OmapError(#[from] omap::Error),
+    Omap(#[from] omap::Error),
     #[error(transparent)]
-    ProjError(#[from] proj_core::Error),
+    Proj(#[from] proj_core::Error),
     #[error("The chosen polygon filter does not intersect the lidar files")]
     MapAreaDistinctFromLidarArea,
     #[error("Cannot create a neighborhood without a center")]
-    NeighborhoodError,
+    Neighborhood,
     #[error(transparent)]
-    CopcError(#[from] copc_converter::Error),
+    Copc(#[from] copc_converter::Error),
     #[error(transparent)]
-    LasError(#[from] las::Error),
+    Las(#[from] las::Error),
     #[error("The area contains no ground points")]
     NoGroundPoints,
+    #[error("{algorithm} is not available for {feature}; rebuild with the required capability")]
+    AlgorithmUnavailable {
+        feature: &'static str,
+        algorithm: &'static str,
+    },
 }

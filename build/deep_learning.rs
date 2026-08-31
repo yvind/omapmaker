@@ -370,28 +370,30 @@ fn registry(models: &[CatalogModel]) -> String {
     for model in models {
         let manifest = &model.manifest;
         let upper = manifest.id.to_ascii_uppercase();
-        writeln!(code, "static {upper}_NORMALIZATION: &[crate::feature_extraction::contract::ChannelNormalization] = &[").unwrap();
+        writeln!(
+            code,
+            "static {upper}_NORMALIZATION: &[crate::inference::contract::ChannelNormalization] = &["
+        )
+        .unwrap();
         for normalization in &manifest.input.normalization {
             let kind = match normalization.kind {
                 NormalizationKind::MinMax => format!(
-                    "crate::feature_extraction::contract::Normalization::MinMax {{ minimum: {:?}, maximum: {:?} }}",
+                    "crate::inference::contract::Normalization::MinMax {{ minimum: {:?}, maximum: {:?} }}",
                     normalization.minimum.unwrap(),
                     normalization.maximum.unwrap()
                 ),
                 NormalizationKind::Standard => format!(
-                    "crate::feature_extraction::contract::Normalization::Standard {{ mean: {:?}, standard_deviation: {:?} }}",
+                    "crate::inference::contract::Normalization::Standard {{ mean: {:?}, standard_deviation: {:?} }}",
                     normalization.mean.unwrap(),
                     normalization.standard_deviation.unwrap()
                 ),
             };
-            writeln!(code, "    crate::feature_extraction::contract::ChannelNormalization {{ channel: {:?}, normalization: {kind} }},", normalization.channel).unwrap();
+            writeln!(code, "    crate::inference::contract::ChannelNormalization {{ channel: {:?}, normalization: {kind} }},", normalization.channel).unwrap();
         }
         code.push_str("];\n");
     }
 
-    code.push_str(
-        "\npub static MODELS: &[crate::feature_extraction::contract::ModelDescriptor] = &[\n",
-    );
+    code.push_str("\npub static MODELS: &[crate::inference::contract::ModelDescriptor] = &[\n");
     for model in models {
         let manifest = &model.manifest;
         let upper = manifest.id.to_ascii_uppercase();
@@ -400,11 +402,7 @@ fn registry(models: &[CatalogModel]) -> String {
             Activation::Sigmoid => "Sigmoid",
             Activation::Softmax => "Softmax",
         };
-        writeln!(
-            code,
-            "    crate::feature_extraction::contract::ModelDescriptor {{"
-        )
-        .unwrap();
+        writeln!(code, "    crate::inference::contract::ModelDescriptor {{").unwrap();
         writeln!(code, "        schema_version: {}, contract_version: {}, id: {:?}, name: {:?}, revision: {:?},", manifest.schema_version, manifest.contract_version, manifest.id, manifest.name, manifest.revision).unwrap();
         writeln!(
             code,
@@ -412,8 +410,8 @@ fn registry(models: &[CatalogModel]) -> String {
             model.onnx_hash, model.manifest_hash
         )
         .unwrap();
-        writeln!(code, "        input: crate::feature_extraction::contract::InputDescriptor {{ width: {}, height: {}, cell_size: {:?}, halo_cells: {}, channels: &{:?}, normalization: {upper}_NORMALIZATION, invalid_policy: crate::feature_extraction::contract::InvalidPolicy::RejectTile }},", manifest.input.width, manifest.input.height, manifest.input.cell_size, manifest.input.halo_cells, manifest.input.channels).unwrap();
-        writeln!(code, "        output: crate::feature_extraction::contract::OutputDescriptor {{ width: {}, height: {}, channels: &{:?}, activation: crate::feature_extraction::contract::Activation::{activation} }},", manifest.output.width, manifest.output.height, manifest.output.channels).unwrap();
+        writeln!(code, "        input: crate::inference::contract::InputDescriptor {{ width: {}, height: {}, cell_size: {:?}, halo_cells: {}, channels: &{:?}, normalization: {upper}_NORMALIZATION, invalid_policy: crate::inference::contract::InvalidPolicy::RejectTile }},", manifest.input.width, manifest.input.height, manifest.input.cell_size, manifest.input.halo_cells, manifest.input.channels).unwrap();
+        writeln!(code, "        output: crate::inference::contract::OutputDescriptor {{ width: {}, height: {}, channels: &{:?}, activation: crate::inference::contract::Activation::{activation} }},", manifest.output.width, manifest.output.height, manifest.output.channels).unwrap();
         code.push_str("    },\n");
     }
     code.push_str("];\n");
