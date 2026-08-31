@@ -4,7 +4,7 @@ use eframe::{
     epaint::CubicBezierShape,
 };
 use geo::TriangulateEarcut;
-use linestring2bezier::BezierString;
+use omap::objects::{BezierSegment, BezierString};
 use proj_core::{CrsDef, Transform};
 
 #[derive(Clone)]
@@ -189,10 +189,10 @@ impl DrawableLineObject {
                 Ok(bs) => {
                     for segment in bs.0 {
                         match segment {
-                            linestring2bezier::BezierSegment::Bezier(bezier_curve) => {
+                            BezierSegment::Bezier(bezier_curve) => {
                                 vec.extend_from_slice(&bezier_curve.to_array());
                             }
-                            linestring2bezier::BezierSegment::Line(line) => {
+                            BezierSegment::Line(line) => {
                                 vec.push(line.start);
                                 vec.push(line.start + (line.end - line.start) / 3.);
                                 vec.push(line.start + (line.end - line.start) * 2. / 3.);

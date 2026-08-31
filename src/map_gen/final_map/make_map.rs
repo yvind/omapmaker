@@ -644,7 +644,7 @@ pub fn make_map(
 
     let _ = sender.send(FrontendTask::Log("Writing Omap file...".to_string()));
 
-    let mut omap = map.into_omap(masl, &map_params.geometry)?;
+    let omap = map.into_omap(masl, &map_params.geometry)?;
 
     omap.to_file(file_params.save_location.clone())?;
 
