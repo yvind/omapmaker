@@ -5926,16 +5926,16 @@ dependencies = [
 
 [[package]]
 name = "omap"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61b0badced41cb054e53ecd6d6b16f22785c4cc0decc53a9c2767d008182852f"
+checksum = "b2199955f4449b13ab7b2e71be9439b2b6dd27f5bff00bc9563878dfd7313b9f"
 dependencies = [
  "chrono",
  "geo-types",
  "linestring2bezier",
  "proj-core",
  "proj-wkt",
- "quick-xml",
+ "quick-xml 0.42.0",
  "slotmap",
  "thiserror 2.0.20",
  "world_magnetic_model",
@@ -6519,9 +6519,9 @@ dependencies = [
 
 [[package]]
 name = "proj-core"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3086074d839c8a1e6ff2c7b9c0addd5f92ed9b2bbc082c2787bd79d4560da450"
+checksum = "037cd3eabca9fd5238c4a73856ff9e288c008ed1119ce3881ab017b171e61c19"
 dependencies = [
  "geo-types",
  "geographiclib-rs",
@@ -6535,15 +6535,15 @@ dependencies = [
 
 [[package]]
 name = "proj-epsg-format"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9665706e204d99026365b2a1cdc47edb8f8adf98c8ace8a5f1beff95b910c3a1"
+checksum = "dd20e477d4c4d0bde4a2af4cd5f65047edfa4d85a5f5e6014f603f76e993808e"
 
 [[package]]
 name = "proj-wkt"
-version = "0.10.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62a6615b526310271e9362e4215f0b24b6e49285bfcc08f0f07801636cac059f"
+checksum = "ccb1e716d4228fb07908afe3469511d495d4d2a59fc83bfbac2d07df1b624197"
 dependencies = [
  "proj-core",
  "serde_json",
@@ -6652,6 +6652,15 @@ name = "quick-xml"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
 dependencies = [
  "memchr",
 ]
@@ -8540,15 +8549,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tynm"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a21cdb0fc8f85c98b1ec812bc4cd69faf6c0fa2fc17d44ea3c2cdd38dc08e999"
-dependencies = [
- "nom",
-]
-
-[[package]]
 name = "type-map"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9037,7 +9037,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "338e30461b3a2b67d70eb30a6d89f8e0c93a833e07d2ae89085cd070c4a00ac0"
 dependencies = [
  "proc-macro2",
- "quick-xml",
+ "quick-xml 0.41.0",
  "quote",
 ]
 

@@ -2,7 +2,6 @@ use geo::{MapCoords, MapCoordsInPlace};
 use omap::{
     Omap,
     objects::{AreaObject, BezierPath, BezierPolygon, LineObject, PointObject},
-    symbols::{WeakAreaPathSymbol, WeakLinePathSymbol},
 };
 
 use super::{
@@ -58,15 +57,12 @@ impl MapDocument {
                         };
 
                         let mut area = AreaObject::new(
-                            WeakAreaPathSymbol::try_from(
-                                Symbol::Area(symbol)
-                                    .get_omap_symbol(&omap.symbols)?
-                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
-                                    .downgrade(),
-                            )?,
+                            Symbol::Area(symbol)
+                                .get_omap_symbol_ref(&omap.symbols)
+                                .and_then(|s| s.try_into().ok()),
                             geometry,
                         );
-                        area.tags = tags;
+                        *area.tags_mut() = tags;
                         area.into()
                     }
                     MapObject::Line {
@@ -90,15 +86,12 @@ impl MapDocument {
                         };
 
                         let mut line = LineObject::new(
-                            WeakLinePathSymbol::try_from(
-                                Symbol::Line(symbol)
-                                    .get_omap_symbol(&omap.symbols)?
-                                    .ok_or_else(|| omap::Error::MissingSymbolId)?
-                                    .downgrade(),
-                            )?,
+                            Symbol::Line(symbol)
+                                .get_omap_symbol_ref(&omap.symbols)
+                                .and_then(|s| s.as_line_path()),
                             geometry,
                         );
-                        line.tags = tags;
+                        *line.tags_mut() = tags;
                         line.into()
                     }
                     MapObject::Point {
@@ -108,16 +101,14 @@ impl MapDocument {
                         tags,
                     } => {
                         let object = object.map_coords(|c| c + self.ref_point);
-                        let omap_symbol = Symbol::Point(symbol)
-                            .get_omap_symbol(&omap.symbols)?
-                            .ok_or_else(|| omap::Error::MissingSymbolId)?;
-                        let symbol = match omap_symbol {
-                            omap::symbols::Symbol::Point(symbol) => std::rc::Rc::downgrade(symbol),
-                            _ => Err(omap::Error::MissingSymbolId)?,
-                        };
-                        let mut point = PointObject::new(symbol, transform.to_map_point(object));
+                        let mut point = PointObject::new(
+                            Symbol::Point(symbol)
+                                .get_omap_symbol_ref(&omap.symbols)
+                                .and_then(|s| s.as_point()),
+                            transform.to_map_point(object),
+                        );
                         point.rotation = rotation;
-                        point.tags = tags;
+                        *point.tags_mut() = tags;
                         point.into()
                     }
                 };

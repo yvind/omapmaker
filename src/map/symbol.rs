@@ -18,17 +18,16 @@ impl std::fmt::Display for Symbol {
 }
 
 impl Symbol {
-    pub fn get_omap_symbol<'a>(
+    pub fn get_omap_symbol_ref<'a>(
         &self,
         symbol_set: &'a omap::symbols::SymbolSet,
-    ) -> anyhow::Result<Option<&'a omap::symbols::Symbol>> {
+    ) -> Option<omap::symbols::SymbolRef<'a>> {
         let code = match self {
             Symbol::Area(area_symbol) => area_symbol.get_code(),
             Symbol::Line(line_symbol) => line_symbol.get_code(),
             Symbol::Point(point_symbol) => point_symbol.get_code(),
         };
-
-        Ok(symbol_set.symbol_by_code(code)?)
+        symbol_set.find_by_code(code)
     }
 }
 
