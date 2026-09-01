@@ -1,5 +1,4 @@
-mod objects;
-mod orchestrate;
+mod final_map;
 mod rasters;
 
-pub(crate) use orchestrate::export_map;
+pub(crate) use final_map::export_map;

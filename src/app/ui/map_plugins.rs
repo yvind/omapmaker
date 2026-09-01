@@ -39,7 +39,7 @@ impl<'a> LasComponentPainter<'a> {
 impl Plugin for LasComponentPainter<'_> {
     fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
         for (ci, component) in self.components.iter().enumerate() {
-            let component_color = COLOR_LIST[ci];
+            let component_color = COLOR_LIST[ci % COLOR_LIST.len()];
             for boundary_index in component {
                 let bound = &self.boundaries[*boundary_index];
 
@@ -254,13 +254,19 @@ impl Plugin for TestAreaSelector<'_> {
         }
 
         for polygon in &self.test_area_display.0 {
-            draw_polygon(
-                ui,
-                projector,
-                polygon,
+            // painting is most performant in clockwise order
+            let screen_coords = [
+                projector.project(polygon.exterior().0[0].into()),
+                projector.project(polygon.exterior().0[3].into()),
+                projector.project(polygon.exterior().0[2].into()),
+                projector.project(polygon.exterior().0[1].into()),
+            ];
+
+            ui.painter().add(egui::Shape::convex_polygon(
+                screen_coords.to_vec(),
                 Color32::RED.gamma_multiply(0.25),
                 egui::Stroke::new(2., Color32::RED),
-            );
+            ));
         }
 
         if let Some(boundary) = self.selected_square_boundary {
@@ -339,7 +345,8 @@ fn display_to_projected_coord(
         return Ok(coord);
     };
 
-    let transform = Transform::from_horizontal_components(&crate::project::get_global_crs(), crs)?;
+    let transform =
+        Transform::from_horizontal_components(&crate::projection::get_global_crs(), crs)?;
     transform
         .convert_geometry(coord)
         .map_err(|e| anyhow::anyhow!(e))
@@ -364,7 +371,7 @@ fn rect_to_display_boundary(
 
     if let Some(crs) = crs {
         let transform =
-            Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
+            Transform::from_horizontal_components(crs, &crate::projection::get_global_crs())?;
         for corner in &mut corners {
             let transformed = transform.convert((corner.x, corner.y))?;
             corner.x = transformed.0;
@@ -373,51 +380,6 @@ fn rect_to_display_boundary(
     }
 
     Ok(corners.map(geo::Point))
-}
-
-fn draw_polygon(
-    ui: &mut Ui,
-    projector: &ScreenProjector,
-    polygon: &geo::Polygon,
-    fill: Color32,
-    stroke: egui::Stroke,
-) {
-    if polygon.exterior().0.len() > 3 {
-        let tri = polygon.earcut_triangles_raw();
-
-        let points: Vec<egui::epaint::Vertex> = tri
-            .vertices
-            .into_iter()
-            .map(|c| egui::epaint::Vertex {
-                pos: projector.project(geo::Point(geo::Coord { x: c[0], y: c[1] })),
-                uv: egui::epaint::WHITE_UV,
-                color: fill,
-            })
-            .collect();
-
-        let mesh = egui::Mesh {
-            indices: tri.triangle_indices.into_iter().map(|i| i as u32).collect(),
-            vertices: points,
-            texture_id: egui::epaint::TextureId::Managed(0),
-        };
-
-        ui.painter().add(mesh);
-    }
-
-    let outline: Vec<egui::Pos2> = polygon
-        .exterior()
-        .coords()
-        .map(|p| projector.project(geo::Point(*p)))
-        .collect();
-    ui.painter().line(outline, stroke);
-
-    for interior in polygon.interiors() {
-        let outline: Vec<egui::Pos2> = interior
-            .coords()
-            .map(|p| projector.project(geo::Point(*p)))
-            .collect();
-        ui.painter().line(outline, stroke);
-    }
 }
 
 pub struct OmapDrawer<'a> {

@@ -10,16 +10,16 @@ use super::AreaSymbol;
 #[cfg(test)]
 use geo::{Area, BooleanOps};
 
-pub struct MapDocument {
+pub struct InternalMap {
     pub ref_point: geo::Coord,
     pub scale: Scale,
     pub crs: Option<CrsDef>,
     pub objects: HashMap<Symbol, Vec<MapObject>>,
 }
 
-impl MapDocument {
+impl InternalMap {
     pub fn new(ref_point: geo::Coord, scale: Scale, crs: Option<CrsDef>) -> Self {
-        MapDocument {
+        InternalMap {
             ref_point,
             scale,
             crs,
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn marsh_subtraction_removes_all_open_water_overlap() {
-        let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         let marsh = geo::Rect::new(geo::coord! { x: 0., y: 0. }, geo::coord! { x: 10., y: 10. })
             .to_polygon();
         let water = geo::Rect::new(geo::coord! { x: 5., y: 0. }, geo::coord! { x: 15., y: 10. })
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn seam_stable_formlines_merge_only_at_identical_endpoints() {
-        let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         map.add_object(seam_stable_formline(vec![
             geo::coord! { x: 0., y: 0. },
             geo::coord! { x: 1., y: 0. },
@@ -376,7 +376,7 @@ mod tests {
             if reverse {
                 segments.reverse();
             }
-            let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+            let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
             for segment in segments {
                 map.add_object(seam_stable_formline(segment));
             }
@@ -397,7 +397,7 @@ mod tests {
         let line = |points, elevation| seam_stable_formline_at(points, elevation);
 
         let mut different_elevations =
-            MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+            InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         different_elevations.add_object(line(
             vec![geo::coord! { x: 0., y: 0. }, geo::coord! { x: 1., y: 0. }],
             2.501,
@@ -413,7 +413,7 @@ mod tests {
         );
 
         let mut opposite_orientation =
-            MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+            InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         opposite_orientation.add_object(line(
             vec![geo::coord! { x: 0., y: 0. }, geo::coord! { x: 1., y: 0. }],
             2.5,
@@ -439,7 +439,7 @@ mod tests {
             symbol,
             tags: HashMap::new(),
         };
-        let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         for symbol in [LineSymbol::Cliff, LineSymbol::SmallCrossableWatercourse] {
             map.add_object(line(symbol, 0., 1.));
             map.add_object(line(symbol, 1.25, 2.));
@@ -465,7 +465,7 @@ mod tests {
             symbol,
             tags: HashMap::new(),
         };
-        let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         map.add_object(almost_closed(LineSymbol::Cliff));
         map.add_object(almost_closed(LineSymbol::SmallCrossableWatercourse));
 
@@ -487,7 +487,7 @@ mod tests {
 
     #[test]
     fn stream_skips_itself_to_merge_with_another_stream() {
-        let mut map = MapDocument::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
         for coordinates in [
             vec![
                 geo::coord! { x: 0., y: 0. },

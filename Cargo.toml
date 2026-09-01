@@ -25,9 +25,9 @@ path = "src/main.rs"
 
 [dependencies]
 # gui
-eframe = "0.35"
+eframe = "0.36.0"
 egui_autocomplete = { git = "https://github.com/yvind/egui_autocomplete" }
-egui_double_slider = "3.0.0"
+egui_double_slider = "4.0.0"
 
 # choose files
 rfd = "0.17.2"
@@ -43,7 +43,7 @@ proj-core = "0.11.0"
 spade = "2.15.1"
 
 # easy parallelization
-rayon = "1.12.0"
+rayon = "1.12"
 
 # geometry
 geo = "0.33.1"
@@ -51,7 +51,7 @@ rstar = "0.13.0"
 
 # read/write las/laz/copc
 las = { version = "0.11.0", features = ["laz-parallel"] }
-copc_converter = "0.11.0"
+copc_converter = "0.14.0"
 
 # write omap files
 omap = { version = "0.12.1", features = ["geo_ref"] }
@@ -64,10 +64,8 @@ anyhow = "1"
 log = "0.4"
 
 # writing geotiffs
-geotiff-writer = "0.7.0"
-
-# needed??
-ndarray = "0.17.2"
+geotiff-writer = "0.8"
+ndarray = "0.17"
 
 [dependencies.burn]
 version = "=0.22.0-pre.3"

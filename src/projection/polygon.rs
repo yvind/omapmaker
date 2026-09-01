@@ -11,7 +11,8 @@ pub fn from_walkers_map_coords(
         return Ok(Some(geo::Polygon::new(line, vec![])));
     };
 
-    let transform = Transform::from_horizontal_components(&crate::project::get_global_crs(), &crs)?;
+    let transform =
+        Transform::from_horizontal_components(&crate::projection::get_global_crs(), &crs)?;
 
     let transformed_line = transform.convert_geometry(line)?;
 

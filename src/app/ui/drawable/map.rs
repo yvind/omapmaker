@@ -1,10 +1,7 @@
 use crate::Result;
 use std::collections::{HashMap, hash_map::Keys};
 
-use eframe::{
-    egui::{self, Color32, Stroke},
-    emath,
-};
+use eframe::egui::{self, Color32, Stroke};
 use log::{Level, log};
 use proj_core::{CrsDef, Transform};
 
@@ -13,7 +10,7 @@ use super::{
     object::{DrawableGeometry, DrawableLineObject, DrawablePointObject, DrawablePolygonObject},
 };
 use crate::{
-    map::{AreaSymbol, LineSymbol, MapDocument, MapObject, Symbol},
+    map::{AreaSymbol, InternalMap, LineSymbol, MapObject, Symbol},
     parameters::GeometryParameters,
 };
 
@@ -82,7 +79,7 @@ impl DrawableOmap {
     }
 
     pub fn from_temp_map(
-        tmap: MapDocument,
+        tmap: InternalMap,
         hull: geo::LineString,
         geometry: &GeometryParameters,
     ) -> Result<Self> {
@@ -90,7 +87,7 @@ impl DrawableOmap {
 
         let global_hull = if let Some(crs) = &tmap.crs {
             let transform =
-                Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
+                Transform::from_horizontal_components(crs, &crate::projection::get_global_crs())?;
 
             let points: Vec<(f64, f64)> = hull
                 .0
@@ -205,7 +202,7 @@ impl DrawableOmap {
             }
 
             if let Some((special, mut stroke)) = symbol.stroke(
-                projector.scale_pixel_per_meter(projector.unproject(emath::Pos2::new(0.5, 0.5))),
+                projector.scale_pixel_per_meter(projector.unproject(egui::Pos2::new(0.5, 0.5))),
             ) {
                 stroke.color = stroke.color.gamma_multiply(opacity);
 

@@ -57,7 +57,7 @@ fn read_boundaries(
         {
             // transform bounds to lat lon
             let transform =
-                Transform::from_horizontal_components(crs, &crate::project::get_global_crs())
+                Transform::from_horizontal_components(crs, &crate::projection::get_global_crs())
                     .with_context(|| format!("Failed to create transform from {:?}", crs))?;
 
             points[0] = transform.convert(points[0])?;

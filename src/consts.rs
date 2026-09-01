@@ -1,4 +1,3 @@
-// must be constant across training and inference if AI is to be applied
 pub const TILE_SIZE_METERS_USIZE: usize = 256;
 pub const MIN_NEIGHBOR_MARGIN_METERS_USIZE: usize = 14;
 pub const INV_CELL_SIZE_METERS_USIZE: usize = 2;

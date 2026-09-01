@@ -11,6 +11,7 @@ use geo::{Area, BooleanOps};
 use crate::{
     generation::{self, features::ComputedDfms},
     geometry::PointCloud,
+    inference::models::ditches_streams_svf_slope as stream_model,
     lidar::LidarStats,
     map::MapObject,
     parameters::{BuildingParameters, MapParameters, VegetationWeights},
@@ -53,28 +54,9 @@ pub struct TileRasters {
     pub stream_flow: D8Flow,
 }
 
-impl<'a> From<&'a TileRasters> for crate::inference::InputRasters<'a> {
+impl<'a> From<&'a TileRasters> for stream_model::Input<'a> {
     fn from(rasters: &'a TileRasters) -> Self {
-        Self {
-            dem: &rasters.dem,
-            return_number: &rasters.return_number,
-            intensity: &rasters.intensity,
-            last_return: &rasters.last_return,
-            ground_vegetation: &rasters.ground_vegetation,
-            low_vegetation: &rasters.low_vegetation,
-            medium_vegetation: &rasters.medium_vegetation,
-            high_vegetation: &rasters.high_vegetation,
-            ground_relief_2m: &rasters.ground_relief_2m,
-            ground_relief_5m: &rasters.ground_relief_5m,
-            hard_object_height: &rasters.hard_object_height,
-            hard_object_confidence: &rasters.hard_object_confidence,
-            vegetation_likelihood: &rasters.vegetation_likelihood,
-            filtered_surface: &rasters.filtered_surface,
-            water: &rasters.water,
-            canopy_height: &rasters.canopy_height,
-            point_density: &rasters.point_density,
-            ground_point_density: &rasters.ground_point_density,
-        }
+        Self { dem: &rasters.dem }
     }
 }
 
@@ -95,7 +77,7 @@ pub struct PreparedTile {
     building_detection_cache:
         Mutex<BoundedCache<(u64, BuildingParameters), generation::features::BuildingDetection, 2>>,
     marsh_hydrology_cache: Mutex<BoundedCache<u32, MarshHydrology, 2>>,
-    prediction_cache: Mutex<crate::inference::StreamPredictionCache>,
+    prediction_cache: Mutex<stream_model::PredictionCache>,
 }
 
 pub struct DeferredHydrologyTile {
@@ -354,8 +336,8 @@ impl PreparedTile {
     pub fn prediction(
         &self,
         cancellation: &crate::cancellation::CancellationToken,
-    ) -> crate::Result<Arc<crate::inference::StreamPrediction>> {
-        crate::inference::predict_stream(
+    ) -> crate::Result<Arc<stream_model::Prediction>> {
+        stream_model::predict(
             &self.prediction_cache,
             self.revision,
             (&self.rasters).into(),

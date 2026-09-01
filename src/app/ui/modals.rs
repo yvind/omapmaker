@@ -186,8 +186,8 @@ impl OmapMaker {
                 if self.gui_variables.lidar.unique_crs.is_empty() {
                     if ui.button("Use \"Local Coordinates\"")
                         .on_hover_text("This option is only available if no CRS has been detected among the lidar files. \
-                        This button assumes they all are in same CRS without caring about which. \
-                        The output map will not be georefrenced, but everything should work fine regardless.")
+                        This button assumes they all are in the same CRS without caring about which. \
+                        The output map will not be georefrenced, and no background maps are available, but everything else should work fine.")
                         .clicked()
                         {
                             self.dispatch_action(AppAction::SetCrs(SetCrs::Local));
@@ -232,7 +232,7 @@ impl OmapMaker {
             ui.label("Choose the output CRS of the map. \
             As every relevant Lidar file gets converted into this CRS it is recommended to click the \"Majority Vote\" button. \
             This will lead to the fewest (maybe none) time consuming file transformations. \
-            It makes sense to choose another CRS if your files are in imperial units, but it's discouraged otherwise. \
+            It makes sense to choose another CRS if your files are not in metric units, but it's discouraged otherwise. \
             Only files not already in the output CRS will be transformed. \
             New files will be written and so any transform will not affect the original file. \
             The transformations are done at a later stage.");
@@ -275,21 +275,13 @@ impl OmapMaker {
         mgc_modal.show(ctx, |ui| {
             ui.heading("Multiple Graph Components Detected");
             ui.separator();
-            if self.gui_variables.lidar.connected_components.len() > 9 {
-                ui.label(
-                    "The Lidar neighbor graph forms too many components (more than 9).\
-                \nPlease start over.",
-                );
-            } else {
-                ui.label(
-                    "Multiple graph components have been detected in the lidar neighbor graph.",
-                );
-                ui.vertical_centered(|ui| {
-                    if ui.button("Show components").clicked() {
-                        self.dispatch_action(AppAction::ShowComponents);
-                    }
-                });
-            }
+            ui.label("Multiple graph components have been detected in the lidar neighbor graph.");
+            ui.vertical_centered(|ui| {
+                if ui.button("Show components").clicked() {
+                    self.dispatch_action(AppAction::ShowComponents);
+                }
+            });
+
             ui.separator();
             egui::Sides::new().show(
                 ui,
@@ -299,10 +291,7 @@ impl OmapMaker {
                         self.dispatch_action(AppAction::Reset);
                     };
                     if ui
-                        .add_enabled(
-                            self.gui_variables.lidar.connected_components.len() <= 9,
-                            egui::Button::new("Drop all files not in the largest component"),
-                        )
+                        .button("Drop all files not in the largest component (by file count)")
                         .clicked()
                     {
                         self.dispatch_action(AppAction::DropComponents);
@@ -368,7 +357,7 @@ impl OmapMaker {
                 ui,
                 |_ui| {},
                 |ui| {
-                    if ui.button("Ok!").clicked() {
+                    if ui.button("Start over").clicked() {
                         self.open_modal = OmapModal::None;
                     };
                 },
@@ -377,7 +366,7 @@ impl OmapMaker {
     }
 
     pub fn waiver_modal(&mut self, ctx: &egui::Context) {
-        let waiver_modal = Modal::new(egui::Id::new("Error, start over"));
+        let waiver_modal = Modal::new(egui::Id::new("Waiver"));
         waiver_modal.show(ctx, |ui| {
             ui.heading("User's liability waiver");
             ui.separator();
@@ -392,7 +381,7 @@ impl OmapMaker {
                 ui,
                 |_ui| {},
                 |ui| {
-                    if ui.button("Ok").clicked() {
+                    if ui.button("Got it").clicked() {
                         self.open_modal = OmapModal::None;
                     };
                 },

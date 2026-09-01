@@ -23,6 +23,17 @@ impl OmapMaker {
         buffer_rules: &mut Vec<BufferRule>,
     ) {
         ui.label("Rules are applied in order.");
+        ui.horizontal(|ui| {
+            if ui.button("Add rule").clicked() {
+                buffer_rules.push(Default::default());
+            }
+            if ui
+                .add_enabled(!buffer_rules.is_empty(), egui::Button::new("Remove rule"))
+                .clicked()
+            {
+                buffer_rules.pop();
+            }
+        });
         for (i, buffer_rule) in buffer_rules.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 egui::ComboBox::from_id_salt(format!("{id_prefix}_{i}"))
@@ -43,16 +54,5 @@ impl OmapMaker {
                 ui.add(egui::DragValue::new(&mut buffer_rule.amount).range(0.1..=25.0));
             });
         }
-        ui.horizontal(|ui| {
-            if ui.button("Add rule").clicked() {
-                buffer_rules.push(Default::default());
-            }
-            if ui
-                .add_enabled(!buffer_rules.is_empty(), egui::Button::new("Remove rule"))
-                .clicked()
-            {
-                buffer_rules.pop();
-            }
-        });
     }
 }

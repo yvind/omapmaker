@@ -8,7 +8,7 @@ use crate::app::{
 use crate::generation;
 use crate::generation::pipeline::PreparedTile;
 use crate::parameters::MapParameters;
-use crate::project;
+use crate::projection;
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -297,7 +297,7 @@ impl Worker {
                     } = *task;
 
                     // transform the linestring to output coords
-                    let local_polygon_filter = match project::polygon::from_walkers_map_coords(
+                    let local_polygon_filter = match projection::polygon::from_walkers_map_coords(
                         map_params.output.crs.clone(),
                         polygon_filter,
                     ) {

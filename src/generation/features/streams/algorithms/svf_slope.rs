@@ -1,5 +1,5 @@
 use crate::geometry::MapMultiPolygon;
-use crate::inference::StreamPrediction;
+use crate::inference::models::ditches_streams_svf_slope::Prediction;
 use crate::map::{LineSymbol, MapObject};
 use crate::parameters::{MapParameters, OnnxStreamVectorizationParameters};
 use crate::raster::{Dfm, ModelPrediction};
@@ -7,7 +7,7 @@ use geo::{Area, BooleanOps, Buffer, Euclidean, Length, Simplify};
 use std::collections::HashMap;
 
 pub fn stream_features(
-    prediction: &StreamPrediction,
+    prediction: &Prediction,
     cut_overlay: &geo::Polygon,
     parameters: &MapParameters,
 ) -> crate::Result<Vec<MapObject>> {
@@ -82,7 +82,7 @@ fn buffer_prediction_polygons(polygons: geo::MultiPolygon, distance_m: f64) -> g
 /// confidence threshold. Strict comparison gives background priority on ties,
 /// matching NumPy's first-index `argmax`.
 fn winning_stream_mask(
-    prediction: &StreamPrediction,
+    prediction: &Prediction,
     confidence_threshold: f32,
 ) -> crate::Result<Dfm<ModelPrediction>> {
     anyhow::ensure!(
@@ -240,8 +240,7 @@ mod tests {
         values[10] = 0.45;
         values[16 + 10] = 0.45;
         values[32 + 10] = 0.10;
-        let prediction =
-            StreamPrediction::from_nchw(&STREAM_MODEL, grid, [1, 3, 4, 4], values).unwrap();
+        let prediction = Prediction::from_nchw(&STREAM_MODEL, grid, [1, 3, 4, 4], values).unwrap();
 
         let mask = winning_stream_mask(&prediction, 0.).unwrap();
 
@@ -279,8 +278,7 @@ mod tests {
         values[6] = 0.35;
         values[16 + 6] = 0.40;
         values[32 + 6] = 0.25;
-        let prediction =
-            StreamPrediction::from_nchw(&STREAM_MODEL, grid, [1, 3, 4, 4], values).unwrap();
+        let prediction = Prediction::from_nchw(&STREAM_MODEL, grid, [1, 3, 4, 4], values).unwrap();
 
         assert_eq!(winning_stream_mask(&prediction, 0.40).unwrap()[(1, 2)], 1.);
         assert_eq!(winning_stream_mask(&prediction, 0.41).unwrap()[(1, 2)], 0.);

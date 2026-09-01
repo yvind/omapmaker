@@ -7,7 +7,7 @@ use crate::{
 };
 
 pub(crate) fn stream_features(
-    prediction: &crate::inference::StreamPrediction,
+    prediction: &crate::inference::models::ditches_streams_svf_slope::Prediction,
     cut_overlay: &geo::Polygon,
     parameters: &MapParameters,
 ) -> crate::Result<Vec<MapObject>> {

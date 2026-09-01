@@ -554,7 +554,7 @@ impl AppState {
     }
 
     pub fn prepare_test_area(&mut self) -> crate::Result<()> {
-        let polygon_filter = crate::project::polygon::from_walkers_map_coords(
+        let polygon_filter = crate::projection::polygon::from_walkers_map_coords(
             self.generation.params.output.crs.clone(),
             self.area.polygon_filter.clone(),
         )?;
@@ -607,7 +607,7 @@ impl AppState {
             line.close();
         }
 
-        crate::project::polygon::from_walkers_map_coords(
+        crate::projection::polygon::from_walkers_map_coords(
             self.generation.params.output.crs.clone(),
             line,
         )
@@ -663,7 +663,8 @@ fn boundary_to_projected_polygon(
         return Ok(geo::Polygon::new(line, vec![]));
     };
 
-    let transform = Transform::from_horizontal_components(&crate::project::get_global_crs(), crs)?;
+    let transform =
+        Transform::from_horizontal_components(&crate::projection::get_global_crs(), crs)?;
     Ok(geo::Polygon::new(transform.convert_geometry(line)?, vec![]))
 }
 
@@ -675,7 +676,8 @@ fn projected_to_display_multipolygon(
         return Ok(multipolygon.clone());
     };
 
-    let transform = Transform::from_horizontal_components(crs, &crate::project::get_global_crs())?;
+    let transform =
+        Transform::from_horizontal_components(crs, &crate::projection::get_global_crs())?;
     let mut out = Vec::with_capacity(multipolygon.0.len());
     for polygon in &multipolygon.0 {
         let exterior = transform.convert_geometry(polygon.exterior().clone())?;

@@ -7,3 +7,4 @@ mod output;
 mod setup;
 mod terrain;
 mod vegetation;
+mod welcome;

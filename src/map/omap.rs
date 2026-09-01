@@ -5,12 +5,12 @@ use omap::{
 };
 
 use super::{
-    MapDocument, MapObject, Symbol,
+    InternalMap, MapObject, Symbol,
     object::{PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG},
 };
 use crate::parameters::{GeometryParameters, Scale};
 
-impl MapDocument {
+impl InternalMap {
     pub fn into_omap(
         mut self,
         meters_above_sea: f64,

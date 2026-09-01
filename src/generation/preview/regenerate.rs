@@ -2,14 +2,14 @@ use crate::{
     cancellation::CancellationToken,
     generation::pipeline::{self, PipelineSteps, PreparedTile},
     generation::preview::{MapPreviewSection, RegenerationScope},
-    map::{AreaSymbol, LineSymbol, MapDocument, PointSymbol},
+    map::{AreaSymbol, LineSymbol, InternalMap, PointSymbol},
     parameters::{CliffAlgorithm, MapParameters},
 };
 
 use rayon::{ThreadPool, prelude::*};
 
 pub(crate) struct PreviewUpdate {
-    pub(crate) document: MapDocument,
+    pub(crate) document: InternalMap,
     pub(crate) contour_score: Option<(f32, f32)>,
 }
 
@@ -24,7 +24,7 @@ pub fn regenerate_map_tile(
     preview_section_reached: Option<MapPreviewSection>,
     cancellation: &CancellationToken,
 ) -> crate::Result<Option<PreviewUpdate>> {
-    let mut omap = MapDocument::new(ref_point, params.scale, params.output.crs.clone());
+    let mut omap = InternalMap::new(ref_point, params.scale, params.output.crs.clone());
 
     let steps = changed_steps(params, old_params.as_ref(), scope, preview_section_reached);
 

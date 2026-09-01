@@ -4,7 +4,7 @@ use geo::{Area, BooleanOps, BoundingRect, Buffer, Intersects};
 use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 
 use super::{
-    AreaSymbol, LineSymbol, MapDocument, MapObject, Symbol,
+    AreaSymbol, InternalMap, LineSymbol, MapObject, Symbol,
     object::{PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG},
 };
 
@@ -85,7 +85,7 @@ impl MergeArea {
     }
 }
 
-impl MapDocument {
+impl InternalMap {
     pub fn merge_areas(&mut self, symbol: AreaSymbol, delta: f64) -> crate::Result<()> {
         let objects = self.objects.remove(&Symbol::Area(symbol));
 

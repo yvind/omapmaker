@@ -1,3 +1,4 @@
+use super::rasters::{push_saved_raster, write_saved_rasters, write_saved_viewer_rasters};
 use crate::{
     Result,
     generation::{
@@ -7,7 +8,7 @@ use crate::{
     geometry::neighbors::NeighborSide,
     lidar,
     lidar::LidarStats,
-    map::{AreaSymbol, LineSymbol, MapDocument},
+    map::{AreaSymbol, InternalMap, LineSymbol},
     parameters::{FileParameters, MapParameters},
     progress::{ProgressReporter, ProgressUpdate},
     raster::{
@@ -19,10 +20,6 @@ use crate::{
     },
 };
 
-use super::{
-    objects,
-    rasters::{push_saved_raster, write_saved_rasters, write_saved_viewer_rasters},
-};
 use anyhow::Context;
 use geo::{Area, BooleanOps, Intersects};
 use rayon::{ThreadPool, prelude::*};
@@ -35,6 +32,39 @@ use std::{
 struct DeferredStreamTile {
     key: (usize, usize),
     tile: DeferredHydrologyTile,
+}
+
+use crate::{
+    generation::pipeline::{self, PipelineSteps},
+    map::MapObject,
+};
+
+pub fn compute_tile_map_objects(
+    args: &MapParameters,
+    tile: &PreparedTile,
+) -> crate::Result<Vec<MapObject>> {
+    Ok(pipeline::compute_tile(
+        tile,
+        args,
+        PipelineSteps {
+            basemap: true,
+            contours: true,
+            openness: true,
+            vegetation: true,
+            buildings: true,
+            cliffs: true,
+            intensity: true,
+            water: true,
+            // Hydrological streams are deferred until accumulation has been
+            // reconciled across tiles. ONNX streams are tile-local.
+            streams: !args.streams.algorithm.uses_deferred_hydrology(),
+            // Marsh uses the globally reconciled accumulation field and is
+            // therefore deferred by final-map generation.
+            marsh: false,
+        },
+        false,
+    )?
+    .objects)
 }
 
 pub fn export_map(
@@ -55,7 +85,7 @@ pub fn export_map(
     let (laz_paths, laz_neighbor_map, bounds, ref_point, masl) =
         lidar::map_laz(&file_params.paths, &polygon_filter)?;
 
-    let map = Arc::new(Mutex::new(MapDocument::new(
+    let map = Arc::new(Mutex::new(InternalMap::new(
         ref_point,
         map_params.scale,
         map_params.output.crs.clone(),
@@ -233,7 +263,7 @@ pub fn export_map(
                     }
                 };
 
-                let objects = match objects::compute_tile_map_objects(&map_params, &tile) {
+                let objects = match compute_tile_map_objects(&map_params, &tile) {
                     Ok(objects) => objects,
                     Err(e) => {
                         reporter.error(e.to_string());
@@ -544,7 +574,7 @@ pub fn export_map(
         );
     }
 
-    let mut map = Arc::<Mutex<MapDocument>>::into_inner(map)
+    let mut map = Arc::<Mutex<InternalMap>>::into_inner(map)
         .context("Could not get inner map value; a worker still holds a reference")?
         .into_inner()
         .map_err(|_| anyhow::anyhow!("Map mutex was poisoned during generation"))?;

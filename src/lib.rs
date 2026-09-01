@@ -10,7 +10,7 @@ mod lidar;
 mod map;
 mod parameters;
 mod progress;
-mod project;
+mod projection;
 mod raster;
 
 pub use app::run;
