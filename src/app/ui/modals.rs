@@ -275,7 +275,7 @@ impl OmapMaker {
         mgc_modal.show(ctx, |ui| {
             ui.heading("Multiple Graph Components Detected");
             ui.separator();
-            ui.label("Multiple graph components have been detected in the lidar neighbor graph.");
+            ui.label("Multiple disconnected groups of lidar bounds have been detected.");
             ui.vertical_centered(|ui| {
                 if ui.button("Show components").clicked() {
                     self.dispatch_action(AppAction::ShowComponents);
@@ -347,7 +347,7 @@ impl OmapMaker {
     }
 
     pub fn error_modal(&mut self, ctx: &egui::Context, cause: String) {
-        let error_dialog = Modal::new(egui::Id::new("Error, start over"));
+        let error_dialog = Modal::new(egui::Id::new("Error"));
         error_dialog.show(ctx, |ui| {
             ui.heading("An error occurred");
             ui.separator();
@@ -357,7 +357,7 @@ impl OmapMaker {
                 ui,
                 |_ui| {},
                 |ui| {
-                    if ui.button("Start over").clicked() {
+                    if ui.button("Ok").clicked() {
                         self.open_modal = OmapModal::None;
                     };
                 },

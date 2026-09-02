@@ -5,11 +5,10 @@ use anyhow::Context;
 use las::Reader;
 use proj_core::{CrsDef, Transform};
 
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::Result;
 use crate::geometry::MapRect;
-use crate::geometry::neighbors::Neighborhood;
 
 pub(crate) struct SpatialRelations {
     pub(crate) boundaries: Vec<[geo::Coord; 4]>,
@@ -93,80 +92,78 @@ fn read_boundaries(
     Ok((geographic_boundaries, boundary_areas, mid_point, components))
 }
 
-fn spatial_laz_analysis(paths: &Vec<PathBuf>) -> (Vec<geo::Rect>, Vec<Vec<usize>>) {
-    let mut tile_centers = Vec::with_capacity(paths.len());
+fn spatial_laz_analysis(paths: &[PathBuf]) -> (Vec<geo::Rect>, Vec<Vec<usize>>) {
     let mut tile_bounds = Vec::with_capacity(paths.len());
 
     for las_path in paths {
         if let Ok(las_reader) = Reader::from_path(las_path) {
             let b = las_reader.header().bounds();
-            tile_centers.push([(b.min.x + b.max.x) / 2., (b.min.y + b.max.y) / 2.]);
             tile_bounds.push(geo::Rect::from_bounds(b));
         }
     }
 
-    if tile_centers.len() == 1 {
-        return (tile_bounds, vec![vec![0]]);
-    }
-
-    let neighbors = Neighborhood::neighboring_tiles(&tile_centers, &tile_bounds);
-    let components = connected_components(&neighbors);
+    let components = connected_components(&tile_bounds);
 
     (tile_bounds, components)
 }
 
-fn connected_components(graph: &Vec<Neighborhood>) -> Vec<Vec<usize>> {
-    let mut cc: Vec<HashSet<usize>> = vec![];
+fn connected_components(bounds: &[geo::Rect]) -> Vec<Vec<usize>> {
+    if bounds.is_empty() {
+        return Vec::new();
+    }
 
-    for node in graph {
-        let mut belongs_to = usize::MAX;
+    let average_size = bounds
+        .iter()
+        .map(|bounds| bounds.width() + bounds.height())
+        .sum::<f64>()
+        / (2 * bounds.len()) as f64;
+    let connection_margin = 0.1 * average_size;
+    let mut visited = vec![false; bounds.len()];
+    let mut components = Vec::new();
 
-        for (i, component) in cc.iter().enumerate() {
-            if component.contains(&node.center) {
-                belongs_to = i;
-                break;
-            }
+    for start in 0..bounds.len() {
+        if visited[start] {
+            continue;
         }
 
-        if belongs_to != usize::MAX {
-            // the main node belongs to a component and so all
-            // of its neighbors also belong to that component
-            for ni in node.neighbor_indices() {
-                let _ = cc[belongs_to].insert(ni);
-            }
-        } else {
-            // the main node does not belong to a component
-            // create a new component and add it and all of its neighbors to that component
-            let mut new_component = HashSet::new();
-
-            for ni in node.all_indices() {
-                let _ = new_component.insert(ni);
-            }
-            cc.push(new_component);
-        }
-
-        // check for overlaps, i.e. that some node exists in
-        // multiple components if so merge those components
-        let mut i = 0;
-        while i < cc.len() {
-            // the components that should be merged to component i
-            let mut merge = vec![];
-            for j in i + 1..cc.len() {
-                if !cc[i].is_disjoint(&cc[j]) {
-                    // component i and j are connected
-                    // mark them for merging
-                    merge.push(j);
+        visited[start] = true;
+        let mut pending = vec![start];
+        let mut component = Vec::new();
+        while let Some(current) = pending.pop() {
+            component.push(current);
+            for candidate in 0..bounds.len() {
+                if !visited[candidate]
+                    && bounds[current].touch_margin(&bounds[candidate], connection_margin)
+                {
+                    visited[candidate] = true;
+                    pending.push(candidate);
                 }
             }
-
-            // walk through backwards to not affect the marked indices with the swap_remove
-            for j in merge.iter().rev() {
-                let com = cc.swap_remove(*j);
-
-                cc[i].extend(com);
-            }
-            i += 1;
         }
+        component.sort_unstable();
+        components.push(component);
     }
-    cc.into_iter().map(|mut h| h.drain().collect()).collect()
+
+    components
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounds_components_support_non_rectangular_and_overlapping_layouts() {
+        let bounds = [
+            geo::Rect::new((0., 0.), (10., 10.)),
+            geo::Rect::new((10., 0.), (20., 10.)),
+            geo::Rect::new((0., 10.), (10., 20.)),
+            geo::Rect::new((8., 8.), (12., 12.)),
+            geo::Rect::new((100., 100.), (110., 110.)),
+        ];
+
+        assert_eq!(
+            connected_components(&bounds),
+            vec![vec![0, 1, 2, 3], vec![4]]
+        );
+    }
 }

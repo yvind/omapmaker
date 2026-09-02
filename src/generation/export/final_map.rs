@@ -5,7 +5,6 @@ use crate::{
         self,
         pipeline::{DeferredHydrologyTile, PreparedTile},
     },
-    geometry::neighbors::NeighborSide,
     lidar,
     lidar::LidarStats,
     map::{AreaSymbol, InternalMap, LineSymbol},
@@ -81,9 +80,11 @@ pub fn export_map(
 
     reporter.log(format!("Running on {} threads", num_threads));
 
-    // Figure out spatial relationships of the lidar files, assuming they are divided from a big lidar-project by a square-ish grid
-    let (laz_paths, laz_neighbor_map, bounds, ref_point, masl) =
-        lidar::map_laz(&file_params.paths, &polygon_filter)?;
+    let source_index = lidar::LidarSourceIndex::new(&file_params.paths, polygon_filter.as_ref())?;
+    reporter.log(format!("Indexed {} COPC source(s)", source_index.len()));
+    let ref_point = source_index.ref_point();
+    let masl = source_index.average_elevation();
+    let processing_bounds = source_index.processing_bounds().to_vec();
 
     let map = Arc::new(Mutex::new(InternalMap::new(
         ref_point,
@@ -175,27 +176,19 @@ pub fn export_map(
         });
     }
 
-    for fi in 0..laz_paths.len() {
+    for (fi, region_bounds) in processing_bounds.iter().enumerate() {
         #[rustfmt::skip]
         reporter.log("\n***********************************************".to_string());
         #[rustfmt::skip]
-        reporter.log(format!("\t Processing Lidar-file {} of {}", fi + 1, laz_paths.len()));
+        reporter.log(format!("\t Processing source group {} of {}", fi + 1, processing_bounds.len()));
         #[rustfmt::skip]
-        reporter.log(format!(
-            "\t{:?}",
-            laz_paths[fi]
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_else(|| laz_paths[fi].display().to_string())
-        ));
+        reporter.log(format!("\t{} indexed COPC source(s)", source_index.len()));
         #[rustfmt::skip]
         reporter.log("-----------------------------------------------".to_string());
         reporter.progress(ProgressUpdate::Start);
 
-        // first get the sub-tile bounds for the current lidar file
-        // need tile-neighbor maps, bounds, cut-bounds and touched files (for the edge tiles)
         let (tile_bounds, mut cut_bounds, nx, ny) =
-            generation::pipeline::retile_bounds(&bounds[fi], &laz_neighbor_map[fi]);
+            generation::pipeline::retile_bounds(region_bounds);
 
         for cb in cut_bounds.iter_mut() {
             *cb = geo::Rect::new(cb.min() - ref_point, cb.max() - ref_point);
@@ -206,7 +199,9 @@ pub fn export_map(
 
         thread_pool.install(|| {
             (0..num_tiles).into_par_iter().for_each(|tile_i| {
-                let edge_tile = NeighborSide::is_edge_tile(tile_i, nx, ny);
+                if !source_index.intersects(tile_bounds[tile_i]) {
+                    return;
+                }
 
                 if let Some(polygon) = &polygon_filter
                     && !cut_bounds[tile_i].intersects(polygon)
@@ -214,25 +209,21 @@ pub fn export_map(
                     return;
                 }
 
-                let (cloud, all_point_cloud, mut hull) = match lidar::read_laz(
-                    &laz_paths,
-                    &laz_neighbor_map[fi],
-                    tile_bounds[tile_i],
-                    edge_tile,
-                    ref_point,
-                ) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        if e.downcast_ref::<crate::Error>()
-                            .is_some_and(|e| matches!(e, crate::Error::NoGroundPoints))
-                        {
+                let (cloud, all_point_cloud, hull) =
+                    match lidar::read_laz(&source_index, tile_bounds[tile_i], ref_point) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            if e.downcast_ref::<crate::Error>()
+                                .is_some_and(|e| matches!(e, crate::Error::NoGroundPoints))
+                            {
+                                return;
+                            }
+                            reporter.error(e.to_string());
                             return;
                         }
-                        reporter.error(e.to_string());
-                        return;
-                    }
-                };
+                    };
 
+                let mut hull = hull;
                 if let Some(polygon) = &polygon_filter {
                     let mut mp = polygon.intersection(&hull);
 

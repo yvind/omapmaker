@@ -13,8 +13,6 @@ pub enum Error {
     Proj(#[from] proj_core::Error),
     #[error("The chosen polygon filter does not intersect the lidar files")]
     MapAreaDistinctFromLidarArea,
-    #[error("Cannot create a neighborhood without a center")]
-    Neighborhood,
     #[error(transparent)]
     Copc(#[from] copc_converter::Error),
     #[error(transparent)]

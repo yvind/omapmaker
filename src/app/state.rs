@@ -585,6 +585,11 @@ impl AppState {
         if test_area.0.is_empty() {
             anyhow::bail!("The chosen polygon filter does not intersect the lidar files");
         }
+        if polygon_filter.is_some() && test_area.0.len() > 1 {
+            anyhow::bail!(
+                "The chosen polygon filter creates multiple disconnected areas after clipping to the lidar files"
+            );
+        }
 
         self.tile.test_area_display = projected_to_display_multipolygon(
             self.generation.params.output.crs.as_ref(),
@@ -694,7 +699,7 @@ fn projected_to_display_multipolygon(
 
 #[cfg(test)]
 mod tests {
-    use super::ProcessStage;
+    use super::{AppState, ProcessStage};
 
     #[test]
     fn hydrology_adjustments_are_consecutive_and_reversible() {
@@ -710,5 +715,34 @@ mod tests {
         stage.prev();
         stage.prev();
         assert_eq!(stage, ProcessStage::AdjustWater);
+    }
+
+    #[test]
+    fn prepare_test_area_rejects_polygon_split_by_lidar_extent() {
+        let mut state = AppState::default();
+        state.lidar.boundaries = vec![[
+            walkers::lon_lat(0., 10.),
+            walkers::lon_lat(0., 0.),
+            walkers::lon_lat(10., 0.),
+            walkers::lon_lat(10., 10.),
+        ]];
+
+        // The two legs are joined above the lidar extent. Clipping them to the
+        // lidar boundary therefore produces two disconnected polygons.
+        state.area.polygon_filter = geo::LineString::new(vec![
+            geo::coord! { x: 1., y: 1. },
+            geo::coord! { x: 3., y: 1. },
+            geo::coord! { x: 3., y: 11. },
+            geo::coord! { x: 7., y: 11. },
+            geo::coord! { x: 7., y: 1. },
+            geo::coord! { x: 9., y: 1. },
+            geo::coord! { x: 9., y: 13. },
+            geo::coord! { x: 1., y: 13. },
+            geo::coord! { x: 1., y: 1. },
+        ]);
+
+        let error = state.prepare_test_area().unwrap_err();
+        assert!(error.to_string().contains("multiple disconnected areas"));
+        assert!(state.tile.test_area_projected.0.is_empty());
     }
 }

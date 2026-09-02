@@ -8,7 +8,7 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label(
             "Checking readabilty of the files, coordinate refrence systems \
-            and doing connected component analysis on the lidar-neighbor-graph.",
+            and grouping lidar files whose bounds are nearby, touching, or overlapping.",
         );
 
         ui.add_space(10.);
@@ -20,10 +20,9 @@ impl OmapMaker {
 
         ui.add_space(10.);
         ui.label(
-            "From all the files a graph is constructed where each lidar file \
-        is a node and bordering files are connected by edges. \
-        This assumes that the files belong to a grid-like structure. \
-        If the graph has more than one connected component the user gets \
+            "Files with nearby, touching, or overlapping bounds are grouped together. \
+        This supports non-rectangular and overlapping file layouts. \
+        If there is more than one connected group the user gets \
         to choose wether to keep the biggest connected component (by node count) or start over.",
         );
 
@@ -39,7 +38,7 @@ impl OmapMaker {
         ui.heading("Connected components");
         ui.label(
             "All given lidar files are displayed on the map to the right. \
-        The different connected components of the lidar neighbor graph is colored differently.",
+        The different groups of connected lidar bounds are colored differently.",
         );
         ui.add_space(10.);
         ui.label("Clicking a file in the list will center the map at that file's location.");

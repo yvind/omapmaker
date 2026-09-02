@@ -254,19 +254,13 @@ impl Plugin for TestAreaSelector<'_> {
         }
 
         for polygon in &self.test_area_display.0 {
-            // painting is most performant in clockwise order
-            let screen_coords = [
-                projector.project(polygon.exterior().0[0].into()),
-                projector.project(polygon.exterior().0[3].into()),
-                projector.project(polygon.exterior().0[2].into()),
-                projector.project(polygon.exterior().0[1].into()),
-            ];
-
-            ui.painter().add(egui::Shape::convex_polygon(
-                screen_coords.to_vec(),
+            draw_polygon(
+                ui,
+                projector,
+                polygon,
                 Color32::RED.gamma_multiply(0.25),
                 egui::Stroke::new(2., Color32::RED),
-            ));
+            );
         }
 
         if let Some(boundary) = self.selected_square_boundary {
@@ -380,6 +374,51 @@ fn rect_to_display_boundary(
     }
 
     Ok(corners.map(geo::Point))
+}
+
+fn draw_polygon(
+    ui: &mut Ui,
+    projector: &ScreenProjector,
+    polygon: &geo::Polygon,
+    fill: Color32,
+    stroke: egui::Stroke,
+) {
+    if polygon.exterior().0.len() > 3 {
+        let tri = polygon.earcut_triangles_raw();
+
+        let points: Vec<egui::epaint::Vertex> = tri
+            .vertices
+            .into_iter()
+            .map(|c| egui::epaint::Vertex {
+                pos: projector.project(geo::Point(geo::Coord { x: c[0], y: c[1] })),
+                uv: egui::epaint::WHITE_UV,
+                color: fill,
+            })
+            .collect();
+
+        let mesh = egui::Mesh {
+            indices: tri.triangle_indices.into_iter().map(|i| i as u32).collect(),
+            vertices: points,
+            texture_id: egui::epaint::TextureId::Managed(0),
+        };
+
+        ui.painter().add(mesh);
+    }
+
+    let outline: Vec<egui::Pos2> = polygon
+        .exterior()
+        .coords()
+        .map(|p| projector.project(geo::Point(*p)))
+        .collect();
+    ui.painter().line(outline, stroke);
+
+    for interior in polygon.interiors() {
+        let outline: Vec<egui::Pos2> = interior
+            .coords()
+            .map(|p| projector.project(geo::Point(*p)))
+            .collect();
+        ui.painter().line(outline, stroke);
+    }
 }
 
 pub struct OmapDrawer<'a> {
