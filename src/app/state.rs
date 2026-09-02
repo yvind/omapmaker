@@ -585,9 +585,15 @@ impl AppState {
         if test_area.0.is_empty() {
             anyhow::bail!("The chosen polygon filter does not intersect the lidar files");
         }
-        if polygon_filter.is_some() && test_area.0.len() > 1 {
+        let area_components = crate::lidar::connected_polygon_components(&test_area.0);
+        if area_components.len() != 1 {
+            if polygon_filter.is_some() {
+                anyhow::bail!(
+                    "The chosen polygon filter creates multiple disconnected areas after clipping to the lidar files"
+                );
+            }
             anyhow::bail!(
-                "The chosen polygon filter creates multiple disconnected areas after clipping to the lidar files"
+                "The lidar files form multiple disconnected areas; exactly one connected area is required"
             );
         }
 
@@ -701,6 +707,15 @@ fn projected_to_display_multipolygon(
 mod tests {
     use super::{AppState, ProcessStage};
 
+    fn boundary(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> [walkers::Position; 4] {
+        [
+            walkers::lon_lat(min_x, max_y),
+            walkers::lon_lat(min_x, min_y),
+            walkers::lon_lat(max_x, min_y),
+            walkers::lon_lat(max_x, max_y),
+        ]
+    }
+
     #[test]
     fn hydrology_adjustments_are_consecutive_and_reversible() {
         let mut stage = ProcessStage::AdjustWater;
@@ -720,12 +735,7 @@ mod tests {
     #[test]
     fn prepare_test_area_rejects_polygon_split_by_lidar_extent() {
         let mut state = AppState::default();
-        state.lidar.boundaries = vec![[
-            walkers::lon_lat(0., 10.),
-            walkers::lon_lat(0., 0.),
-            walkers::lon_lat(10., 0.),
-            walkers::lon_lat(10., 10.),
-        ]];
+        state.lidar.boundaries = vec![boundary(0., 0., 10., 10.)];
 
         // The two legs are joined above the lidar extent. Clipping them to the
         // lidar boundary therefore produces two disconnected polygons.
@@ -744,5 +754,28 @@ mod tests {
         let error = state.prepare_test_area().unwrap_err();
         assert!(error.to_string().contains("multiple disconnected areas"));
         assert!(state.tile.test_area_projected.0.is_empty());
+    }
+
+    #[test]
+    fn prepare_test_area_rejects_disconnected_lidar_without_a_polygon() {
+        let mut state = AppState::default();
+        state.lidar.boundaries = vec![boundary(0., 0., 10., 10.), boundary(20., 0., 30., 10.)];
+
+        let error = state.prepare_test_area().unwrap_err();
+        assert!(error.to_string().contains("multiple disconnected areas"));
+        assert!(state.tile.test_area_projected.0.is_empty());
+    }
+
+    #[test]
+    fn prepare_test_area_accepts_the_shared_small_touch_margin() {
+        let mut state = AppState::default();
+        let margin = crate::LIDAR_BOUNDS_TOUCH_MARGIN_METERS;
+        state.lidar.boundaries = vec![
+            boundary(0., 0., 10., 10.),
+            boundary(10. + margin, 0., 20. + margin, 10.),
+        ];
+
+        state.prepare_test_area().unwrap();
+        assert_eq!(state.tile.test_area_projected.0.len(), 2);
     }
 }

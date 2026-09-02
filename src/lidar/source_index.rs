@@ -1,11 +1,15 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use geo::Intersects;
+use geo::{BooleanOps, Intersects};
 use las::CopcReader;
 use rstar::{AABB, RTree, RTreeObject};
 
-use crate::{Error, MIN_TILE_OVERLAP_METERS, Result, geometry::MapRect};
+use crate::{
+    Error, Result,
+    geometry::MapRect,
+    lidar::{connected_bounds_components, connected_polygon_components},
+};
 
 #[derive(Clone)]
 pub(crate) struct LidarSource {
@@ -78,6 +82,9 @@ impl LidarSourceIndex {
         if sources.is_empty() {
             return Err(Error::MapAreaDistinctFromLidarArea.into());
         }
+        if let Some(polygon) = polygon_filter {
+            ensure_clipped_area_connected(&sources, polygon)?;
+        }
 
         let indexed_sources = sources
             .iter()
@@ -89,7 +96,7 @@ impl LidarSourceIndex {
             .collect();
         let tree = RTree::bulk_load(indexed_sources);
 
-        let processing_bounds = connected_processing_bounds(&sources, &tree);
+        let processing_bounds = connected_processing_bounds(&sources)?;
         let bounds = combined_bounds(&sources).context("COPC source bounds contain no area")?;
         let ref_point = geo::Coord {
             x: ((bounds.min().x + bounds.max().x) / 20.).round() * 10.,
@@ -150,13 +157,6 @@ fn rect_envelope(rect: geo::Rect) -> AABB<[f64; 2]> {
     AABB::from_corners([rect.min().x, rect.min().y], [rect.max().x, rect.max().y])
 }
 
-fn expanded_rect_envelope(rect: geo::Rect, margin: f64) -> AABB<[f64; 2]> {
-    AABB::from_corners(
-        [rect.min().x - margin, rect.min().y - margin],
-        [rect.max().x + margin, rect.max().y + margin],
-    )
-}
-
 fn combined_bounds(sources: &[LidarSource]) -> Option<geo::Rect> {
     let first = sources.first()?.bounds;
     Some(sources.iter().skip(1).fold(first, |bounds, source| {
@@ -173,53 +173,41 @@ fn combined_bounds(sources: &[LidarSource]) -> Option<geo::Rect> {
     }))
 }
 
-/// Group source bounds that are close enough to share a processing halo.
-///
-/// Each group is tiled as one envelope. This prevents an outer cut margin from
-/// being applied at an internal source-file boundary while still avoiding a
-/// potentially huge grid between genuinely disconnected acquisitions.
-fn connected_processing_bounds(
-    sources: &[LidarSource],
-    tree: &RTree<IndexedSource>,
-) -> Vec<geo::Rect> {
-    let mut visited = vec![false; sources.len()];
-    let mut processing_bounds = Vec::new();
-
-    for start in 0..sources.len() {
-        if visited[start] {
-            continue;
+/// Validate the single-area invariant and return its one tiling envelope.
+fn connected_processing_bounds(sources: &[LidarSource]) -> Result<Vec<geo::Rect>> {
+    let source_bounds = sources
+        .iter()
+        .map(|source| source.bounds)
+        .collect::<Vec<_>>();
+    let components = connected_bounds_components(&source_bounds);
+    if components.len() != 1 {
+        return Err(Error::DisconnectedLidarAreas {
+            components: components.len(),
         }
-
-        visited[start] = true;
-        let mut pending = vec![start];
-        let mut bounds = sources[start].bounds;
-        while let Some(current) = pending.pop() {
-            let source_bounds = sources[current].bounds;
-            bounds = geo::Rect::new(
-                (
-                    bounds.min().x.min(source_bounds.min().x),
-                    bounds.min().y.min(source_bounds.min().y),
-                ),
-                (
-                    bounds.max().x.max(source_bounds.max().x),
-                    bounds.max().y.max(source_bounds.max().y),
-                ),
-            );
-
-            for candidate in tree.locate_in_envelope_intersecting(expanded_rect_envelope(
-                source_bounds,
-                MIN_TILE_OVERLAP_METERS,
-            )) {
-                if !visited[candidate.source_index] {
-                    visited[candidate.source_index] = true;
-                    pending.push(candidate.source_index);
-                }
-            }
-        }
-        processing_bounds.push(bounds);
+        .into());
     }
 
-    processing_bounds
+    Ok(vec![
+        combined_bounds(sources).expect("sources are non-empty"),
+    ])
+}
+
+fn ensure_clipped_area_connected(sources: &[LidarSource], polygon: &geo::Polygon) -> Result<()> {
+    let clipped_polygons = sources
+        .iter()
+        .flat_map(|source| source.bounds.to_polygon().intersection(polygon).0)
+        .collect::<Vec<_>>();
+    if clipped_polygons.is_empty() {
+        return Err(Error::MapAreaDistinctFromLidarArea.into());
+    }
+    let components = connected_polygon_components(&clipped_polygons);
+    if components.len() != 1 {
+        return Err(Error::DisconnectedLidarAreas {
+            components: components.len(),
+        }
+        .into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -245,7 +233,7 @@ mod tests {
                 })
                 .collect(),
         );
-        let processing_bounds = connected_processing_bounds(&sources, &tree);
+        let processing_bounds = connected_processing_bounds(&sources).unwrap();
         LidarSourceIndex {
             sources,
             tree,
@@ -314,31 +302,66 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_file_bounds_share_one_processing_envelope() {
+    fn touching_file_bounds_share_one_processing_envelope() {
         let index = in_memory_index(vec![
             ("left.copc.laz", geo::Rect::new((0., 0.), (10., 10.))),
-            ("right.copc.laz", geo::Rect::new((10.5, 0.), (20.5, 10.))),
+            ("right.copc.laz", geo::Rect::new((10., 0.), (20., 10.))),
         ]);
 
         assert_eq!(
             index.processing_bounds(),
-            &[geo::Rect::new((0., 0.), (20.5, 10.))]
+            &[geo::Rect::new((0., 0.), (20., 10.))]
         );
     }
 
     #[test]
-    fn distant_sources_keep_separate_processing_envelopes() {
-        let index = in_memory_index(vec![
-            ("first.copc.laz", geo::Rect::new((0., 0.), (10., 10.))),
-            ("second.copc.laz", geo::Rect::new((50., 50.), (60., 60.))),
-        ]);
+    fn disconnected_sources_are_rejected() {
+        let sources = vec![
+            LidarSource {
+                path: PathBuf::from("first.copc.laz"),
+                bounds: geo::Rect::new((0., 0.), (10., 10.)),
+                elevation_midpoint: 0.,
+            },
+            LidarSource {
+                path: PathBuf::from("second.copc.laz"),
+                bounds: geo::Rect::new((50., 50.), (60., 60.)),
+                elevation_midpoint: 0.,
+            },
+        ];
 
-        assert_eq!(
-            index.processing_bounds(),
-            &[
-                geo::Rect::new((0., 0.), (10., 10.)),
-                geo::Rect::new((50., 50.), (60., 60.))
-            ]
+        let error = connected_processing_bounds(&sources).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<Error>(),
+            Some(Error::DisconnectedLidarAreas { components: 2 })
+        ));
+    }
+
+    #[test]
+    fn polygon_that_splits_the_selected_lidar_area_is_rejected() {
+        let sources = vec![LidarSource {
+            path: PathBuf::from("source.copc.laz"),
+            bounds: geo::Rect::new((0., 0.), (10., 10.)),
+            elevation_midpoint: 0.,
+        }];
+        let polygon = geo::Polygon::new(
+            geo::LineString::new(vec![
+                (1., 1.).into(),
+                (3., 1.).into(),
+                (3., 11.).into(),
+                (7., 11.).into(),
+                (7., 1.).into(),
+                (9., 1.).into(),
+                (9., 13.).into(),
+                (1., 13.).into(),
+                (1., 1.).into(),
+            ]),
+            vec![],
         );
+
+        let error = ensure_clipped_area_connected(&sources, &polygon).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<Error>(),
+            Some(Error::DisconnectedLidarAreas { components: 2 })
+        ));
     }
 }

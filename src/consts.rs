@@ -1,5 +1,6 @@
 pub const TILE_SIZE_METERS_USIZE: usize = 256;
 pub const MIN_TILE_OVERLAP_METERS_USIZE: usize = 14;
+pub const LIDAR_BOUNDS_TOUCH_MARGIN_METERS: f64 = 1.;
 pub const INV_CELL_SIZE_METERS_USIZE: usize = 2;
 pub const STANDARD_CELL_SIZE_METERS: f64 = 0.5;
 pub const SIMPLIFICATION_DIST: f64 = 0.1;

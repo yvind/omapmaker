@@ -13,6 +13,10 @@ pub enum Error {
     Proj(#[from] proj_core::Error),
     #[error("The chosen polygon filter does not intersect the lidar files")]
     MapAreaDistinctFromLidarArea,
+    #[error(
+        "The lidar files form {components} disconnected areas; exactly one connected area is required"
+    )]
+    DisconnectedLidarAreas { components: usize },
     #[error(transparent)]
     Copc(#[from] copc_converter::Error),
     #[error(transparent)]

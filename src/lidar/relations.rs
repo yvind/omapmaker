@@ -8,7 +8,7 @@ use proj_core::{CrsDef, Transform};
 use std::path::PathBuf;
 
 use crate::Result;
-use crate::geometry::MapRect;
+use crate::{geometry::MapRect, lidar::connected_bounds_components};
 
 pub(crate) struct SpatialRelations {
     pub(crate) boundaries: Vec<[geo::Coord; 4]>,
@@ -102,49 +102,9 @@ fn spatial_laz_analysis(paths: &[PathBuf]) -> (Vec<geo::Rect>, Vec<Vec<usize>>) 
         }
     }
 
-    let components = connected_components(&tile_bounds);
+    let components = connected_bounds_components(&tile_bounds);
 
     (tile_bounds, components)
-}
-
-fn connected_components(bounds: &[geo::Rect]) -> Vec<Vec<usize>> {
-    if bounds.is_empty() {
-        return Vec::new();
-    }
-
-    let average_size = bounds
-        .iter()
-        .map(|bounds| bounds.width() + bounds.height())
-        .sum::<f64>()
-        / (2 * bounds.len()) as f64;
-    let connection_margin = 0.1 * average_size;
-    let mut visited = vec![false; bounds.len()];
-    let mut components = Vec::new();
-
-    for start in 0..bounds.len() {
-        if visited[start] {
-            continue;
-        }
-
-        visited[start] = true;
-        let mut pending = vec![start];
-        let mut component = Vec::new();
-        while let Some(current) = pending.pop() {
-            component.push(current);
-            for candidate in 0..bounds.len() {
-                if !visited[candidate]
-                    && bounds[current].touch_margin(&bounds[candidate], connection_margin)
-                {
-                    visited[candidate] = true;
-                    pending.push(candidate);
-                }
-            }
-        }
-        component.sort_unstable();
-        components.push(component);
-    }
-
-    components
 }
 
 #[cfg(test)]
@@ -162,7 +122,7 @@ mod tests {
         ];
 
         assert_eq!(
-            connected_components(&bounds),
+            connected_bounds_components(&bounds),
             vec![vec![0, 1, 2, 3], vec![4]]
         );
     }

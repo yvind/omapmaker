@@ -3,7 +3,6 @@ use las::{Bounds, Vector};
 pub trait MapRect {
     fn into_bounds(self) -> Bounds;
     fn from_bounds(value: Bounds) -> geo::Rect;
-    fn touch_margin(&self, other: &geo::Rect, margin: f64) -> bool;
 }
 
 impl MapRect for geo::Rect {
@@ -33,12 +32,5 @@ impl MapRect for geo::Rect {
                 y: value.max.y,
             },
         )
-    }
-
-    fn touch_margin(&self, other: &geo::Rect, margin: f64) -> bool {
-        !(self.max().x < other.min().x - margin
-            || self.min().x > other.max().x + margin
-            || self.max().y < other.min().y - margin
-            || self.min().y > other.max().y + margin)
     }
 }

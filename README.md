@@ -6,10 +6,9 @@ An application for generating orienteering maps (.omap file) from ground-classif
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
 The written omap-file is automatically georeferenced.
 
-Overlapping lidar files not yet handled
-
 ### Implemented:
 - GUI with live map parameter tuning
+- Connected and overlapping lidar files are queried together, with exact duplicate returns removed
 - Raw, smoothed and interpolation-based (experimental) contours
 - Basemap-contours (with marked depressions)
 - Vegetation
@@ -41,7 +40,6 @@ Overlapping lidar files not yet handled
 - Road/path detection
 - Marsh detection
 - Lidar CRS transformation
-- Overlapping Lidar handling
 
 ## Step-by-step
 ### Add lidar files

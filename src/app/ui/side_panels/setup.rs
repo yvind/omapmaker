@@ -6,10 +6,11 @@ impl OmapMaker {
         ui.heading("Checking validity of Lidar files");
 
         ui.add_space(20.);
-        ui.label(
+        ui.label(format!(
             "Checking readabilty of the files, coordinate refrence systems \
-            and grouping lidar files whose bounds are nearby, touching, or overlapping.",
-        );
+            and grouping lidar files whose bounds touch or overlap within a {:.1} m tolerance.",
+            crate::LIDAR_BOUNDS_TOUCH_MARGIN_METERS
+        ));
 
         ui.add_space(10.);
         ui.label(
@@ -19,12 +20,13 @@ impl OmapMaker {
         );
 
         ui.add_space(10.);
-        ui.label(
-            "Files with nearby, touching, or overlapping bounds are grouped together. \
+        ui.label(format!(
+            "Files with touching or overlapping bounds (within {:.1} m) are grouped together. \
         This supports non-rectangular and overlapping file layouts. \
         If there is more than one connected group the user gets \
         to choose wether to keep the biggest connected component (by node count) or start over.",
-        );
+            crate::LIDAR_BOUNDS_TOUCH_MARGIN_METERS
+        ));
 
         ui.add_space(10.);
         ui.label("Then the the user will be prompted to choose a CRS for the final output. \
