@@ -655,6 +655,10 @@ pub fn export_map(
         map_params.streams.endpoint_merge_distance_m(),
     );
 
+    if map_params.geometry.cliffs.min_size_filter {
+        map.filter_cliff_min_size(5. * crate::SIMPLIFICATION_DIST);
+    }
+
     // convert the smallest knolls and depressions to point symbols
     map.make_dotknolls_and_depressions(
         map_params.contour.dot_knoll_area.0,

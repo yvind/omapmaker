@@ -2,7 +2,7 @@ use crate::{
     cancellation::CancellationToken,
     generation::pipeline::{self, PipelineSteps, PreparedTile},
     generation::preview::{MapPreviewSection, RegenerationScope},
-    map::{AreaSymbol, LineSymbol, InternalMap, PointSymbol},
+    map::{AreaSymbol, InternalMap, LineSymbol, PointSymbol},
     parameters::{CliffAlgorithm, MapParameters},
 };
 
@@ -139,16 +139,20 @@ pub fn regenerate_map_tile(
         }
     }
 
-    if steps.contours && steps.streams {
+    if steps.streams && (steps.contours || steps.cliffs) {
         omap.merge_lines_with_symbol_distance(
             5. * crate::SIMPLIFICATION_DIST,
             LineSymbol::SmallCrossableWatercourse,
             params.streams.endpoint_merge_distance_m(),
         );
-    } else if steps.contours {
+    } else if steps.contours || steps.cliffs {
         omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
     } else if steps.streams {
         omap.merge_lines(params.streams.endpoint_merge_distance_m());
+    }
+
+    if steps.cliffs && params.geometry.cliffs.min_size_filter {
+        omap.filter_cliff_min_size(5. * crate::SIMPLIFICATION_DIST);
     }
 
     if steps.contours {
@@ -220,8 +224,8 @@ fn changed_steps(
         || new.cliff.cliff != old.cliff.cliff
         || new.geometry.cliffs != old.geometry.cliffs
         || new.cliff.collapse != old.cliff.collapse
-        || new.cliff.collapse_amount_small_cliff != old.cliff.collapse_amount_small_cliff
-        || new.cliff.collapse_amount_large_cliff != old.cliff.collapse_amount_large_cliff
+        || new.cliff.minimum_cliff_height_m != old.cliff.minimum_cliff_height_m
+        || new.cliff.impassable_cliff_height_m != old.cliff.impassable_cliff_height_m
         || new.cliff.collapse_linearity != old.cliff.collapse_linearity
         || polynomial_fit_changed;
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
@@ -420,9 +424,99 @@ mod tests {
     #[test]
     fn changing_cliff_algorithm_regenerates_cliffs() {
         let old = MapParameters::default();
-        assert_eq!(old.cliff.algorithm, CliffAlgorithm::PolynomialFit);
         let mut new = old.clone();
-        new.cliff.algorithm = CliffAlgorithm::SobelSlope;
+        new.cliff.algorithm = match old.cliff.algorithm {
+            CliffAlgorithm::SobelSlope => CliffAlgorithm::PolynomialFit,
+            CliffAlgorithm::PolynomialFit => CliffAlgorithm::SobelSlope,
+        };
+
+        assert!(
+            changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Cliffs),
+            )
+            .cliffs
+        );
+    }
+
+    #[test]
+    fn changing_cliff_height_thresholds_regenerates_cliffs() {
+        let old = MapParameters::default();
+        for new in [
+            {
+                let mut new = old.clone();
+                new.cliff.minimum_cliff_height_m += 0.5;
+                new
+            },
+            {
+                let mut new = old.clone();
+                new.cliff.impassable_cliff_height_m += 0.5;
+                new
+            },
+        ] {
+            assert!(
+                changed_steps(
+                    &new,
+                    Some(&old),
+                    RegenerationScope::Changed,
+                    Some(MapPreviewSection::Cliffs),
+                )
+                .cliffs
+            );
+        }
+    }
+
+    #[test]
+    fn changing_cliff_rdp_parameters_regenerates_cliffs() {
+        let old = MapParameters::default();
+        for new in [
+            {
+                let mut new = old.clone();
+                new.geometry.cliffs.rdp.enabled = !old.geometry.cliffs.rdp.enabled;
+                new
+            },
+            {
+                let mut new = old.clone();
+                new.geometry.cliffs.rdp.tolerance_m += 0.25;
+                new
+            },
+        ] {
+            assert!(
+                changed_steps(
+                    &new,
+                    Some(&old),
+                    RegenerationScope::Changed,
+                    Some(MapPreviewSection::Cliffs),
+                )
+                .cliffs
+            );
+        }
+    }
+
+    #[test]
+    fn changing_cliff_hole_area_regenerates_cliffs() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.geometry.cliffs.maximum_hole_area_m2 += 1.;
+
+        assert!(
+            changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Cliffs),
+            )
+            .cliffs
+        );
+    }
+
+    #[test]
+    fn changing_cliff_minimum_size_toggle_regenerates_cliffs() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.geometry.cliffs.min_size_filter = !old.geometry.cliffs.min_size_filter;
 
         assert!(
             changed_steps(

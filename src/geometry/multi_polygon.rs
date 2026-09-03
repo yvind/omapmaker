@@ -1,10 +1,13 @@
 use crate::parameters::BufferRule;
 
 use super::MapLineString;
-use geo::{Area, BooleanOps, Buffer, Contains, Intersects, Simplify};
+#[cfg(test)]
+use geo::{Area, Intersects};
+use geo::{BooleanOps, Buffer, Contains, Simplify};
 
 /// Match the CLI extractor's default while allowing finer sampling when the
 /// collapse threshold itself is smaller.
+#[cfg(test)]
 const MAX_CENTERLINE_SPACING: f64 = 12.0;
 
 pub trait MapMultiPolygon {
@@ -24,8 +27,11 @@ pub trait MapMultiPolygon {
     /// portions removed by that buffer become centerlines. Polygons that do not
     /// resemble thick lines remain unchanged. `minimum_branch_length` controls
     /// that line-like-shape criterion; polygons smaller than
-    /// `linearity_exemption_area` bypass it. Invalid values leave all polygons
+    /// `linearity_exemption_area` bypass it. Collapsed terminals reach either
+    /// the parent boundary or the exact retained-width transition so repeated
+    /// collapse classes join without gaps. Invalid values leave all polygons
     /// unchanged.
+    #[cfg(test)]
     fn collapse(
         self,
         amount: f64,
@@ -92,6 +98,7 @@ impl MapMultiPolygon for geo::MultiPolygon {
         self.buffer(distance).simplify(crate::SIMPLIFICATION_DIST)
     }
 
+    #[cfg(test)]
     fn collapse(
         self,
         amount: f64,
@@ -119,7 +126,7 @@ impl MapMultiPolygon for geo::MultiPolygon {
                 } else {
                     minimum_branch_length
                 };
-            let Some(centerlines) = super::centerline::extract(
+            let Some(mut centerlines) = super::centerline::extract(
                 &polygon,
                 centerline_spacing,
                 polygon_minimum_branch_length,
@@ -140,6 +147,11 @@ impl MapMultiPolygon for geo::MultiPolygon {
             );
 
             if intersecting_buffer.0.is_empty() {
+                super::centerline::extend_terminal_branches(
+                    &mut centerlines,
+                    &polygon,
+                    &geo::MultiPolygon::empty(),
+                );
                 lines.extend(centerlines);
                 continue;
             }
@@ -149,7 +161,12 @@ impl MapMultiPolygon for geo::MultiPolygon {
             // opening restores the original-width portions while leaving
             // narrow arms collapsed.
             let retained = polygon.intersection(&intersecting_buffer.buffer(amount));
-            let collapsed_centerlines = retained.clip(&centerlines, true);
+            let mut collapsed_centerlines = retained.clip(&centerlines, true);
+            super::centerline::extend_terminal_branches(
+                &mut collapsed_centerlines,
+                &polygon,
+                &retained,
+            );
 
             if collapsed_centerlines.0.is_empty() {
                 // Avoid changing corners or boundaries when the whole
@@ -214,10 +231,22 @@ mod tests {
             lines.0[0]
                 .0
                 .iter()
-                .all(|coordinate| source.contains(&Point::from(*coordinate)))
+                .all(|coordinate| source.intersects(&Point::from(*coordinate)))
         );
         let bounds = lines.0[0].bounding_rect().expect("line has bounds");
         assert!(bounds.width() > 80.0);
+    }
+
+    #[test]
+    fn small_collapse_amount_does_not_retain_end_cap_spokes() {
+        let source = rectangle(0.0, 0.0, 100.0, 0.3);
+
+        let (lines, polygons) = geo::MultiPolygon::new(vec![source]).collapse(0.2, 0.4, 67.0);
+
+        assert!(polygons.0.is_empty());
+        assert_eq!(lines.0.len(), 1, "lines={lines:?}");
+        let bounds = lines.0[0].bounding_rect().expect("line has bounds");
+        assert!(bounds.width() > 99.0, "line only filled {bounds:?}");
     }
 
     #[test]
@@ -325,6 +354,43 @@ mod tests {
             .fold(f64::NEG_INFINITY, f64::max);
         assert!(polygon_max_x < 30.0, "polygon reached x={polygon_max_x}");
         assert!(line_max_x > 90.0, "centerline ended at x={line_max_x}");
+    }
+
+    #[test]
+    fn consecutive_collapse_classes_fill_a_variable_width_polygon_without_gaps() {
+        let source = polygon![
+            (x: 0.0, y: -0.75),
+            (x: 40.0, y: -0.75),
+            (x: 40.0, y: -1.5),
+            (x: 120.0, y: -1.5),
+            (x: 120.0, y: 1.5),
+            (x: 40.0, y: 1.5),
+            (x: 40.0, y: 0.75),
+            (x: 0.0, y: 0.75),
+        ];
+
+        let (small, retained) = geo::MultiPolygon::new(vec![source]).collapse(1.0, 2.0, 0.0);
+        let (large, retained) = retained.collapse(2.0, 4.0, 0.0);
+
+        assert!(retained.0.is_empty());
+        assert_eq!(small.0.len(), 1, "small={small:?}");
+        assert_eq!(large.0.len(), 1, "large={large:?}");
+        let small_bounds = small.bounding_rect().unwrap();
+        let large_bounds = large.bounding_rect().unwrap();
+        let class_join_error = (large_bounds.min().x - small_bounds.max().x).abs();
+        assert!(
+            small_bounds.min().x.abs() <= 1e-6,
+            "small={small_bounds:?}, large={large_bounds:?}"
+        );
+        assert!(
+            class_join_error <= 1e-6,
+            "distance between cliff classes was {class_join_error}"
+        );
+        assert!(
+            (large_bounds.max().x - 120.0).abs() <= 1e-6,
+            "large cliff ends at x={}",
+            large_bounds.max().x
+        );
     }
 
     #[test]

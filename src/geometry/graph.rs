@@ -79,6 +79,10 @@ impl Branch {
             None
         }
     }
+
+    fn endpoints(&self) -> Option<(usize, usize)> {
+        Some((*self.nodes.first()?, *self.nodes.last()?))
+    }
 }
 
 #[derive(Default)]
@@ -243,7 +247,8 @@ impl Graph {
     }
 
     fn coherent_paths(&self, active: &[bool]) -> Vec<Vec<Coord<f64>>> {
-        let branches = self.maximal_branches(active);
+        let mut branches = self.maximal_branches(active);
+        remove_hole_cycles(&mut branches);
         let mut remaining = vec![true; branches.len()];
         let mut paths = Vec::new();
 
@@ -491,6 +496,70 @@ impl Graph {
     }
 }
 
+/// Holes create cycles in a polygon's medial-axis graph. A cycle lets a
+/// coherent path return to a junction it already visited, or leaves an
+/// overlapping alternate path after the main spine is extracted. Build a
+/// maximum-quality spanning forest of the contracted branch graph, preferring
+/// wider and then shorter routes. A standalone degree-two cycle is retained:
+/// it represents an actually closed, ring-shaped polygon rather than a detour
+/// within a linear one.
+fn remove_hole_cycles(branches: &mut Vec<Branch>) {
+    if branches.len() <= 1 {
+        return;
+    }
+
+    let Some(maximum_node) = branches
+        .iter()
+        .flat_map(|branch| branch.endpoints().into_iter().flat_map(|(a, b)| [a, b]))
+        .max()
+    else {
+        return;
+    };
+    let mut parents = (0..=maximum_node).collect::<Vec<_>>();
+    let mut order = (0..branches.len()).collect::<Vec<_>>();
+    order.sort_by(|&first, &second| {
+        branches[second]
+            .thickness
+            .total_cmp(&branches[first].thickness)
+            .then_with(|| branches[first].length.total_cmp(&branches[second].length))
+            .then_with(|| first.cmp(&second))
+    });
+
+    let mut keep = vec![false; branches.len()];
+    for index in order {
+        let Some((start, end)) = branches[index].endpoints() else {
+            continue;
+        };
+        let start_root = disjoint_set_root(&mut parents, start);
+        let end_root = disjoint_set_root(&mut parents, end);
+        if start_root != end_root {
+            parents[end_root] = start_root;
+            keep[index] = true;
+        }
+    }
+
+    let mut index = 0;
+    branches.retain(|_| {
+        let retain = keep[index];
+        index += 1;
+        retain
+    });
+}
+
+fn disjoint_set_root(parents: &mut [usize], node: usize) -> usize {
+    let mut root = node;
+    while parents[root] != root {
+        root = parents[root];
+    }
+    let mut current = node;
+    while parents[current] != current {
+        let next = parents[current];
+        parents[current] = root;
+        current = next;
+    }
+    root
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,5 +664,55 @@ mod tests {
         add(&mut graph, (0.0, 1.0), (0.0, 0.0), 2.0);
 
         assert!(graph.significant_branches(5.0).is_empty());
+    }
+
+    #[test]
+    fn keeps_only_one_route_around_a_hole_in_a_linear_shape() {
+        let mut graph = Graph::new();
+        add(&mut graph, (-10.0, 0.0), (0.0, 0.0), 4.0);
+        add(&mut graph, (0.0, 0.0), (5.0, 2.0), 4.0);
+        add(&mut graph, (5.0, 2.0), (10.0, 0.0), 4.0);
+        add(&mut graph, (0.0, 0.0), (5.0, -2.0), 2.0);
+        add(&mut graph, (5.0, -2.0), (10.0, 0.0), 2.0);
+        add(&mut graph, (10.0, 0.0), (20.0, 0.0), 4.0);
+
+        let paths = graph.significant_branches(1.0);
+
+        assert_eq!(paths.len(), 1, "paths={paths:?}");
+        assert!(paths[0].contains(&coord! { x: 5.0, y: 2.0 }));
+        assert!(!paths[0].contains(&coord! { x: 5.0, y: -2.0 }));
+        let mut unique = paths[0].clone();
+        unique.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+        unique.dedup();
+        assert_eq!(unique.len(), paths[0].len());
+    }
+
+    #[test]
+    fn removes_a_hole_cycle_with_more_than_two_junctions() {
+        let mut graph = Graph::new();
+        let a = (0.0, 0.0);
+        let b = (5.0, 3.0);
+        let c = (10.0, 0.0);
+        add(&mut graph, a, b, 4.0);
+        add(&mut graph, b, c, 4.0);
+        add(&mut graph, c, a, 1.0);
+        add(&mut graph, a, (-5.0, 0.0), 4.0);
+        add(&mut graph, b, (5.0, 8.0), 4.0);
+        add(&mut graph, c, (15.0, 0.0), 4.0);
+
+        let paths = graph.significant_branches(1.0);
+
+        let a = coord! { x: a.0, y: a.1 };
+        let c = coord! { x: c.0, y: c.1 };
+        assert!(!paths.iter().any(|path| {
+            path.windows(2)
+                .any(|pair| (pair[0] == a && pair[1] == c) || (pair[0] == c && pair[1] == a))
+        }));
+        assert!(paths.iter().all(|path| {
+            let mut unique = path.clone();
+            unique.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+            unique.dedup();
+            unique.len() == path.len()
+        }));
     }
 }

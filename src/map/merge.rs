@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 
-use geo::{Area, BooleanOps, BoundingRect, Buffer, Intersects};
+use geo::{Area, BooleanOps, BoundingRect, Buffer, Distance, Euclidean, Intersects, Length};
 use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 
 use super::{
     AreaSymbol, InternalMap, LineSymbol, MapObject, Symbol,
     object::{PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG},
 };
+
+const CLIFF_MERGE_DISTANCE_M: f64 = 1.;
 
 struct MergeLine {
     object: geo::LineString,
@@ -21,12 +23,20 @@ struct MergeArea {
 }
 
 #[derive(Clone, Copy)]
-struct IndexedPolygonEnvelope {
+struct IndexedGeometryEnvelope {
     envelope: AABB<[f64; 2]>,
     index: usize,
 }
 
-impl RTreeObject for IndexedPolygonEnvelope {
+struct CliffLine<'a> {
+    object: &'a geo::LineString,
+    symbol: LineSymbol,
+    object_index: usize,
+    length: f64,
+    minimum_length: f64,
+}
+
+impl RTreeObject for IndexedGeometryEnvelope {
     type Envelope = AABB<[f64; 2]>;
 
     fn envelope(&self) -> Self::Envelope {
@@ -241,7 +251,7 @@ impl InternalMap {
     /// units apart are merged. Elevation tags are respected and only elements
     /// with equal elevation tags can be merged.
     pub fn merge_lines(&mut self, delta: f64) {
-        self.merge_lines_with_override(delta, None);
+        self.merge_lines_with_override(delta, None, false);
     }
 
     /// Merge lines while using a different endpoint distance for one symbol.
@@ -251,20 +261,33 @@ impl InternalMap {
         symbol: LineSymbol,
         symbol_delta: f64,
     ) {
-        self.merge_lines_with_override(default_delta, Some((symbol, symbol_delta)));
+        self.merge_lines_with_override(default_delta, Some((symbol, symbol_delta)), false);
+    }
+
+    /// Merge only cliff lines whose directed end and start are within
+    /// `delta`. Small and impassable cliffs remain separate symbol classes;
+    /// neither input line is reversed, preserving downhill-right orientation.
+    pub fn merge_cliff_lines(&mut self, delta: f64) {
+        self.merge_lines_with_override(delta, None, true);
     }
 
     fn merge_lines_with_override(
         &mut self,
         default_delta: f64,
         symbol_override: Option<(LineSymbol, f64)>,
+        cliffs_only: bool,
     ) {
         for (key, map_objects) in self.objects.iter_mut() {
-            if !matches!(key, Symbol::Line(_)) {
+            let Symbol::Line(line_symbol) = *key else {
+                continue;
+            };
+            if cliffs_only
+                && !matches!(line_symbol, LineSymbol::Cliff | LineSymbol::ImpassableCliff)
+            {
                 continue;
             }
             let delta = match symbol_override {
-                Some((symbol, delta)) if *key == Symbol::Line(symbol) => delta,
+                Some((symbol, delta)) if line_symbol == symbol => delta,
                 _ => default_delta,
             };
             let delta = delta * delta;
@@ -407,6 +430,301 @@ impl InternalMap {
             }
         }
     }
+
+    /// Merge and filter cartographically short cliff lines while treating
+    /// touching small and impassable segments as one connected chain.
+    ///
+    /// Directed fragments are first joined at up to one metre. An impassable
+    /// cliff that is still individually too short is demoted to an ordinary
+    /// cliff and gets another opportunity to join neighboring ordinary cliff
+    /// lines. A demoted fragment without such a neighbor is exaggerated by at
+    /// most half a metre at each end. The resulting geometry is then evaluated
+    /// normally: a line at least as long as its symbol minimum survives on its
+    /// own; a shorter line survives only when it is at least one third of that
+    /// minimum and its eligible connected component reaches the full minimum.
+    /// Sub-third lines cannot bridge two otherwise undersized chains.
+    pub fn filter_cliff_min_size(&mut self, connection_distance: f64) {
+        self.merge_cliff_lines(CLIFF_MERGE_DISTANCE_M);
+        self.demote_short_impassable_cliffs();
+        self.merge_cliff_lines(CLIFF_MERGE_DISTANCE_M);
+
+        let cliff_symbols = [LineSymbol::Cliff, LineSymbol::ImpassableCliff];
+        let mut cliffs = Vec::new();
+        for cliff_symbol in cliff_symbols {
+            let Some(objects) = self.objects.get(&Symbol::Line(cliff_symbol)) else {
+                continue;
+            };
+            for (object_index, object) in objects.iter().enumerate() {
+                let MapObject::Line { object, symbol, .. } = object else {
+                    continue;
+                };
+                cliffs.push(CliffLine {
+                    object,
+                    symbol: *symbol,
+                    object_index,
+                    length: Euclidean.length(object),
+                    minimum_length: symbol.min_length(self.scale, object.is_closed()),
+                });
+            }
+        }
+
+        let connection_distance = if connection_distance.is_finite() {
+            connection_distance.max(0.)
+        } else {
+            0.
+        };
+        let eligible = cliffs
+            .iter()
+            .map(|cliff| cliff.length >= cliff.minimum_length / 3.)
+            .collect::<Vec<_>>();
+        let indexed = cliffs
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| eligible[*index])
+            .filter_map(|(index, cliff)| {
+                line_envelope(cliff.object)
+                    .map(|envelope| IndexedGeometryEnvelope { envelope, index })
+            })
+            .collect::<Vec<_>>();
+        let tree = RTree::bulk_load(indexed.clone());
+        let mut parents = (0..cliffs.len()).collect::<Vec<_>>();
+        for line in indexed {
+            let search = expanded_envelope(line.envelope, connection_distance);
+            for other in tree.locate_in_envelope_intersecting(search) {
+                if other.index <= line.index
+                    || !cliff_lines_connected(
+                        cliffs[line.index].object,
+                        cliffs[other.index].object,
+                        connection_distance,
+                    )
+                {
+                    continue;
+                }
+                union_components(&mut parents, line.index, other.index);
+            }
+        }
+
+        let mut component_lengths = vec![0.; cliffs.len()];
+        for (index, cliff) in cliffs.iter().enumerate() {
+            if eligible[index] {
+                let root = component_root(&mut parents, index);
+                component_lengths[root] += cliff.length;
+            }
+        }
+
+        let mut keep = HashMap::with_capacity(cliffs.len());
+        for (index, cliff) in cliffs.iter().enumerate() {
+            let component_length = if eligible[index] {
+                let root = component_root(&mut parents, index);
+                component_lengths[root]
+            } else {
+                0.
+            };
+            keep.insert(
+                (cliff.symbol, cliff.object_index),
+                cliff.length >= cliff.minimum_length
+                    || eligible[index] && component_length >= cliff.minimum_length,
+            );
+        }
+        drop(cliffs);
+
+        for cliff_symbol in cliff_symbols {
+            let Some(objects) = self.objects.get_mut(&Symbol::Line(cliff_symbol)) else {
+                continue;
+            };
+            let mut object_index = 0;
+            objects.retain(|_| {
+                let retain = keep
+                    .get(&(cliff_symbol, object_index))
+                    .copied()
+                    .unwrap_or(true);
+                object_index += 1;
+                retain
+            });
+        }
+    }
+
+    fn demote_short_impassable_cliffs(&mut self) {
+        let large_key = Symbol::Line(LineSymbol::ImpassableCliff);
+        let mut demoted = Vec::new();
+        if let Some(large_cliffs) = self.objects.get_mut(&large_key) {
+            let mut retained = Vec::with_capacity(large_cliffs.len());
+            for mut object in large_cliffs.drain(..) {
+                let should_demote = matches!(
+                    &object,
+                    MapObject::Line { object, .. }
+                        if Euclidean.length(object)
+                            < LineSymbol::ImpassableCliff
+                                .min_length(self.scale, object.is_closed())
+                );
+                if should_demote {
+                    if let MapObject::Line { symbol, .. } = &mut object {
+                        *symbol = LineSymbol::Cliff;
+                    }
+                    demoted.push(object);
+                } else {
+                    retained.push(object);
+                }
+            }
+            *large_cliffs = retained;
+        }
+        if demoted.is_empty() {
+            return;
+        }
+
+        let small_key = Symbol::Line(LineSymbol::Cliff);
+        let existing_small = self
+            .objects
+            .get(&small_key)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let lonesome = demoted
+            .iter()
+            .enumerate()
+            .map(|(index, candidate)| {
+                !existing_small.iter().any(|other| {
+                    directed_map_lines_can_merge(candidate, other, CLIFF_MERGE_DISTANCE_M)
+                }) && !demoted.iter().enumerate().any(|(other_index, other)| {
+                    index != other_index
+                        && directed_map_lines_can_merge(candidate, other, CLIFF_MERGE_DISTANCE_M)
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for (object, lonesome) in demoted.iter_mut().zip(lonesome) {
+            if lonesome && let MapObject::Line { object, .. } = object {
+                exaggerate_open_line(object, CLIFF_MERGE_DISTANCE_M);
+            }
+        }
+        self.objects.entry(small_key).or_default().extend(demoted);
+    }
+}
+
+fn directed_map_lines_can_merge(first: &MapObject, second: &MapObject, tolerance: f64) -> bool {
+    let (
+        MapObject::Line {
+            object: first,
+            tags: first_tags,
+            ..
+        },
+        MapObject::Line {
+            object: second,
+            tags: second_tags,
+            ..
+        },
+    ) = (first, second)
+    else {
+        return false;
+    };
+    if first.0.len() < 2 || second.0.len() < 2 || first_tags.get("elev") != second_tags.get("elev")
+    {
+        return false;
+    }
+
+    let tolerance_squared = tolerance.max(0.).powi(2);
+    let first_start = first.0[0];
+    let first_end = first.0[first.0.len() - 1];
+    let second_start = second.0[0];
+    let second_end = second.0[second.0.len() - 1];
+    squared_distance(first_end, second_start) <= tolerance_squared
+        || squared_distance(second_end, first_start) <= tolerance_squared
+}
+
+fn exaggerate_open_line(line: &mut geo::LineString, total_amount: f64) {
+    if line.is_closed() || line.0.len() < 2 || !total_amount.is_finite() || total_amount <= 0. {
+        return;
+    }
+
+    let amount_per_end = total_amount / 2.;
+    let first = line.0[0];
+    let last = line.0[line.0.len() - 1];
+    let first_extension = line
+        .0
+        .iter()
+        .copied()
+        .skip(1)
+        .find_map(|next| extension_from_neighbor(first, next, amount_per_end));
+    let last_extension = line
+        .0
+        .iter()
+        .copied()
+        .rev()
+        .skip(1)
+        .find_map(|previous| extension_from_neighbor(last, previous, amount_per_end));
+    if let Some(first) = first_extension {
+        line.0[0] = first;
+    }
+    if let Some(last) = last_extension {
+        let last_index = line.0.len() - 1;
+        line.0[last_index] = last;
+    }
+}
+
+fn extension_from_neighbor(
+    endpoint: geo::Coord,
+    neighbor: geo::Coord,
+    amount: f64,
+) -> Option<geo::Coord> {
+    let dx = endpoint.x - neighbor.x;
+    let dy = endpoint.y - neighbor.y;
+    let length = dx.hypot(dy);
+    (length > f64::EPSILON).then(|| {
+        geo::coord! {
+            x: endpoint.x + amount * dx / length,
+            y: endpoint.y + amount * dy / length,
+        }
+    })
+}
+
+fn squared_distance(first: geo::Coord, second: geo::Coord) -> f64 {
+    (first.x - second.x).powi(2) + (first.y - second.y).powi(2)
+}
+
+fn line_envelope(line: &geo::LineString) -> Option<AABB<[f64; 2]>> {
+    let bounds = line.bounding_rect()?;
+    Some(AABB::from_corners(
+        [bounds.min().x, bounds.min().y],
+        [bounds.max().x, bounds.max().y],
+    ))
+}
+
+fn expanded_envelope(envelope: AABB<[f64; 2]>, amount: f64) -> AABB<[f64; 2]> {
+    let lower = envelope.lower();
+    let upper = envelope.upper();
+    AABB::from_corners(
+        [lower[0] - amount, lower[1] - amount],
+        [upper[0] + amount, upper[1] + amount],
+    )
+}
+
+fn cliff_lines_connected(
+    first: &geo::LineString,
+    second: &geo::LineString,
+    tolerance: f64,
+) -> bool {
+    [first.0.first(), first.0.last()]
+        .into_iter()
+        .flatten()
+        .any(|endpoint| Euclidean.distance(&geo::Point::from(*endpoint), second) <= tolerance)
+        || [second.0.first(), second.0.last()]
+            .into_iter()
+            .flatten()
+            .any(|endpoint| Euclidean.distance(&geo::Point::from(*endpoint), first) <= tolerance)
+}
+
+fn component_root(parents: &mut [usize], index: usize) -> usize {
+    if parents[index] != index {
+        parents[index] = component_root(parents, parents[index]);
+    }
+    parents[index]
+}
+
+fn union_components(parents: &mut [usize], first: usize, second: usize) {
+    let first = component_root(parents, first);
+    let second = component_root(parents, second);
+    if first != second {
+        parents[second] = first;
+    }
 }
 
 fn merge_small_areas(areas: &mut Vec<MergeArea>, min_area: f64) {
@@ -435,7 +753,7 @@ fn small_area_merge_candidates(areas: &[MergeArea], min_area: f64) -> Vec<Vec<us
         .iter()
         .enumerate()
         .filter_map(|(index, area)| {
-            Some(IndexedPolygonEnvelope {
+            Some(IndexedGeometryEnvelope {
                 envelope: area.envelope()?,
                 index,
             })

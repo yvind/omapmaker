@@ -211,12 +211,36 @@ impl AddressedFitKernel {
 
 impl AddressedGradientKernel {
     fn apply(&self, source: &Dfm<Elevation>, y: usize, x: usize) -> [f64; 2] {
+        self.apply_inner::<false>(source, y, x).0
+    }
+
+    /// Return the fitted gradient and the actual vertical range in this
+    /// kernel. The range is in metres and therefore distinguishes a
+    /// substantial cliff from a sharp but cartographically insignificant
+    /// step.
+    fn apply_with_elevation_change(
+        &self,
+        source: &Dfm<Elevation>,
+        y: usize,
+        x: usize,
+    ) -> ([f64; 2], f64) {
+        self.apply_inner::<true>(source, y, x)
+    }
+
+    fn apply_inner<const TRACK_ELEVATION_CHANGE: bool>(
+        &self,
+        source: &Dfm<Elevation>,
+        y: usize,
+        x: usize,
+    ) -> ([f64; 2], f64) {
         let interior = y >= self.radius
             && y + self.radius < source.height()
             && x >= self.radius
             && x + self.radius < source.width();
         let center = y * source.width() + x;
         let mut gradient = [0.; 2];
+        let mut minimum = f64::INFINITY;
+        let mut maximum = f64::NEG_INFINITY;
         for sample in &self.samples {
             let index = if interior {
                 (center as isize + sample.linear_offset) as usize
@@ -229,8 +253,17 @@ impl AddressedGradientKernel {
             let value = f64::from(source.field[index]);
             gradient[0] += sample.coefficients[0] * value;
             gradient[1] += sample.coefficients[1] * value;
+            if TRACK_ELEVATION_CHANGE {
+                minimum = minimum.min(value);
+                maximum = maximum.max(value);
+            }
         }
-        gradient
+        let elevation_change = if TRACK_ELEVATION_CHANGE {
+            maximum - minimum
+        } else {
+            0.
+        };
+        (gradient, elevation_change)
     }
 }
 
@@ -274,10 +307,11 @@ pub(crate) fn fit(
         .for_each(|(index, (output, cliff_output))| {
             let y = index / width;
             let x = index % width;
-            let compact_gradient = compact_kernel.apply(source, y, x);
             let gradient = slope_kernel.apply(source, y, x);
             let (curvature, rmse) = curvature_kernel.apply(source, y, x);
             let background_gradient = [curvature[1], curvature[2]];
+            let (compact_gradient, elevation_change) =
+                compact_kernel.apply_with_elevation_change(source, y, x);
             let hessian = [2. * curvature[3], curvature[4], 2. * curvature[5]];
             *output = FittedTerrainCell {
                 gradient: gradient.map(|value| value as f32),
@@ -289,6 +323,7 @@ pub(crate) fn fit(
                 gradient,
                 background_gradient,
                 slope_fit_diameter,
+                elevation_change,
             ) as f32;
         });
 
@@ -387,9 +422,15 @@ fn adaptive_cliff_strength(
     local_gradient: [f64; 2],
     background_gradient: [f64; 2],
     local_fit_diameter: f64,
+    elevation_change: f64,
 ) -> f64 {
+    const MINIMUM_CLIFF_ELEVATION_CHANGE_M: f64 = 1.;
     const NON_CLIFF_SLOPE_ALLOWANCE: f64 = 1.;
     const MINIMUM_COMPACT_SUPPORT: f64 = 0.9;
+
+    if elevation_change < MINIMUM_CLIFF_ELEVATION_CHANGE_M {
+        return 0.;
+    }
 
     let slope = |[gx, gy]: [f64; 2]| gx.hypot(gy);
     let local_slope = slope(local_gradient);
@@ -421,7 +462,11 @@ fn adaptive_cliff_strength(
     // allowance keeps ordinary and moderately steep planar terrain below the
     // same threshold.
     let steep_face = (supported_local_slope - NON_CLIFF_SLOPE_ALLOWANCE).max(0.);
-    fine_prominence.max(steep_face)
+    // Above the hard one-metre cutoff, scale the multiscale shape evidence by
+    // measured vertical change. The direct steep-face fallback stays in slope
+    // units so ordinary steep planes do not become cliffs merely because the
+    // sampling window spans a large height range.
+    (fine_prominence * elevation_change).max(steep_face)
 }
 
 fn invert(mut matrix: [[f64; 6]; 6]) -> crate::Result<[[f64; 6]; 6]> {
@@ -521,6 +566,7 @@ mod tests {
         }
 
         let flat = fitted_ramp(0., 3., 1.);
+        let sub_metres = fitted_ramp(0., 0.9, 0.5);
         let tall = fitted_ramp(0., 30., 1.);
         let wide_tall = fitted_ramp(0., 30., 10.);
         let steep_plane = fitted_ramp(1.5, 0., 1.);
@@ -530,6 +576,7 @@ mod tests {
         let lower_shoulder = 20 * width + 28;
 
         assert!(flat.cliff_strength.field[face] > 0.7);
+        assert_eq!(sub_metres.cliff_strength.field[face], 0.);
         assert!(flat.cliff_strength.field[upper_shoulder] < 1e-5);
         assert!(flat.cliff_strength.field[lower_shoulder] < 1e-5);
         assert!(
@@ -539,6 +586,31 @@ mod tests {
         assert!(tall.cliff_strength.field[face] > 0.7);
         assert!(wide_tall.cliff_strength.field[face] > 0.7);
         assert!(steep_plane.cliff_strength.field[face] < 0.7);
+    }
+
+    #[test]
+    fn adaptive_cliff_strength_has_a_hard_one_metre_elevation_cutoff() {
+        let strong_gradients = ([3., 0.], [2., 0.], [0.2, 0.]);
+
+        assert_eq!(
+            adaptive_cliff_strength(
+                strong_gradients.0,
+                strong_gradients.1,
+                strong_gradients.2,
+                6.,
+                1. - f64::EPSILON,
+            ),
+            0.
+        );
+        assert!(
+            adaptive_cliff_strength(
+                strong_gradients.0,
+                strong_gradients.1,
+                strong_gradients.2,
+                6.,
+                1.,
+            ) > 0.
+        );
     }
 
     #[test]

@@ -89,8 +89,8 @@ pub struct CliffParameters {
     pub algorithm: CliffAlgorithm,
     pub cliff: f32,
     pub collapse: bool,
-    pub collapse_amount_small_cliff: f32,
-    pub collapse_amount_large_cliff: f32,
+    pub minimum_cliff_height_m: f32,
+    pub impassable_cliff_height_m: f32,
     pub collapse_linearity: f32,
 }
 
@@ -100,8 +100,8 @@ impl Default for CliffParameters {
             algorithm: Default::default(),
             cliff: 0.7,
             collapse: true,
-            collapse_amount_small_cliff: 1.,
-            collapse_amount_large_cliff: 2.,
+            minimum_cliff_height_m: 1.,
+            impassable_cliff_height_m: 2.,
             collapse_linearity: 2.,
         }
     }

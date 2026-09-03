@@ -277,6 +277,7 @@ pub fn compute_tile_cancellable(
         let cliffs = match params.cliff.algorithm {
             CliffAlgorithm::SobelSlope => generation::features::compute_cliffs(
                 &tile.rasters.slope,
+                &tile.rasters.dem,
                 &tile.hull,
                 &tile.cut_overlay,
                 params,
@@ -286,6 +287,7 @@ pub fn compute_tile_cancellable(
                 let fitted = tile.fitted_terrain(params)?;
                 generation::features::compute_cliffs(
                     &fitted.cliff_strength,
+                    &tile.rasters.dem,
                     &tile.hull,
                     &tile.cut_overlay,
                     params,

@@ -6,7 +6,7 @@ pub struct GeometryParameters {
     pub openness: BufferedGeometryParameters,
     pub vegetation: BufferedGeometryParameters,
     pub buildings: BufferedGeometryParameters,
-    pub cliffs: BufferedGeometryParameters,
+    pub cliffs: CliffGeometryParameters,
     pub intensity: BufferedGeometryParameters,
     pub water: BufferedGeometryParameters,
     pub marsh: BufferedGeometryParameters,
@@ -56,8 +56,7 @@ impl Default for GeometryParameters {
             ],
             min_size_filter: true,
         };
-        let mut cliffs = BufferedGeometryParameters::default();
-        cliffs.bezier.enabled = false;
+        let cliffs = CliffGeometryParameters::default();
         let openness = BufferedGeometryParameters {
             bezier: BezierParameters::default(),
             buffer_rules: vec![
@@ -118,6 +117,21 @@ pub struct BezierParameters {
     pub enabled: bool,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct RdpParameters {
+    pub tolerance_m: f64,
+    pub enabled: bool,
+}
+
+impl Default for RdpParameters {
+    fn default() -> Self {
+        Self {
+            tolerance_m: crate::SIMPLIFICATION_DIST,
+            enabled: true,
+        }
+    }
+}
+
 impl Default for BezierParameters {
     fn default() -> Self {
         Self {
@@ -132,6 +146,30 @@ pub struct BufferedGeometryParameters {
     pub bezier: BezierParameters,
     pub buffer_rules: Vec<BufferRule>,
     pub min_size_filter: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CliffGeometryParameters {
+    pub bezier: BezierParameters,
+    pub rdp: RdpParameters,
+    pub buffer_rules: Vec<BufferRule>,
+    pub maximum_hole_area_m2: f64,
+    pub min_size_filter: bool,
+}
+
+impl Default for CliffGeometryParameters {
+    fn default() -> Self {
+        Self {
+            bezier: BezierParameters {
+                enabled: false,
+                ..Default::default()
+            },
+            rdp: RdpParameters::default(),
+            buffer_rules: Vec::new(),
+            maximum_hole_area_m2: 4.,
+            min_size_filter: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

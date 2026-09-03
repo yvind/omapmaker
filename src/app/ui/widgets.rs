@@ -1,6 +1,6 @@
 use crate::{
     app::OmapMaker,
-    parameters::{BezierParameters, BufferDirection, BufferRule},
+    parameters::{BezierParameters, BufferDirection, BufferRule, RdpParameters},
 };
 use eframe::egui;
 
@@ -12,6 +12,19 @@ impl OmapMaker {
             ui.add(
                 egui::Slider::new(&mut bezier.error, 0.5..=5.0)
                     .fixed_decimals(2)
+                    .show_value(true),
+            );
+        });
+    }
+
+    pub(super) fn render_rdp_parameters(ui: &mut egui::Ui, rdp: &mut RdpParameters) {
+        ui.checkbox(&mut rdp.enabled, "Simplify cliff lines with RDP.");
+        ui.add_enabled_ui(rdp.enabled, |ui| {
+            ui.label("Maximum perpendicular line error:");
+            ui.add(
+                egui::Slider::new(&mut rdp.tolerance_m, 0.05..=5.0)
+                    .fixed_decimals(2)
+                    .suffix(" m")
                     .show_value(true),
             );
         });

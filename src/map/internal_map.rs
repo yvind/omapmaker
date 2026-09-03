@@ -8,7 +8,7 @@ use crate::parameters::Scale;
 #[cfg(test)]
 use super::AreaSymbol;
 #[cfg(test)]
-use geo::{Area, BooleanOps};
+use geo::{Area, BooleanOps, Euclidean, Length};
 
 pub struct InternalMap {
     pub ref_point: geo::Coord,
@@ -302,6 +302,17 @@ mod tests {
         seam_stable_formline_at(points, 2.5)
     }
 
+    fn cliff_line(symbol: LineSymbol, start: f64, end: f64, y: f64) -> MapObject {
+        MapObject::Line {
+            object: geo::LineString::new(vec![
+                geo::coord! { x: start, y: y },
+                geo::coord! { x: end, y: y },
+            ]),
+            symbol,
+            tags: HashMap::new(),
+        }
+    }
+
     #[test]
     fn marsh_subtraction_removes_all_open_water_overlap() {
         let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
@@ -452,6 +463,131 @@ mod tests {
             map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].len(),
             2
         );
+    }
+
+    #[test]
+    fn cliff_only_merge_uses_one_metre_and_preserves_direction() {
+        let line = |symbol, y, start, end| MapObject::Line {
+            object: geo::LineString::new(vec![
+                geo::coord! { x: start, y: y },
+                geo::coord! { x: end, y: y },
+            ]),
+            symbol,
+            tags: HashMap::new(),
+        };
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(line(LineSymbol::Cliff, 0., 0., 2.));
+        map.add_object(line(LineSymbol::Cliff, 0., 2.75, 5.));
+        map.add_object(line(LineSymbol::Cliff, 2., 0., 2.));
+        map.add_object(line(LineSymbol::Cliff, 2., 5., 2.75));
+        map.add_object(line(LineSymbol::ImpassableCliff, 4., 0., 2.));
+        map.add_object(line(LineSymbol::ImpassableCliff, 4., 2.75, 5.));
+        map.add_object(line(LineSymbol::SmallCrossableWatercourse, 6., 0., 2.));
+        map.add_object(line(LineSymbol::SmallCrossableWatercourse, 6., 2.75, 5.));
+
+        map.merge_cliff_lines(1.);
+
+        assert_eq!(map.objects[&Symbol::Line(LineSymbol::Cliff)].len(), 3);
+        assert_eq!(
+            map.objects[&Symbol::Line(LineSymbol::ImpassableCliff)].len(),
+            1
+        );
+        assert_eq!(
+            map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].len(),
+            2
+        );
+        assert!(
+            map.objects[&Symbol::Line(LineSymbol::Cliff)]
+                .iter()
+                .any(|object| matches!(
+                    object,
+                    MapObject::Line { object, .. }
+                        if object.0 == vec![
+                            geo::coord! { x: 0., y: 0. },
+                            geo::coord! { x: 2.75, y: 0. },
+                            geo::coord! { x: 5., y: 0. },
+                        ]
+                ))
+        );
+    }
+
+    #[test]
+    fn cliff_minimum_size_uses_connected_classes_but_never_sub_third_fragments() {
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+
+        // A mixed 4 m + 5 m chain becomes one ordinary 9 m cliff after the
+        // short impassable part is demoted.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 4., 0.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 4., 9., 0.));
+        // An isolated 8 m line is still too short, while 9 m survives alone.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 8., 10.));
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 9., 20.));
+        // A fragment below 3 m is removed even when attached to a long line.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 2.9, 30.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 2.9, 12.9, 30.));
+        // Nearby but disconnected lines do not form a chain.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 4., 40.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 0., 5., 41.));
+
+        map.filter_cliff_min_size(0.1);
+
+        let lengths = |symbol| {
+            let mut lengths = map.objects[&Symbol::Line(symbol)]
+                .iter()
+                .map(|object| match object {
+                    MapObject::Line { object, .. } => Euclidean.length(object),
+                    _ => 0.,
+                })
+                .collect::<Vec<_>>();
+            lengths.sort_by(f64::total_cmp);
+            lengths
+        };
+        assert_eq!(lengths(LineSymbol::Cliff), vec![9., 9.]);
+        assert_eq!(lengths(LineSymbol::ImpassableCliff), vec![10.]);
+    }
+
+    #[test]
+    fn short_impassable_cliffs_merge_or_use_bounded_exaggeration_before_filtering() {
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+
+        // Demotion joins this fragment to the neighboring ordinary cliff and
+        // the combined 9.5 m line survives.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 5., 0.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 5.5, 9.5, 0.));
+        // This analogous merged line remains below 9 m and is removed.
+        map.add_object(cliff_line(LineSymbol::Cliff, 0., 3., 10.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 3.5, 7.5, 10.));
+        // An isolated 8.5 m impassable line reaches 9.5 m after extending each
+        // end by 0.5 m, whereas an isolated 7.5 m line still does not qualify.
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 0., 8.5, 20.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 0., 7.5, 30.));
+        // A qualifying impassable cliff keeps its original symbol.
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 0., 9., 40.));
+        // Short impassable fragments merge before demotion is considered, so
+        // their qualifying combined line also remains impassable.
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 0., 5., 50.));
+        map.add_object(cliff_line(LineSymbol::ImpassableCliff, 5., 10., 50.));
+
+        map.filter_cliff_min_size(0.1);
+
+        let mut small_lengths = map.objects[&Symbol::Line(LineSymbol::Cliff)]
+            .iter()
+            .map(|object| match object {
+                MapObject::Line { object, .. } => Euclidean.length(object),
+                _ => 0.,
+            })
+            .collect::<Vec<_>>();
+        small_lengths.sort_by(f64::total_cmp);
+        assert_eq!(small_lengths, vec![9.5, 9.5]);
+        let mut large_lengths = map.objects[&Symbol::Line(LineSymbol::ImpassableCliff)]
+            .iter()
+            .map(|object| match object {
+                MapObject::Line { object, .. } => Euclidean.length(object),
+                _ => 0.,
+            })
+            .collect::<Vec<_>>();
+        large_lengths.sort_by(f64::total_cmp);
+        assert_eq!(large_lengths, vec![9., 10.]);
     }
 
     #[test]
