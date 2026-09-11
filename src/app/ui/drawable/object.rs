@@ -7,6 +7,9 @@ use geo::TriangulateEarcut;
 use omap::objects::{BezierSegment, BezierString};
 use proj_core::{CrsDef, Transform};
 
+use crate::map::PointSymbol;
+use crate::parameters::Scale;
+
 #[derive(Clone)]
 pub enum DrawableGeometry {
     Polygon(DrawablePolygonObject),
@@ -238,7 +241,11 @@ impl DrawableLineObject {
 }
 
 #[derive(Clone)]
-pub struct DrawablePointObject(walkers::Position, f32);
+pub struct DrawablePointObject {
+    position: walkers::Position,
+    rotation: f32,
+    slope_line_end: Option<walkers::Position>,
+}
 
 impl DrawablePointObject {
     pub(crate) fn draw(
@@ -248,10 +255,13 @@ impl DrawablePointObject {
         stroke: &Stroke,
         special: bool,
     ) {
-        let screen_point = projector.project(self.0);
+        let screen_point = projector.project(self.position);
 
-        if special {
-            let radius = if self.1.abs() > std::f32::consts::FRAC_PI_4 {
+        if let Some(end) = self.slope_line_end {
+            ui.painter()
+                .line_segment([screen_point, projector.project(end)], *stroke);
+        } else if special {
+            let radius = if self.rotation.abs() > std::f32::consts::FRAC_PI_4 {
                 egui::Vec2::new(stroke.width, 1.5 * stroke.width)
             } else {
                 egui::Vec2::new(1.5 * stroke.width, stroke.width)
@@ -271,21 +281,43 @@ impl DrawablePointObject {
     pub(crate) fn from_geo(
         point: geo::Point,
         rot: f64,
+        symbol: PointSymbol,
+        scale: Scale,
         ref_point: geo::Coord,
         crs: Option<CrsDef>,
     ) -> Result<Self> {
-        let pos = if let Some(crs) = crs {
+        let slope_line_end = symbol.slope_line_length_m(scale).map(|length| {
+            point.0
+                + geo::coord! {
+                    x: -rot.sin() * length,
+                    y: rot.cos() * length,
+                }
+        });
+        let mut points = vec![point.0];
+        points.extend(slope_line_end);
+        let positions = if let Some(crs) = crs {
             let transform =
                 Transform::from_horizontal_components(&crs, &crate::projection::get_global_crs())?;
-
-            let p = (point.x() + ref_point.x, point.y() + ref_point.y);
-            let transformed_p = transform.convert(p)?;
-
-            walkers::lon_lat(transformed_p.0, transformed_p.1)
+            let points = points
+                .into_iter()
+                .map(|point| (point.x + ref_point.x, point.y + ref_point.y))
+                .collect::<Vec<_>>();
+            transform
+                .convert_batch(&points)?
+                .into_iter()
+                .map(|point| walkers::lon_lat(point.0, point.1))
+                .collect::<Vec<_>>()
         } else {
-            walkers::lon_lat(point.x() + ref_point.x, point.y() + ref_point.y)
+            points
+                .into_iter()
+                .map(|point| walkers::lon_lat(point.x + ref_point.x, point.y + ref_point.y))
+                .collect::<Vec<_>>()
         };
 
-        Ok(DrawablePointObject(pos, rot as f32))
+        Ok(DrawablePointObject {
+            position: positions[0],
+            rotation: rot as f32,
+            slope_line_end: positions.get(1).copied(),
+        })
     }
 }

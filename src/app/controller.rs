@@ -185,6 +185,12 @@ impl OmapMaker {
     fn on_update_variable(&mut self, variable: Variable) {
         match variable {
             Variable::Paths(p) => self.gui_variables.project.paths = p,
+            Variable::ConvertedCopcSources {
+                paths,
+                retained_source_indices,
+            } => self
+                .gui_variables
+                .apply_copc_conversion(paths, &retained_source_indices),
             Variable::Boundaries(vec) => self.gui_variables.lidar.boundaries = vec,
             Variable::BoundaryAreas(vec) => self.gui_variables.lidar.boundary_areas = vec,
             Variable::Home(position) => self.home = position,

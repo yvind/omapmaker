@@ -139,6 +139,8 @@ pub fn regenerate_map_tile(
         }
     }
 
+    // Contours from all preview tiles must be stitched, without reversing
+    // them, before the closed-loop post-processing below.
     if steps.streams && (steps.contours || steps.cliffs) {
         omap.merge_lines_with_symbol_distance(
             5. * crate::SIMPLIFICATION_DIST,
@@ -159,11 +161,14 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
+        omap.reserve_capacity(PointSymbol::SlopeLineContour, 1);
+        omap.reserve_capacity(PointSymbol::SlopeLineFormLine, 1);
         omap.make_dotknolls_and_depressions(
             params.contour.dot_knoll_area.0,
             params.contour.dot_knoll_area.1,
             1.5,
         );
+        omap.add_depression_slope_lines();
     }
 
     if cancellation.is_cancelled() {

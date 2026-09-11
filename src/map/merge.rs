@@ -5,7 +5,10 @@ use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 
 use super::{
     AreaSymbol, InternalMap, LineSymbol, MapObject, Symbol,
-    object::{PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG},
+    object::{
+        CONTOUR_END_TILE_BOUNDARY_TAG, CONTOUR_START_TILE_BOUNDARY_TAG,
+        PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG,
+    },
 };
 
 const CLIFF_MERGE_DISTANCE_M: f64 = 1.;
@@ -52,6 +55,14 @@ impl MergeLine {
     fn requires_exact_contour_merge(&self) -> bool {
         self.tags.contains_key(PRESERVE_CONTOUR_GEOMETRY_TAG)
             || self.tags.contains_key(STABLE_CONTOUR_SEAM_TAG)
+    }
+
+    fn starts_at_tile_boundary(&self) -> bool {
+        self.tags.contains_key(CONTOUR_START_TILE_BOUNDARY_TAG)
+    }
+
+    fn ends_at_tile_boundary(&self) -> bool {
+        self.tags.contains_key(CONTOUR_END_TILE_BOUNDARY_TAG)
     }
 
     fn start_point(&self) -> [f64; 2] {
@@ -338,10 +349,6 @@ impl InternalMap {
             }
 
             for ((_, exact_contour_merge), mut unclosed_objects) in unclosed_object_groups {
-                // Preserved contour geometry may only join at effectively
-                // identical endpoints. This stitches exact tile cuts without
-                // bridging a deliberately pruned form-line gap.
-                let merge_delta = if exact_contour_merge { 1e-16 } else { delta };
                 let (line_ends, line_starts): (Vec<_>, Vec<_>) = unclosed_objects
                     .iter()
                     .enumerate()
@@ -353,10 +360,23 @@ impl InternalMap {
 
                 let mut merges = Vec::with_capacity(line_starts.len());
                 for (start_i, line_start) in line_starts.iter().enumerate() {
-                    if let Some(nn) = end_tree
-                        .nearest_neighbor_iter(*line_start)
-                        .find(|candidate| allow_self_merge || start_i != candidate.data)
-                        && nn.distance_2(line_start) <= merge_delta
+                    if let Some(nn) =
+                        end_tree
+                            .nearest_neighbor_iter(*line_start)
+                            .find(|candidate| {
+                                if !allow_self_merge && start_i == candidate.data {
+                                    return false;
+                                }
+                                let seam_merge = unclosed_objects[candidate.data]
+                                    .ends_at_tile_boundary()
+                                    && unclosed_objects[start_i].starts_at_tile_boundary();
+                                let candidate_delta = if exact_contour_merge && !seam_merge {
+                                    1e-16
+                                } else {
+                                    delta
+                                };
+                                candidate.distance_2(line_start) <= candidate_delta
+                            })
                     {
                         merges.push((start_i, nn.data));
                     }
@@ -372,6 +392,7 @@ impl InternalMap {
                     } else {
                         // merge
                         let part2 = unclosed_objects.swap_remove(merge.0);
+                        let part2_ends_at_tile_boundary = part2.ends_at_tile_boundary();
 
                         let part1 = if merge.1 >= unclosed_objects.len() {
                             &mut unclosed_objects[merge.0]
@@ -379,6 +400,12 @@ impl InternalMap {
                             &mut unclosed_objects[merge.1]
                         };
 
+                        part1.tags.remove(CONTOUR_END_TILE_BOUNDARY_TAG);
+                        if part2_ends_at_tile_boundary {
+                            part1
+                                .tags
+                                .insert(CONTOUR_END_TILE_BOUNDARY_TAG.to_string(), String::new());
+                        }
                         let _ = part1.object.0.pop();
                         part1.object.0.extend(part2.object.0);
                     }
@@ -418,7 +445,15 @@ impl InternalMap {
                     let end = line_object.object.0[line_object.object.0.len() - 1];
 
                     if allow_self_merge
-                        && (start.x - end.x).powi(2) + (start.y - end.y).powi(2) <= merge_delta
+                        && (start.x - end.x).powi(2) + (start.y - end.y).powi(2)
+                            <= if exact_contour_merge
+                                && !(line_object.starts_at_tile_boundary()
+                                    && line_object.ends_at_tile_boundary())
+                            {
+                                1e-16
+                            } else {
+                                delta
+                            }
                     {
                         line_object.object.close();
                     }

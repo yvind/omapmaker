@@ -23,6 +23,8 @@ pub enum MapObject {
 
 pub(super) const PRESERVE_CONTOUR_GEOMETRY_TAG: &str = "_omapmaker_preserve_contour_geometry";
 pub(super) const STABLE_CONTOUR_SEAM_TAG: &str = "_omapmaker_stable_contour_seam";
+pub(super) const CONTOUR_START_TILE_BOUNDARY_TAG: &str = "_omapmaker_contour_start_tile_boundary";
+pub(super) const CONTOUR_END_TILE_BOUNDARY_TAG: &str = "_omapmaker_contour_end_tile_boundary";
 
 impl MapObject {
     pub fn get_symbol(&self) -> Symbol {
@@ -118,6 +120,17 @@ impl MapObject {
     pub fn stabilize_contour_seam(&mut self) {
         if let MapObject::Line { tags, .. } = self {
             tags.insert(STABLE_CONTOUR_SEAM_TAG.to_string(), String::new());
+        }
+    }
+
+    pub fn mark_contour_tile_boundary_endpoints(&mut self, start: bool, end: bool) {
+        if let MapObject::Line { tags, .. } = self {
+            if start {
+                tags.insert(CONTOUR_START_TILE_BOUNDARY_TAG.to_string(), String::new());
+            }
+            if end {
+                tags.insert(CONTOUR_END_TILE_BOUNDARY_TAG.to_string(), String::new());
+            }
         }
     }
 }

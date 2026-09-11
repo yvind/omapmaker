@@ -183,6 +183,16 @@ pub enum PointSymbol {
 }
 
 impl PointSymbol {
+    /// Ground length corresponding to the 0.47 mm downhill stroke on paper.
+    pub fn slope_line_length_m(self, scale: Scale) -> Option<f64> {
+        match self {
+            PointSymbol::SlopeLineFormLine | PointSymbol::SlopeLineContour => {
+                Some(scale.paper_mm_to_meters(0.47))
+            }
+            _ => None,
+        }
+    }
+
     pub fn get_code(&self) -> omap::Code {
         match self {
             PointSymbol::SlopeLineFormLine => omap::Code::new(103, 1, 0),

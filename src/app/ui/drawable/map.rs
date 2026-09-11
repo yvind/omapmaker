@@ -21,6 +21,7 @@ trait Drawable {
         self,
         ref_point: geo::Coord,
         crs: Option<CrsDef>,
+        scale: crate::parameters::Scale,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry>;
 }
@@ -30,6 +31,7 @@ impl Drawable for MapObject {
         self,
         ref_point: geo::Coord,
         crs: Option<CrsDef>,
+        scale: crate::parameters::Scale,
         bezier_error: Option<f64>,
     ) -> Result<DrawableGeometry> {
         let dg = match self {
@@ -56,11 +58,13 @@ impl Drawable for MapObject {
             MapObject::Point {
                 object: point_object,
                 rotation,
-                symbol: _,
+                symbol,
                 tags: _,
             } => DrawableGeometry::Point(DrawablePointObject::from_geo(
                 point_object,
                 rotation,
+                symbol,
+                scale,
                 ref_point,
                 crs,
             )?),
@@ -110,7 +114,13 @@ impl DrawableOmap {
 
         Ok(DrawableOmap {
             hull: global_hull,
-            map_objects: Self::into_drawable(tmap.objects, ref_point, tmap.crs, geometry),
+            map_objects: Self::into_drawable(
+                tmap.objects,
+                ref_point,
+                tmap.crs,
+                tmap.scale,
+                geometry,
+            ),
         })
     }
 
@@ -118,6 +128,7 @@ impl DrawableOmap {
         mut omap_objs: HashMap<Symbol, Vec<MapObject>>,
         ref_point: geo::Coord,
         crs: Option<CrsDef>,
+        scale: crate::parameters::Scale,
         geometry: &GeometryParameters,
     ) -> HashMap<Symbol, Vec<DrawableGeometry>> {
         let mut drawable_objs = HashMap::with_capacity(omap_objs.len());
@@ -132,7 +143,7 @@ impl DrawableOmap {
             drawable_objs.insert(
                 symbol,
                 objs.into_iter()
-                    .filter_map(|o| match o.into_drawable_geometry(ref_point, crs.clone(), bezier) {
+                    .filter_map(|o| match o.into_drawable_geometry(ref_point, crs.clone(), scale, bezier) {
                         Ok(o) => Some(o),
                         Err(e) => {
                             log!(

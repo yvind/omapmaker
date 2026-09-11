@@ -447,6 +447,66 @@ impl AppState {
         }
     }
 
+    pub fn apply_copc_conversion(
+        &mut self,
+        paths: Vec<std::path::PathBuf>,
+        retained_source_indices: &[usize],
+    ) {
+        let original_source_count = self.project.paths.len();
+        debug_assert_eq!(paths.len(), retained_source_indices.len());
+        debug_assert!(
+            retained_source_indices
+                .windows(2)
+                .all(|indices| indices[0] < indices[1])
+        );
+        debug_assert!(
+            retained_source_indices
+                .iter()
+                .all(|index| *index < original_source_count)
+        );
+
+        retain_aligned_source_data(
+            &mut self.project.crses,
+            original_source_count,
+            retained_source_indices,
+        );
+        retain_aligned_source_data(
+            &mut self.lidar.boundaries,
+            original_source_count,
+            retained_source_indices,
+        );
+        retain_aligned_source_data(
+            &mut self.lidar.boundary_areas,
+            original_source_count,
+            retained_source_indices,
+        );
+
+        let mut new_indices = vec![None; original_source_count];
+        for (new_index, old_index) in retained_source_indices.iter().copied().enumerate() {
+            if let Some(index) = new_indices.get_mut(old_index) {
+                *index = Some(new_index);
+            }
+        }
+        self.lidar.connected_components = self
+            .lidar
+            .connected_components
+            .iter()
+            .map(|component| {
+                component
+                    .iter()
+                    .filter_map(|old_index| new_indices.get(*old_index).copied().flatten())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|component| !component.is_empty())
+            .collect();
+
+        self.project.paths = paths;
+        self.project.selected_file = None;
+        self.lidar.crs_less_search_strings.clear();
+        self.lidar.drop_checkboxes.clear();
+        self.update_unique_crs();
+    }
+
     pub fn drop_small_graph_components(&mut self) -> walkers::Position {
         let mut drop_files = vec![];
 
@@ -658,6 +718,24 @@ impl AppState {
     }
 }
 
+fn retain_aligned_source_data<T>(
+    values: &mut Vec<T>,
+    original_source_count: usize,
+    retained_source_indices: &[usize],
+) {
+    if values.len() != original_source_count {
+        values.clear();
+        return;
+    }
+
+    let mut index = 0;
+    values.retain(|_| {
+        let retain = retained_source_indices.binary_search(&index).is_ok();
+        index += 1;
+        retain
+    });
+}
+
 fn boundary_to_projected_polygon(
     crs: Option<&CrsDef>,
     boundary: &[walkers::Position; 4],
@@ -777,5 +855,43 @@ mod tests {
 
         state.prepare_test_area().unwrap();
         assert_eq!(state.tile.test_area_projected.0.len(), 2);
+    }
+
+    #[test]
+    fn copc_conversion_drops_sources_outside_the_polygon_and_their_metadata() {
+        let mut state = AppState::default();
+        state.project.paths = vec!["left.laz".into(), "middle.laz".into(), "right.laz".into()];
+        state.project.crses = vec![None, None, None];
+        state.project.selected_file = Some(1);
+        state.lidar.boundaries = vec![
+            boundary(0., 0., 10., 10.),
+            boundary(10., 0., 20., 10.),
+            boundary(20., 0., 30., 10.),
+        ];
+        state.lidar.boundary_areas = vec![100., 200., 300.];
+        state.lidar.connected_components = vec![vec![0, 1, 2]];
+        state.lidar.crs_less_search_strings = vec!["stale".to_string()];
+        state.lidar.drop_checkboxes = vec![true];
+
+        state.apply_copc_conversion(
+            vec!["left.copc.laz".into(), "right.copc.laz".into()],
+            &[0, 2],
+        );
+
+        assert_eq!(
+            state.project.to_file_parameters().paths,
+            vec![
+                std::path::PathBuf::from("left.copc.laz"),
+                std::path::PathBuf::from("right.copc.laz")
+            ]
+        );
+        assert_eq!(state.project.crses.len(), 2);
+        assert_eq!(state.lidar.boundaries.len(), 2);
+        assert_eq!(state.lidar.boundaries[1], boundary(20., 0., 30., 10.));
+        assert_eq!(state.lidar.boundary_areas, vec![100., 300.]);
+        assert_eq!(state.lidar.connected_components, vec![vec![0, 1]]);
+        assert_eq!(state.project.selected_file, None);
+        assert!(state.lidar.crs_less_search_strings.is_empty());
+        assert!(state.lidar.drop_checkboxes.is_empty());
     }
 }

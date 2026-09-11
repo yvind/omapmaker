@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
+use geo::{Contains, Distance, Euclidean, Length, Vector2DOps};
 use proj_core::CrsDef;
+use rstar::{AABB, RTree, RTreeObject};
 
 use super::{LineSymbol, MapObject, PointSymbol, Symbol};
 use crate::parameters::Scale;
@@ -8,7 +10,48 @@ use crate::parameters::Scale;
 #[cfg(test)]
 use super::AreaSymbol;
 #[cfg(test)]
-use geo::{Area, BooleanOps, Euclidean, Length};
+use geo::{Area, BooleanOps};
+
+// ISOM dimensions are paper dimensions at the selected map scale. A slope
+// line is 0.47 mm long, and the 0.70 mm minimum depression width leaves
+// 0.23 mm between its tip and another contour detail.
+const SLOPE_LINE_CLEARANCE_PAPER_MM: f64 = 0.23;
+const SLOPE_LINE_TARGET_INTERVAL_PAPER_MM: f64 = 3.;
+const SLOPE_LINE_MINIMUM_SEPARATION_PAPER_MM: f64 = 1.5;
+const SLOPE_LINE_CANDIDATE_SPACING_M: f64 = 1.;
+const SLOPE_LINE_TANGENT_SPAN_PAPER_MM: f64 = 0.25;
+const MAX_SLOPE_LINE_CANDIDATES: usize = 512;
+
+#[derive(Clone, Copy)]
+struct IndexedContourSegment {
+    line: geo::Line,
+    line_id: usize,
+}
+
+impl RTreeObject for IndexedContourSegment {
+    type Envelope = AABB<[f64; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_corners(
+            [
+                self.line.start.x.min(self.line.end.x),
+                self.line.start.y.min(self.line.end.y),
+            ],
+            [
+                self.line.start.x.max(self.line.end.x),
+                self.line.start.y.max(self.line.end.y),
+            ],
+        )
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SlopeLineCandidate {
+    anchor: geo::Coord,
+    inward: geo::Coord,
+    distance: f64,
+    reentrant_score: f64,
+}
 
 pub struct InternalMap {
     pub ref_point: geo::Coord,
@@ -186,6 +229,252 @@ impl InternalMap {
             }
         }
     }
+
+    /// Add downhill slope lines to retained contour depressions.
+    ///
+    /// Candidates are ranked by clockwise local turning, which is the
+    /// re-entrant direction for a clockwise (negative-area) contour. A mark is
+    /// only accepted when its full footprint stays inside the depression and
+    /// has enough room from the host contour and all other contour lines. The
+    /// target count grows with the depression perimeter measured on paper.
+    pub fn add_depression_slope_lines(&mut self) {
+        let contour_symbols = [
+            LineSymbol::Contour,
+            LineSymbol::IndexContour,
+            LineSymbol::FormLine,
+        ];
+        let contour_lines = contour_symbols
+            .into_iter()
+            .flat_map(|symbol| {
+                self.objects
+                    .get(&Symbol::Line(symbol))
+                    .into_iter()
+                    .flatten()
+                    .filter_map(move |object| match object {
+                        MapObject::Line { object, .. } => Some((symbol, object)),
+                        _ => None,
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        let segments = contour_lines
+            .iter()
+            .enumerate()
+            .flat_map(|(line_id, (_, line))| {
+                line.lines().filter_map(move |line| {
+                    (Euclidean.length(&line) > f64::EPSILON)
+                        .then_some(IndexedContourSegment { line, line_id })
+                })
+            })
+            .collect::<Vec<_>>();
+        let segment_index = RTree::bulk_load(segments);
+
+        let slope_lines = contour_lines
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, line))| line.is_closed() && line_string_signed_area(line) < 0.)
+            .flat_map(|(line_id, (line_symbol, line))| {
+                let symbol = match line_symbol {
+                    LineSymbol::FormLine => PointSymbol::SlopeLineFormLine,
+                    LineSymbol::Contour | LineSymbol::IndexContour => PointSymbol::SlopeLineContour,
+                    _ => unreachable!("only contour symbols were collected"),
+                };
+                depression_slope_lines(line, line_id, self.scale, &segment_index)
+                    .into_iter()
+                    .map(move |(object, rotation)| MapObject::Point {
+                        object,
+                        symbol,
+                        rotation,
+                        tags: HashMap::new(),
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        for slope_line in slope_lines {
+            self.add_object(slope_line);
+        }
+    }
+}
+
+fn depression_slope_lines(
+    line: &geo::LineString,
+    line_id: usize,
+    scale: Scale,
+    segment_index: &RTree<IndexedContourSegment>,
+) -> Vec<(geo::Point, f64)> {
+    let slope_line_length = PointSymbol::SlopeLineContour
+        .slope_line_length_m(scale)
+        .expect("contour slope lines have a ground length");
+    let slope_line_clearance = scale.paper_mm_to_meters(SLOPE_LINE_CLEARANCE_PAPER_MM);
+    let total_length = Euclidean.length(line);
+    if line.0.len() < 4 || !total_length.is_finite() || total_length <= f64::EPSILON {
+        return Vec::new();
+    }
+    let target_count = ((scale.meters_to_paper_mm(total_length)
+        / SLOPE_LINE_TARGET_INTERVAL_PAPER_MM)
+        .floor() as usize)
+        .clamp(1, MAX_SLOPE_LINE_CANDIDATES);
+    let minimum_separation = scale.paper_mm_to_meters(SLOPE_LINE_MINIMUM_SEPARATION_PAPER_MM);
+
+    let polygon = geo::Polygon::new(line.clone(), Vec::new());
+    let candidate_count = ((total_length / SLOPE_LINE_CANDIDATE_SPACING_M).ceil() as usize)
+        .clamp(8, MAX_SLOPE_LINE_CANDIDATES);
+    let tangent_span = scale
+        .paper_mm_to_meters(SLOPE_LINE_TANGENT_SPAN_PAPER_MM)
+        .min(total_length / 8.);
+    let mut candidates = (0..candidate_count)
+        .filter_map(|index| {
+            let distance = total_length * index as f64 / candidate_count as f64;
+            slope_line_candidate(line, total_length, distance, tangent_span)
+        })
+        .filter(|candidate| candidate.reentrant_score > 0.)
+        .collect::<Vec<_>>();
+    candidates.sort_by(|first, second| {
+        second
+            .reentrant_score
+            .total_cmp(&first.reentrant_score)
+            .then_with(|| first.distance.total_cmp(&second.distance))
+    });
+
+    let mut selected = Vec::<(SlopeLineCandidate, geo::Line)>::with_capacity(target_count);
+    for candidate in candidates {
+        if selected.len() >= target_count {
+            break;
+        }
+        if selected.iter().any(|(existing, _)| {
+            cyclic_distance(existing.distance, candidate.distance, total_length)
+                < minimum_separation
+        }) {
+            continue;
+        }
+        let tip = candidate.anchor + candidate.inward * slope_line_length;
+        if ![0.25, 0.5, 0.75, 1.].into_iter().all(|fraction| {
+            polygon.contains(&geo::Point::from(
+                candidate.anchor + candidate.inward * (slope_line_length * fraction),
+            ))
+        }) {
+            continue;
+        }
+
+        let mark = geo::Line::new(candidate.anchor, tip);
+        if selected
+            .iter()
+            .any(|(_, existing)| Euclidean.distance(&mark, existing) < slope_line_clearance)
+        {
+            continue;
+        }
+        let search_envelope = expanded_line_envelope(mark, slope_line_clearance);
+        let has_clearance = segment_index
+            .locate_in_envelope_intersecting(search_envelope)
+            .all(|segment| {
+                if segment.line_id != line_id {
+                    return Euclidean.distance(&mark, &segment.line) + f64::EPSILON
+                        >= slope_line_clearance;
+                }
+
+                // Contact with the host contour is expected at the anchor.
+                // Away from it, widen the required gap progressively until
+                // the full minimum clearance is required at the tip.
+                let does_not_recross_host = Euclidean.distance(&mark, &segment.line)
+                    > crate::SIMPLIFICATION_DIST
+                    || Euclidean.distance(&geo::Point::from(candidate.anchor), &segment.line)
+                        <= crate::SIMPLIFICATION_DIST;
+                does_not_recross_host
+                    && [0.25, 0.5, 0.75, 1.].into_iter().all(|fraction| {
+                        let point = geo::Point::from(
+                            candidate.anchor + candidate.inward * (slope_line_length * fraction),
+                        );
+                        Euclidean.distance(&point, &segment.line) + f64::EPSILON
+                            >= slope_line_clearance * fraction
+                    })
+            });
+        if !has_clearance {
+            continue;
+        }
+
+        selected.push((candidate, mark));
+    }
+    selected
+        .into_iter()
+        .map(|(candidate, _)| {
+            // Point symbols are authored along +Y in omap's Cartesian
+            // geometry. Rotate that axis onto the inward direction.
+            let rotation =
+                candidate.inward.y.atan2(candidate.inward.x) - std::f64::consts::FRAC_PI_2;
+            (geo::Point::from(candidate.anchor), rotation)
+        })
+        .collect()
+}
+
+fn cyclic_distance(first: f64, second: f64, total: f64) -> f64 {
+    let direct = (first - second).abs();
+    direct.min(total - direct)
+}
+
+fn slope_line_candidate(
+    line: &geo::LineString,
+    total_length: f64,
+    distance: f64,
+    tangent_span: f64,
+) -> Option<SlopeLineCandidate> {
+    let anchor = closed_line_coordinate_at_distance(line, total_length, distance)?;
+    let before = closed_line_coordinate_at_distance(
+        line,
+        total_length,
+        (distance - tangent_span).rem_euclid(total_length),
+    )?;
+    let after = closed_line_coordinate_at_distance(
+        line,
+        total_length,
+        (distance + tangent_span).rem_euclid(total_length),
+    )?;
+    let incoming = (anchor - before).try_normalize()?;
+    let outgoing = (after - anchor).try_normalize()?;
+    let tangent = (after - before).try_normalize()?;
+    let reentrant_score = -incoming
+        .wedge_product(outgoing)
+        .atan2(incoming.dot_product(outgoing));
+    let inward = geo::coord! { x: tangent.y, y: -tangent.x };
+    Some(SlopeLineCandidate {
+        anchor,
+        inward,
+        distance,
+        reentrant_score,
+    })
+}
+
+fn closed_line_coordinate_at_distance(
+    line: &geo::LineString,
+    total_length: f64,
+    distance: f64,
+) -> Option<geo::Coord> {
+    let mut remaining = distance.rem_euclid(total_length);
+    for segment in line.lines() {
+        let segment_length = Euclidean.length(&segment);
+        if segment_length <= f64::EPSILON {
+            continue;
+        }
+        if remaining <= segment_length {
+            return Some(
+                segment.start + (segment.end - segment.start) * (remaining / segment_length),
+            );
+        }
+        remaining -= segment_length;
+    }
+    line.0.first().copied()
+}
+
+fn expanded_line_envelope(line: geo::Line, amount: f64) -> AABB<[f64; 2]> {
+    AABB::from_corners(
+        [
+            line.start.x.min(line.end.x) - amount,
+            line.start.y.min(line.end.y) - amount,
+        ],
+        [
+            line.start.x.max(line.end.x) + amount,
+            line.start.y.max(line.end.y) + amount,
+        ],
+    )
 }
 
 fn line_string_signed_area(line: &geo::LineString) -> f64 {
@@ -311,6 +600,207 @@ mod tests {
             symbol,
             tags: HashMap::new(),
         }
+    }
+
+    fn clockwise_rectangle(width: f64, height: f64) -> geo::LineString {
+        geo::LineString::new(vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: 0., y: height },
+            geo::coord! { x: width, y: height },
+            geo::coord! { x: width, y: 0. },
+            geo::coord! { x: 0., y: 0. },
+        ])
+    }
+
+    fn contour_object(object: geo::LineString, symbol: LineSymbol) -> MapObject {
+        MapObject::Line {
+            object,
+            symbol,
+            tags: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn retained_depressions_get_the_matching_inward_slope_line() {
+        for (line_symbol, point_symbol) in [
+            (LineSymbol::Contour, PointSymbol::SlopeLineContour),
+            (LineSymbol::IndexContour, PointSymbol::SlopeLineContour),
+            (LineSymbol::FormLine, PointSymbol::SlopeLineFormLine),
+        ] {
+            let depression = clockwise_rectangle(30., 30.);
+            let polygon = geo::Polygon::new(depression.clone(), Vec::new());
+            let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+            map.add_object(contour_object(depression.clone(), line_symbol));
+
+            map.add_depression_slope_lines();
+
+            let slope_lines = &map.objects[&Symbol::Point(point_symbol)];
+            assert_eq!(slope_lines.len(), 2);
+            for slope_line in slope_lines {
+                let MapObject::Point {
+                    object, rotation, ..
+                } = slope_line
+                else {
+                    panic!("expected a slope-line point object");
+                };
+                assert!(Euclidean.distance(object, &depression) < 1e-9);
+                let inward = geo::coord! {
+                    x: -rotation.sin(),
+                    y: rotation.cos(),
+                };
+                assert!(polygon.contains(&geo::Point::from(object.0 + inward)));
+            }
+        }
+    }
+
+    #[test]
+    fn tile_fragments_get_a_slope_line_only_after_directed_stitching() {
+        let fragment = |coordinates| {
+            let mut object = contour_object(geo::LineString::new(coordinates), LineSymbol::Contour);
+            object.add_elevation_tag(5.);
+            object.stabilize_contour_seam();
+            object.mark_contour_tile_boundary_endpoints(true, true);
+            object
+        };
+        let first = vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: 0., y: 30. },
+            geo::coord! { x: 30., y: 30.2 },
+        ];
+        let directed_second = vec![
+            geo::coord! { x: 30., y: 30. },
+            geo::coord! { x: 30., y: 0. },
+            geo::coord! { x: 0., y: 0. },
+        ];
+
+        let mut stitched = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        stitched.add_object(fragment(first.clone()));
+        stitched.add_object(fragment(directed_second.clone()));
+        stitched.add_depression_slope_lines();
+        assert!(
+            !stitched
+                .objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineContour))
+        );
+
+        stitched.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+        let [MapObject::Line { object, .. }] =
+            stitched.objects[&Symbol::Line(LineSymbol::Contour)].as_slice()
+        else {
+            panic!("expected one stitched contour");
+        };
+        assert!(object.is_closed());
+        assert!(line_string_signed_area(object) < 0.);
+        stitched.add_depression_slope_lines();
+        assert_eq!(
+            stitched.objects[&Symbol::Point(PointSymbol::SlopeLineContour)].len(),
+            2
+        );
+
+        let mut opposed = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        opposed.add_object(fragment(first));
+        opposed.add_object(fragment(directed_second.into_iter().rev().collect()));
+        opposed.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+        opposed.add_depression_slope_lines();
+        assert_eq!(opposed.objects[&Symbol::Line(LineSymbol::Contour)].len(), 2);
+        assert!(
+            !opposed
+                .objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineContour))
+        );
+    }
+
+    #[test]
+    fn open_and_positive_area_contours_do_not_get_slope_lines() {
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        let mut knoll = clockwise_rectangle(30., 30.);
+        knoll.0.reverse();
+        map.add_object(contour_object(knoll, LineSymbol::Contour));
+        map.add_object(contour_object(
+            geo::LineString::new(vec![
+                geo::coord! { x: 40., y: 0. },
+                geo::coord! { x: 40., y: 30. },
+                geo::coord! { x: 70., y: 30. },
+            ]),
+            LineSymbol::FormLine,
+        ));
+
+        map.add_depression_slope_lines();
+
+        assert!(
+            !map.objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineContour))
+        );
+        assert!(
+            !map.objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineFormLine))
+        );
+    }
+
+    #[test]
+    fn slope_lines_are_not_forced_into_too_narrow_depressions() {
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(contour_object(
+            clockwise_rectangle(4., 100.),
+            LineSymbol::Contour,
+        ));
+
+        map.add_depression_slope_lines();
+
+        assert!(
+            !map.objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineContour))
+        );
+    }
+
+    #[test]
+    fn slope_line_footprint_and_clearance_follow_the_map_scale() {
+        assert_eq!(
+            PointSymbol::SlopeLineContour.slope_line_length_m(Scale::S15_000),
+            Some(7.05)
+        );
+        assert_eq!(
+            PointSymbol::SlopeLineContour.slope_line_length_m(Scale::S10_000),
+            Some(4.7)
+        );
+
+        let accepts_eight_metre_width = |scale| {
+            let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, scale, None);
+            map.add_object(contour_object(
+                clockwise_rectangle(8., 8.),
+                LineSymbol::Contour,
+            ));
+            map.add_depression_slope_lines();
+            map.objects
+                .contains_key(&Symbol::Point(PointSymbol::SlopeLineContour))
+        };
+        assert!(!accepts_eight_metre_width(Scale::S15_000));
+        assert!(accepts_eight_metre_width(Scale::S10_000));
+    }
+
+    #[test]
+    fn a_wide_reentrant_is_used_when_the_sharpest_one_is_too_narrow() {
+        let depression = geo::LineString::new(vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: 0., y: 30. },
+            geo::coord! { x: 19., y: 30. },
+            geo::coord! { x: 20., y: 45. },
+            geo::coord! { x: 21., y: 30. },
+            geo::coord! { x: 40., y: 30. },
+            geo::coord! { x: 40., y: 0. },
+            geo::coord! { x: 0., y: 0. },
+        ]);
+        assert!(line_string_signed_area(&depression) < 0.);
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(contour_object(depression, LineSymbol::Contour));
+
+        map.add_depression_slope_lines();
+
+        let slope_lines = &map.objects[&Symbol::Point(PointSymbol::SlopeLineContour)];
+        assert!(slope_lines.len() > 1);
+        assert!(slope_lines.iter().all(|slope_line| {
+            matches!(slope_line, MapObject::Point { object, .. } if object.y() < 35.)
+        }));
     }
 
     #[test]

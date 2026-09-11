@@ -649,6 +649,8 @@ pub fn export_map(
 
     map.mark_basemap_depressions();
 
+    // Stitch directed contour fragments across tile ownership boundaries
+    // before signed-area classification and slope-line placement.
     map.merge_lines_with_symbol_distance(
         5. * crate::SIMPLIFICATION_DIST,
         LineSymbol::SmallCrossableWatercourse,
@@ -665,6 +667,7 @@ pub fn export_map(
         map_params.contour.dot_knoll_area.1,
         1.5,
     );
+    map.add_depression_slope_lines();
 
     reporter.log("Writing Omap file...".to_string());
 

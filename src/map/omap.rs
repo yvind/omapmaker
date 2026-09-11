@@ -6,7 +6,10 @@ use omap::{
 
 use super::{
     InternalMap, MapObject, Symbol,
-    object::{PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG},
+    object::{
+        CONTOUR_END_TILE_BOUNDARY_TAG, CONTOUR_START_TILE_BOUNDARY_TAG,
+        PRESERVE_CONTOUR_GEOMETRY_TAG, STABLE_CONTOUR_SEAM_TAG,
+    },
 };
 use crate::parameters::{GeometryParameters, Scale};
 
@@ -72,6 +75,8 @@ impl InternalMap {
                     } => {
                         tags.remove(PRESERVE_CONTOUR_GEOMETRY_TAG);
                         tags.remove(STABLE_CONTOUR_SEAM_TAG);
+                        tags.remove(CONTOUR_START_TILE_BOUNDARY_TAG);
+                        tags.remove(CONTOUR_END_TILE_BOUNDARY_TAG);
                         let object = object.map_coords(|c| c + self.ref_point);
 
                         let geometry = transform.to_map_linestring(object);

@@ -121,6 +121,10 @@ pub enum SetCrs {
 pub enum Variable {
     MapTile(JobId, Box<DrawableOmap>),
     Paths(Vec<PathBuf>),
+    ConvertedCopcSources {
+        paths: Vec<PathBuf>,
+        retained_source_indices: Vec<usize>,
+    },
     Boundaries(Vec<[walkers::Position; 4]>),
     BoundaryAreas(Vec<f64>),
     Home(walkers::Position),

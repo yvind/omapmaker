@@ -173,6 +173,7 @@ impl Worker {
                     ) {
                         Ok(crate::lidar::CopcConversionOutcome::Converted {
                             paths,
+                            retained_source_indices,
                             stats,
                             single_copc_path,
                         }) => {
@@ -184,9 +185,12 @@ impl Worker {
                             let _ = self
                                 .comms
                                 .send(AppEvent::UpdateVariable(Variable::Stats(Box::new(stats))));
-                            let _ = self
-                                .comms
-                                .send(AppEvent::UpdateVariable(Variable::Paths(paths)));
+                            let _ = self.comms.send(AppEvent::UpdateVariable(
+                                Variable::ConvertedCopcSources {
+                                    paths,
+                                    retained_source_indices,
+                                },
+                            ));
                             let _ = self
                                 .comms
                                 .send(AppEvent::TaskComplete(TaskComplete::ConvertCopc));

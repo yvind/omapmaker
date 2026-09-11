@@ -17,6 +17,7 @@ use proj_core::CrsDef;
 pub(crate) enum CopcConversionOutcome {
     Converted {
         paths: Vec<PathBuf>,
+        retained_source_indices: Vec<usize>,
         stats: LidarStats,
         single_copc_path: Option<PathBuf>,
     },
@@ -60,7 +61,8 @@ fn try_convert_copc(
     write_single_copc: bool,
     memory_budget: u8,
 ) -> Result<CopcConversionOutcome> {
-    let mut new_paths = paths.clone();
+    let mut new_paths = Vec::with_capacity(paths.len());
+    let mut retained_source_indices = Vec::with_capacity(paths.len());
     let mut relevant_paths = Vec::new();
 
     let memory_budget = memory_budget as u64 * 1024 * 1024 * 1024;
@@ -89,7 +91,7 @@ fn try_convert_copc(
 
             let conversion_needed = CopcReader::from_path(&path).is_err();
 
-            new_paths[pi] = if !conversion_needed && !transform_needed {
+            let new_path = if !conversion_needed && !transform_needed {
                 // the lidar file is both a COPC and in the correct CRS
                 path
             } else if transform_needed && !conversion_needed {
@@ -116,14 +118,15 @@ fn try_convert_copc(
             };
 
             if write_single_copc {
-                relevant_paths.push(new_paths[pi].clone());
+                relevant_paths.push(new_path.clone());
             }
 
             stats.push(
-                LidarStats::calculate_statistics(&new_paths[pi]).with_context(|| {
-                    format!("Failed to calculate statistics for {:?}", new_paths[pi])
-                })?,
+                LidarStats::calculate_statistics(&new_path)
+                    .with_context(|| format!("Failed to calculate statistics for {new_path:?}"))?,
             );
+            new_paths.push(new_path);
+            retained_source_indices.push(pi);
         }
 
         reporter.progress(ProgressUpdate::Advance(inc_size));
@@ -161,6 +164,7 @@ fn try_convert_copc(
 
     Ok(CopcConversionOutcome::Converted {
         paths: new_paths,
+        retained_source_indices,
         stats,
         single_copc_path,
     })

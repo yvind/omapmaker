@@ -60,4 +60,8 @@ impl Scale {
     pub fn meters_to_paper_mm(self, meters: f64) -> f64 {
         meters * 1000. / self.denominator()
     }
+
+    pub fn paper_mm_to_meters(self, paper_mm: f64) -> f64 {
+        paper_mm * self.denominator() / 1000.
+    }
 }

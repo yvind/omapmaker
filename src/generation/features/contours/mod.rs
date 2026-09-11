@@ -357,6 +357,12 @@ fn emit_contour_objects(
                     field::adjustment_bound(regular_interval),
                 )?;
             }
+            let start_is_tile_boundary = line.0.first().is_some_and(|&coordinate| {
+                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
+            });
+            let end_is_tile_boundary = line.0.last().is_some_and(|&coordinate| {
+                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
+            });
             let mut object = MapObject::Line {
                 object: line,
                 symbol,
@@ -364,6 +370,8 @@ fn emit_contour_objects(
             };
             object.add_elevation_tag(level.elevation);
             object.stabilize_contour_seam();
+            object
+                .mark_contour_tile_boundary_endpoints(start_is_tile_boundary, end_is_tile_boundary);
             if preserve_geometry {
                 object.preserve_contour_geometry();
             }
