@@ -1,5 +1,6 @@
 mod channel;
 mod controller;
+mod file_picker;
 pub(crate) mod protocol;
 mod state;
 mod ui;

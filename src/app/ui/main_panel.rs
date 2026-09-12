@@ -1,152 +1,67 @@
 use eframe::egui;
-use walkers::{Map, MapMemory, MercatorProjection, PlanarProjection, Plugin, Tiles};
+use walkers::{Map, MapMemory, MercatorProjection, PlanarProjection, Projection, Tiles};
 
 use super::{map_controls, map_plugins};
-use crate::app::{OmapMaker, ProcessStage, state::TileProvider};
+use crate::app::{AppState, OmapMaker, ProcessStage, state::TileProvider};
 
 const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
 
-enum MapType<'memory, 'layer, 'plugin> {
-    Global(Map<'memory, 'layer, 'plugin, MercatorProjection>),
-    Local(Map<'memory, 'layer, 'plugin, PlanarProjection>),
-}
-
-impl<'c> MapType<'_, '_, 'c> {
-    fn with_plugin(self, plugin: impl Plugin + 'c) -> Self {
-        match self {
-            MapType::Global(map) => MapType::Global(map.with_plugin(plugin)),
-            MapType::Local(map) => MapType::Local(map.with_plugin(plugin)),
-        }
-    }
-
-    fn draw_map(self, ui: &mut egui::Ui, rect: egui::Rect) {
-        match self {
-            MapType::Global(map) => ui.put(rect, map),
-            MapType::Local(map) => ui.put(rect, map),
-        };
-    }
-}
-
 impl OmapMaker {
-    pub fn render_map(&mut self, ui: &mut egui::Ui) {
-        let rect = ui.clip_rect();
-
-        ui.painter().rect(
-            rect,
-            0.,
-            BG_COLOR,
-            egui::Stroke::NONE,
-            egui::StrokeKind::Middle,
-        );
-
-        let map = if self.state != ProcessStage::Welcome
-            && self.gui_variables.generation.params.output.crs.is_none()
-        {
-            let mut min_x = f64::MAX;
-            let mut max_x = f64::MIN;
-            let mut min_y = f64::MAX;
-            let mut max_y = f64::MIN;
-            for boundary in self.gui_variables.lidar.boundaries.iter() {
-                for p in boundary {
-                    if p.x() > max_x {
-                        max_x = p.x();
-                    } else if p.x() < min_x {
-                        min_x = p.x();
-                    }
-                    if p.y() > max_y {
-                        max_y = p.y();
-                    } else if p.y() < min_y {
-                        min_y = p.y();
-                    }
-                }
-            }
-            let scale = (max_x - min_x).max(max_y - min_y);
-            let projproj = PlanarProjection::new(self.home, 1. / scale);
-            Self::clamp_projected_zoom_pos(&mut self.map_memory, &projproj);
-
-            // Local coordinates
-            MapType::Local(Map::new(projproj.clone(), &mut self.map_memory, self.home))
-        } else {
-            Self::clamp_mercator_zoom_pos(&mut self.map_memory, &MercatorProjection);
-
-            let http_tiles = match self.gui_variables.map_view.tile_provider {
-                TileProvider::OpenStreetMap => &mut self.http_tiles.0,
-                TileProvider::OpenTopoMap => &mut self.http_tiles.1,
-                TileProvider::GoogleSatellite => &mut self.http_tiles.2,
-            };
-
-            map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
-            map_controls::render_background_map_choice(
-                ui,
-                &mut self.gui_variables.map_view.tile_provider,
-            );
-
-            let error_text = match self.gui_variables.map_view.tile_provider {
-                TileProvider::OpenStreetMap => {
-                    "If you see this the OSM background-map did not load."
-                }
-                TileProvider::OpenTopoMap => "If you see this the OTM background-map did not load.",
-                TileProvider::GoogleSatellite => {
-                    "If you see this the Google background-map did not load."
-                }
-            };
-
-            ui.vertical_centered(|ui| ui.colored_label(egui::Color32::RED, error_text));
-
-            // OSM map
-            MapType::Global(
-                Map::new(MercatorProjection, &mut self.map_memory, self.home)
-                    .with_layer(http_tiles, 1.),
-            )
-        };
-
+    fn show_generic_map<P: Projection>(
+        state: ProcessStage,
+        gui_variables: &mut AppState,
+        map: Map<'_, '_, '_, P>,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+    ) {
         // add plugins
-        let map = match &self.state {
+        let map = match state {
             ProcessStage::ChooseSquare => map.with_plugin(map_plugins::TestAreaSelector::new(
-                &self.gui_variables.tile.test_area_display,
-                &self.gui_variables.tile.test_area_projected,
-                &mut self.gui_variables.tile.selected_square,
-                &mut self.gui_variables.tile.selected_square_boundary,
-                self.gui_variables.generation.params.output.crs.as_ref(),
+                &gui_variables.tile.test_area_display,
+                &gui_variables.tile.test_area_projected,
+                &mut gui_variables.tile.selected_square,
+                &mut gui_variables.tile.selected_square_boundary,
+                gui_variables.generation.params.output.crs.as_ref(),
             )),
             ProcessStage::DrawPolygon => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.lidar.boundaries,
+                    &gui_variables.lidar.boundaries,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::new(
-                    &mut self.gui_variables.area.polygon_filter,
-                    &mut self.gui_variables.area.drawing_polygon,
+                    &mut gui_variables.area.polygon_filter,
+                    &mut gui_variables.area.drawing_polygon,
                 ))
             }
             state if state.is_adjustment() => map.with_plugin(map_plugins::OmapDrawer::new(
-                &self.gui_variables.preview.map_tile,
-                &self.gui_variables.preview.visibility_checkboxes,
-                self.gui_variables.preview.map_opacity,
+                &gui_variables.preview.map_tile,
+                &gui_variables.preview.visibility_checkboxes,
+                gui_variables.preview.map_opacity,
             )),
             ProcessStage::ExportDone => {
                 let map = map.with_plugin(map_plugins::LasBoundaryPainter::new(
-                    &self.gui_variables.lidar.boundaries,
+                    &gui_variables.lidar.boundaries,
                 ));
                 map.with_plugin(map_plugins::PolygonDrawer::readonly(
-                    &mut self.gui_variables.area.polygon_filter,
+                    &mut gui_variables.area.polygon_filter,
                 ))
             }
             ProcessStage::Welcome => map,
             ProcessStage::ShowComponents => map.with_plugin(map_plugins::LasComponentPainter::new(
-                &self.gui_variables.lidar.boundaries,
-                &self.gui_variables.lidar.connected_components,
+                &gui_variables.lidar.boundaries,
+                &gui_variables.lidar.connected_components,
             )),
             _ => unreachable!("The render_map fn should not be called for this state"),
         };
 
-        // ugly hack
-        let projection = if let MapType::Local(m) = &map {
-            Some(m.projection().clone())
-        } else {
-            None
-        };
-        map.draw_map(ui, rect);
+        ui.put(rect, map);
+    }
 
+    fn show_map_controls<P: Projection>(
+        &mut self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        projection: &P,
+    ) {
         // Draw utility windows.
         if self.state.is_adjustment() {
             map_controls::render_map_opacity_slider(
@@ -171,16 +86,81 @@ impl OmapMaker {
 
         map_controls::render_zoom(ui, &mut self.map_memory);
         map_controls::render_home(ui, &mut self.map_memory, self.home_zoom);
-        if let Some(proj) = projection {
-            map_controls::render_scale_pos_label(ui, &self.map_memory, self.home, &proj);
+        map_controls::render_scale_pos_label(ui, &self.map_memory, self.home, projection);
+    }
+
+    pub fn render_map(&mut self, ui: &mut egui::Ui) {
+        let rect = ui.clip_rect();
+
+        ui.painter().rect(
+            rect,
+            0.,
+            BG_COLOR,
+            egui::Stroke::NONE,
+            egui::StrokeKind::Middle,
+        );
+
+        if self.state != ProcessStage::Welcome
+            && self.gui_variables.generation.params.output.crs.is_none()
+        {
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            let mut min_y = f64::MAX;
+            let mut max_y = f64::MIN;
+            for boundary in self.gui_variables.lidar.boundaries.iter() {
+                for p in boundary {
+                    if p.x() > max_x {
+                        max_x = p.x();
+                    } else if p.x() < min_x {
+                        min_x = p.x();
+                    }
+                    if p.y() > max_y {
+                        max_y = p.y();
+                    } else if p.y() < min_y {
+                        min_y = p.y();
+                    }
+                }
+            }
+            let scale = (max_x - min_x).max(max_y - min_y);
+            let planar_proj = PlanarProjection::new(self.home, 1. / scale);
+            Self::clamp_projected_zoom_pos(&mut self.map_memory, &planar_proj);
+            let map = Map::new(planar_proj.clone(), &mut self.map_memory, self.home);
+
+            // Local coordinates
+            Self::show_generic_map(self.state, &mut self.gui_variables, map, ui, rect);
+            self.show_map_controls(ui, rect, &planar_proj);
         } else {
-            map_controls::render_scale_pos_label(
+            Self::clamp_mercator_zoom_pos(&mut self.map_memory, &MercatorProjection);
+
+            let http_tiles = match self.gui_variables.map_view.tile_provider {
+                TileProvider::OpenStreetMap => &mut self.background_tiles.osm,
+                TileProvider::OpenTopoMap => &mut self.background_tiles.otm,
+                TileProvider::GoogleSatellite => &mut self.background_tiles.satellite,
+            };
+
+            map_controls::render_acknowledge(ui, http_tiles.attribution(), rect);
+            map_controls::render_background_map_choice(
                 ui,
-                &self.map_memory,
-                self.home,
-                &MercatorProjection,
+                &mut self.gui_variables.map_view.tile_provider,
             );
-        }
+
+            let error_text = match self.gui_variables.map_view.tile_provider {
+                TileProvider::OpenStreetMap => {
+                    "If you see this the OSM background-map did not load."
+                }
+                TileProvider::OpenTopoMap => "If you see this the OTM background-map did not load.",
+                TileProvider::GoogleSatellite => {
+                    "If you see this the Google satellite background-map did not load."
+                }
+            };
+
+            ui.vertical_centered(|ui| ui.colored_label(egui::Color32::RED, error_text));
+
+            let map = Map::new(MercatorProjection, &mut self.map_memory, self.home)
+                .with_layer(http_tiles, 1.);
+            Self::show_generic_map(self.state, &mut self.gui_variables, map, ui, rect);
+            self.show_map_controls(ui, rect, &MercatorProjection);
+        };
     }
 
     fn clamp_mercator_zoom_pos(map_memory: &mut MapMemory, projection: &MercatorProjection) {
@@ -221,8 +201,8 @@ impl OmapMaker {
         // clamp zoom
         if map_memory.zoom() > 16. {
             let _ = map_memory.set_zoom(16.);
-        } else if map_memory.zoom() < 8. {
-            let _ = map_memory.set_zoom(8.);
+        } else if map_memory.zoom() < 6. {
+            let _ = map_memory.set_zoom(6.);
         }
 
         // clamp position

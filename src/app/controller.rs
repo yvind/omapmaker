@@ -1,5 +1,6 @@
 use super::{
     AppState, OmapComms, OmapModal, ProcessStage,
+    file_picker::FilePicker,
     protocol::{
         AppAction, AppEvent, CancellationToken, ConvertCopcTask, GenerateMapRequest,
         InitializeMapTileTask, JobId, MapPreviewSection, ProgressBar, RegenerationScope, SetCrs,
@@ -9,17 +10,12 @@ use super::{
     worker::Worker,
 };
 use eframe::egui;
-use walkers::{HttpTiles, MapMemory, MercatorProjection};
+use walkers::MapMemory;
 
 pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
-    // background osm and otm tiles
-    pub http_tiles: (
-        HttpTiles<MercatorProjection>,
-        HttpTiles<MercatorProjection>,
-        HttpTiles<MercatorProjection>,
-    ),
+    pub background_tiles: tile_sources::BackgroundTiles,
     pub map_memory: MapMemory,
     pub home: walkers::Position,
     pub home_zoom: f64,
@@ -35,6 +31,9 @@ pub struct OmapMaker {
 
     // app context
     ctx: egui::Context,
+
+    // native file dialogs run off the UI thread
+    pub(super) file_picker: FilePicker,
 
     // backend communication
     comms: OmapComms<WorkerCommand, AppEvent>,
@@ -143,7 +142,7 @@ impl OmapMaker {
         Worker::boot(worker_comms).expect("Could not boot the worker threads");
 
         Self {
-            http_tiles: tile_sources::get_tile_sources(&ctx),
+            background_tiles: tile_sources::get_tile_sources(&ctx),
             map_memory: Default::default(),
             state: ProcessStage::Welcome,
             ctx,
@@ -152,6 +151,7 @@ impl OmapMaker {
             active_preview_cancellation: None,
             next_preview_job_id: 0,
             open_modal: OmapModal::None,
+            file_picker: FilePicker::default(),
             home: walkers::lon_lat(HOME_LON_LAT.0, HOME_LON_LAT.1),
             home_zoom: 16.,
             gui_variables: Default::default(),

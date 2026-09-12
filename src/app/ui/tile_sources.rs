@@ -36,19 +36,19 @@ impl walkers::sources::TileSource for GoogleSatelliteSource {
     }
 }
 
-pub fn get_tile_sources(
-    ctx: &egui::Context,
-) -> (
-    HttpTiles<MercatorProjection>,
-    HttpTiles<MercatorProjection>,
-    HttpTiles<MercatorProjection>,
-) {
-    (
-        HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
-        HttpTiles::new(
+pub fn get_tile_sources(ctx: &egui::Context) -> BackgroundTiles {
+    BackgroundTiles {
+        osm: HttpTiles::new(sources::OpenStreetMap, ctx.clone()),
+        otm: HttpTiles::new(
             sources::OpenTopoMap(sources::OpenTopoServer::C),
             ctx.clone(),
         ),
-        HttpTiles::new(GoogleSatelliteSource(GoogleServer::C), ctx.clone()),
-    )
+        satellite: HttpTiles::new(GoogleSatelliteSource(GoogleServer::C), ctx.clone()),
+    }
+}
+
+pub struct BackgroundTiles {
+    pub osm: HttpTiles<MercatorProjection>,
+    pub otm: HttpTiles<MercatorProjection>,
+    pub satellite: HttpTiles<MercatorProjection>,
 }

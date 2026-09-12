@@ -8765,12 +8765,14 @@ dependencies = [
 
 [[package]]
 name = "walkers"
-version = "0.58.0"
-source = "git+https://github.com/yvind/walkers#a1f4dbd2df2ccd2faba0782f97cdca2b5fd0c1b1"
+version = "0.59.0"
+source = "git+https://github.com/yvind/walkers#1d36c5886bc52cb09219beb6d608acd8ab549d1b"
 dependencies = [
  "bytes",
+ "ecolor",
  "egui",
  "egui_extras",
+ "emath",
  "futures",
  "geo-types",
  "http-cache-reqwest",

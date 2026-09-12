@@ -6,6 +6,7 @@ use eframe::{
 use geo::TriangulateEarcut;
 use omap::objects::{BezierSegment, BezierString};
 use proj_core::{CrsDef, Transform};
+use walkers::Projection;
 
 use crate::map::PointSymbol;
 use crate::parameters::Scale;
@@ -18,10 +19,10 @@ pub enum DrawableGeometry {
 }
 
 impl DrawableGeometry {
-    pub(crate) fn draw(
+    pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         stroke: Stroke,
         special: bool,
     ) {
@@ -43,10 +44,10 @@ impl DrawableGeometry {
 pub struct DrawablePolygonObject(Triangulation);
 
 impl DrawablePolygonObject {
-    pub(crate) fn draw(
+    pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -98,10 +99,10 @@ pub struct Triangulation {
 }
 
 impl Triangulation {
-    pub(crate) fn draw(
+    pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -142,10 +143,10 @@ impl Triangulation {
 pub struct DrawableLineObject(Vec<walkers::Position>, bool);
 
 impl DrawableLineObject {
-    pub(crate) fn draw(
+    pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         stroke: &Stroke,
         dashed: bool,
     ) {
@@ -248,10 +249,10 @@ pub struct DrawablePointObject {
 }
 
 impl DrawablePointObject {
-    pub(crate) fn draw(
+    pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {

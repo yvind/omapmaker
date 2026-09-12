@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use eframe::egui::{self, Color32, Response, Ui};
 use geo::{Area, BooleanOps, Contains, TriangulateEarcut, Validation};
 use proj_core::{CrsDef, Transform};
-use walkers::{Plugin, ScreenProjector};
+use walkers::{Plugin, Projection, ScreenProjector};
 
 use crate::{app::DrawableOmap, map::Symbol};
 
@@ -36,8 +36,8 @@ impl<'a> LasComponentPainter<'a> {
     }
 }
 
-impl Plugin for LasComponentPainter<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
+impl<P: Projection> Plugin<P> for LasComponentPainter<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector<'_, P>) {
         for (ci, component) in self.components.iter().enumerate() {
             let component_color = COLOR_LIST[ci % COLOR_LIST.len()];
             for boundary_index in component {
@@ -71,8 +71,8 @@ impl<'a> LasBoundaryPainter<'a> {
     }
 }
 
-impl Plugin for LasBoundaryPainter<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
+impl<P: Projection> Plugin<P> for LasBoundaryPainter<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector<'_, P>) {
         for bound in self.boundaries.iter() {
             // painting is most performant in clockwise order
             let screen_coords = [
@@ -113,8 +113,8 @@ impl<'a> PolygonDrawer<'a> {
     }
 }
 
-impl Plugin for PolygonDrawer<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
+impl<P: Projection> Plugin<P> for PolygonDrawer<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector<'_, P>) {
         let PolygonDrawer {
             drawing_enabled,
             area_of_interest,
@@ -231,8 +231,8 @@ impl<'a> TestAreaSelector<'a> {
     }
 }
 
-impl Plugin for TestAreaSelector<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector) {
+impl<P: Projection> Plugin<P> for TestAreaSelector<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, response: &Response, projector: &ScreenProjector<'_, P>) {
         if !response.changed()
             && response.clicked_by(egui::PointerButton::Primary)
             && let Some(clicked_pos) = response.interact_pointer_pos()
@@ -376,9 +376,9 @@ fn rect_to_display_boundary(
     Ok(corners.map(geo::Point))
 }
 
-fn draw_polygon(
+fn draw_polygon<P: Projection>(
     ui: &mut Ui,
-    projector: &ScreenProjector,
+    projector: &ScreenProjector<'_, P>,
     polygon: &geo::Polygon,
     fill: Color32,
     stroke: egui::Stroke,
@@ -441,8 +441,8 @@ impl<'a> OmapDrawer<'a> {
     }
 }
 
-impl Plugin for OmapDrawer<'_> {
-    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector) {
+impl<P: Projection> Plugin<P> for OmapDrawer<'_> {
+    fn run(self: Box<Self>, ui: &mut Ui, _response: &Response, projector: &ScreenProjector<'_, P>) {
         if let Some(map) = self.map.as_ref() {
             map.draw(ui, projector, self.visibilities, self.opacity);
         }

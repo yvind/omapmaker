@@ -4,6 +4,7 @@ use std::collections::{HashMap, hash_map::Keys};
 use eframe::egui::{self, Color32, Stroke};
 use log::{Level, log};
 use proj_core::{CrsDef, Transform};
+use walkers::Projection;
 
 use super::{
     DrawOrder, DrawableSymbol,
@@ -171,10 +172,10 @@ impl DrawableOmap {
         }
     }
 
-    pub fn draw(
+    pub fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector,
+        projector: &walkers::ScreenProjector<'_, P>,
         visibilities: &HashMap<Symbol, bool>,
         opacity: f32,
     ) {

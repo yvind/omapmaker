@@ -1,8 +1,29 @@
-use crate::app::{OmapMaker, protocol::AppAction};
+use crate::app::{OmapMaker, file_picker::FilePickerResult, protocol::AppAction};
 use eframe::egui;
 
 impl OmapMaker {
     pub fn render_welcome_panel(&mut self, ui: &mut egui::Ui) {
+        if let Some(result) = self.file_picker.try_take_result() {
+            match result {
+                FilePickerResult::Lidar(Some(files)) => {
+                    for file in files {
+                        if let Some(ext) = file.extension()
+                            && (ext.to_ascii_lowercase().to_string_lossy() == "laz"
+                                || ext.to_ascii_lowercase().to_string_lossy() == "las")
+                            && !self.gui_variables.project.paths.contains(&file)
+                        {
+                            self.gui_variables.project.paths.push(file);
+                        }
+                    }
+                }
+                FilePickerResult::SaveLocation(Some(mut path)) => {
+                    path.set_extension("omap");
+                    self.gui_variables.project.save_location = path;
+                }
+                FilePickerResult::Lidar(None) | FilePickerResult::SaveLocation(None) => {}
+            }
+        }
+
         ui.heading("Welcome to OmapMaker");
         ui.add_space(20.);
         ui.label(
@@ -17,21 +38,11 @@ impl OmapMaker {
         );
 
         ui.horizontal(|ui| {
-            if ui.button("Add Lidar").clicked() {
-                let files = rfd::FileDialog::new()
-                    .add_filter("Lidar Files (*.las, *.laz)", &["las", "laz"])
-                    .pick_files();
-                if let Some(f) = files {
-                    for file in f {
-                        if let Some(ext) = file.extension()
-                            && (ext.to_ascii_lowercase().to_string_lossy() == "laz"
-                                || ext.to_ascii_lowercase().to_string_lossy() == "las")
-                            && !self.gui_variables.project.paths.contains(&file)
-                        {
-                            self.gui_variables.project.paths.push(file);
-                        }
-                    }
-                }
+            if ui
+                .add_enabled(!self.file_picker.is_open(), egui::Button::new("Add Lidar"))
+                .clicked()
+            {
+                self.file_picker.pick_lidar(ui.ctx());
             }
             if ui.button("Clear Lidar").clicked() {
                 self.gui_variables.project.paths.clear();
@@ -157,14 +168,26 @@ impl OmapMaker {
 
         ui.add_space(20.);
 
-        if ui.button("Choose save location and name").clicked()
-            && let Some(mut path) = rfd::FileDialog::new()
-                .add_filter("OpenOrienteering Mapper (*.omap)", &["omap"])
-                .save_file()
+        if ui
+            .add_enabled(
+                !self.file_picker.is_open(),
+                egui::Button::new("Choose save location and name"),
+            )
+            .clicked()
         {
-            path.set_extension("omap");
-            self.gui_variables.project.save_location = path;
-        };
+            self.file_picker.pick_save_location(ui.ctx());
+        }
+
+        if self.file_picker.is_open() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Waiting for the file picker…");
+            });
+        }
+
+        if let Some(error) = self.file_picker.error() {
+            ui.colored_label(egui::Color32::RED, error);
+        }
 
         if self
             .gui_variables
