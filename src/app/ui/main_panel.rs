@@ -1,5 +1,5 @@
 use eframe::egui;
-use walkers::{Map, MapMemory, MercatorProjection, Plugin, ProjectedProjection, Tiles};
+use walkers::{Map, MapMemory, MercatorProjection, PlanarProjection, Plugin, Tiles};
 
 use super::{map_controls, map_plugins};
 use crate::app::{OmapMaker, ProcessStage, state::TileProvider};
@@ -8,7 +8,7 @@ const BG_COLOR: egui::Color32 = egui::Color32::from_rgb(225, 225, 220);
 
 enum MapType<'memory, 'layer, 'plugin> {
     Global(Map<'memory, 'layer, 'plugin, MercatorProjection>),
-    Local(Map<'memory, 'layer, 'plugin, ProjectedProjection>),
+    Local(Map<'memory, 'layer, 'plugin, PlanarProjection>),
 }
 
 impl<'c> MapType<'_, '_, 'c> {
@@ -61,7 +61,7 @@ impl OmapMaker {
                 }
             }
             let scale = (max_x - min_x).max(max_y - min_y);
-            let projproj = ProjectedProjection::new(self.home, 1. / scale);
+            let projproj = PlanarProjection::new(self.home, 1. / scale);
             Self::clamp_projected_zoom_pos(&mut self.map_memory, &projproj);
 
             // Local coordinates
@@ -217,7 +217,7 @@ impl OmapMaker {
         }
     }
 
-    fn clamp_projected_zoom_pos(map_memory: &mut MapMemory, projection: &ProjectedProjection) {
+    fn clamp_projected_zoom_pos(map_memory: &mut MapMemory, projection: &PlanarProjection) {
         // clamp zoom
         if map_memory.zoom() > 16. {
             let _ = map_memory.set_zoom(16.);
@@ -229,20 +229,24 @@ impl OmapMaker {
         if let Some(pos) = map_memory.detached(projection) {
             let mut new_pos = (pos.x(), pos.y());
             let mut oob = false;
-            if pos.x() > projection.center.x() + 1. / projection.scale {
+            if pos.x() > projection.origin.x() + 1. / projection.pixels_per_meter_at_zoom_zero {
                 oob = true;
-                new_pos.0 = projection.center.x() + 1. / projection.scale;
-            } else if pos.x() < projection.center.x() - 1. / projection.scale {
+                new_pos.0 = projection.origin.x() + 1. / projection.pixels_per_meter_at_zoom_zero;
+            } else if pos.x()
+                < projection.origin.x() - 1. / projection.pixels_per_meter_at_zoom_zero
+            {
                 oob = true;
-                new_pos.0 = projection.center.x() - 1. / projection.scale;
+                new_pos.0 = projection.origin.x() - 1. / projection.pixels_per_meter_at_zoom_zero;
             }
 
-            if pos.y() > projection.center.y() + 1. / projection.scale {
+            if pos.y() > projection.origin.y() + 1. / projection.pixels_per_meter_at_zoom_zero {
                 oob = true;
-                new_pos.1 = projection.center.y() + 1. / projection.scale;
-            } else if pos.y() < projection.center.y() - 1. / projection.scale {
+                new_pos.1 = projection.origin.y() + 1. / projection.pixels_per_meter_at_zoom_zero;
+            } else if pos.y()
+                < projection.origin.y() - 1. / projection.pixels_per_meter_at_zoom_zero
+            {
                 oob = true;
-                new_pos.1 = projection.center.y() - 1. / projection.scale;
+                new_pos.1 = projection.origin.y() - 1. / projection.pixels_per_meter_at_zoom_zero;
             }
 
             if oob {

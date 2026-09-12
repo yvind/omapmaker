@@ -8766,7 +8766,7 @@ dependencies = [
 [[package]]
 name = "walkers"
 version = "0.58.0"
-source = "git+https://github.com/yvind/walkers#8dad172f03dcdd950d709b138d76b4eb80d13566"
+source = "git+https://github.com/yvind/walkers#a1f4dbd2df2ccd2faba0782f97cdca2b5fd0c1b1"
 dependencies = [
  "bytes",
  "egui",
