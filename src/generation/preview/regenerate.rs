@@ -204,7 +204,21 @@ fn changed_steps(
     };
 
     if new.scale != old.scale {
-        force_scope(&mut steps, scope);
+        // Scale affects symbol-size filtering and line/point geometry across
+        // the preview. Recompute every section that has already been reached
+        // instead of returning an empty update for `RegenerationScope::Changed`.
+        steps = PipelineSteps {
+            basemap: true,
+            contours: true,
+            openness: true,
+            vegetation: true,
+            buildings: true,
+            cliffs: true,
+            intensity: true,
+            water: true,
+            streams: true,
+            marsh: true,
+        };
         limit_to_reached_sections(&mut steps, preview_section_reached);
         return steps;
     }
@@ -424,6 +438,44 @@ mod tests {
         assert!(streams.streams);
         assert!(!streams.water);
         assert!(!streams.marsh);
+    }
+
+    #[test]
+    fn changing_scale_regenerates_every_reached_section() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.scale = match old.scale {
+            crate::parameters::Scale::S10_000 => crate::parameters::Scale::S15_000,
+            crate::parameters::Scale::S15_000 => crate::parameters::Scale::S10_000,
+        };
+        new.contour.interval += 1.;
+
+        let contour_steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Contours),
+        );
+        assert!(contour_steps.basemap);
+        assert!(contour_steps.contours);
+        assert!(!contour_steps.openness);
+
+        let all_steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(all_steps.basemap);
+        assert!(all_steps.contours);
+        assert!(all_steps.openness);
+        assert!(all_steps.vegetation);
+        assert!(all_steps.buildings);
+        assert!(all_steps.cliffs);
+        assert!(all_steps.intensity);
+        assert!(all_steps.water);
+        assert!(all_steps.streams);
+        assert!(all_steps.marsh);
     }
 
     #[test]
