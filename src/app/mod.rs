@@ -1,6 +1,7 @@
 mod channel;
 mod controller;
 mod file_picker;
+mod map_projection;
 pub(crate) mod protocol;
 mod state;
 mod ui;
@@ -8,6 +9,7 @@ mod worker;
 
 pub(crate) use channel::OmapComms;
 pub(crate) use controller::OmapMaker;
+pub(crate) use map_projection::MapProjection;
 pub(crate) use state::{AppState, ProcessStage};
 pub(crate) use ui::modals::OmapModal;
 pub(crate) use ui::tile_sources;

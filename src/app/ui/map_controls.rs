@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use eframe::egui;
 use walkers::{MapMemory, Projection, sources::Attribution};
 
-use crate::app::state::TileProvider;
+use crate::app::{MapProjection, state::TileProvider};
 use crate::{
     app::DrawableOmap,
     map::{AreaSymbol, Symbol},
@@ -14,7 +14,8 @@ struct ScaleBar {
     label: String,
 }
 
-pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
+pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory<MapProjection>) {
+    let zoom_range = map_memory.projection().zoom_range();
     egui::Window::new("Zoom")
         .collapsible(false)
         .resizable(false)
@@ -24,7 +25,7 @@ pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
             ui.vertical(|ui| {
                 if ui
                     .add_enabled(
-                        map_memory.zoom() < 21.,
+                        map_memory.zoom() < *zoom_range.end(),
                         egui::Button::new(egui::RichText::new("+").size(30.).strong().monospace()),
                     )
                     .clicked()
@@ -34,7 +35,7 @@ pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
 
                 if ui
                     .add_enabled(
-                        map_memory.zoom() > 3.,
+                        map_memory.zoom() > *zoom_range.start(),
                         egui::Button::new(egui::RichText::new("-").size(30.).strong().monospace()),
                     )
                     .clicked()
@@ -45,7 +46,7 @@ pub fn render_zoom(ui: &mut egui::Ui, map_memory: &mut MapMemory) {
         });
 }
 
-pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory, home_zoom: f64) {
+pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory<MapProjection>, home_zoom: f64) {
     egui::Window::new("Home")
         .collapsible(false)
         .resizable(false)
@@ -65,15 +66,15 @@ pub fn render_home(ui: &mut egui::Ui, map_memory: &mut MapMemory, home_zoom: f64
 
 pub fn render_scale_pos_label(
     ui: &mut egui::Ui,
-    map_memory: &MapMemory,
+    map_memory: &MapMemory<MapProjection>,
     my_pos: walkers::Position,
-    projection: &dyn Projection,
 ) {
     // Pos and zoom labels
-    let position = match map_memory.detached(projection) {
+    let position = match map_memory.detached() {
         None => my_pos,
         Some(p) => p,
     };
+    let projection = map_memory.projection();
 
     egui::Window::new("Pos and Zoom label")
         .collapsible(false)

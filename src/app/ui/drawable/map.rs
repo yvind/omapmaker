@@ -175,7 +175,7 @@ impl DrawableOmap {
     pub fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         visibilities: &HashMap<Symbol, bool>,
         opacity: f32,
     ) {

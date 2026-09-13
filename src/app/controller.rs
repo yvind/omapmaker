@@ -1,5 +1,5 @@
 use super::{
-    AppState, OmapComms, OmapModal, ProcessStage,
+    AppState, MapProjection, OmapComms, OmapModal, ProcessStage,
     file_picker::FilePicker,
     protocol::{
         AppAction, AppEvent, CancellationToken, ConvertCopcTask, GenerateMapRequest,
@@ -16,7 +16,7 @@ pub const HOME_LON_LAT: (f64, f64) = (10.6134, 59.9594);
 
 pub struct OmapMaker {
     pub background_tiles: tile_sources::BackgroundTiles,
-    pub map_memory: MapMemory,
+    pub map_memory: MapMemory<MapProjection>,
     pub home: walkers::Position,
     pub home_zoom: f64,
 
@@ -143,7 +143,7 @@ impl OmapMaker {
 
         Self {
             background_tiles: tile_sources::get_tile_sources(&ctx),
-            map_memory: Default::default(),
+            map_memory: MapMemory::new(MapProjection::default()),
             state: ProcessStage::Welcome,
             ctx,
             comms: app_comms,
@@ -188,12 +188,17 @@ impl OmapMaker {
             Variable::ConvertedCopcSources {
                 paths,
                 retained_source_indices,
-            } => self
-                .gui_variables
-                .apply_copc_conversion(paths, &retained_source_indices),
+            } => {
+                self.gui_variables
+                    .apply_copc_conversion(paths, &retained_source_indices);
+                self.choose_map_projection();
+            }
             Variable::Boundaries(vec) => self.gui_variables.lidar.boundaries = vec,
             Variable::BoundaryAreas(vec) => self.gui_variables.lidar.boundary_areas = vec,
-            Variable::Home(position) => self.home = position,
+            Variable::Home(position) => {
+                self.home = position;
+                self.choose_map_projection();
+            }
             Variable::CrsDefs(vec) => {
                 self.gui_variables.project.crses = vec;
                 self.gui_variables.update_unique_crs();
@@ -289,6 +294,7 @@ impl OmapMaker {
             AppAction::DropComponents => {
                 self.open_modal = OmapModal::None;
                 self.home = self.gui_variables.drop_small_graph_components();
+                self.choose_map_projection();
                 self.dispatch_action(AppAction::NextState);
             }
             AppAction::ConvertCopc => {
@@ -639,8 +645,7 @@ impl OmapMaker {
         self.next_preview_job_id = 0;
         self.open_modal = OmapModal::None;
         self.home_zoom = 16.;
-        let _ = self.map_memory.set_zoom(self.home_zoom);
-        self.map_memory.follow_my_position();
+        self.map_memory = MapMemory::new(MapProjection::default());
 
         match self.comms.send(WorkerCommand::Reset) {
             Ok(_) => (),
@@ -648,6 +653,16 @@ impl OmapMaker {
         }
 
         self.state = ProcessStage::Welcome;
+    }
+
+    fn choose_map_projection(&mut self) {
+        let projection = MapProjection::for_map(
+            self.gui_variables.generation.params.output.crs.is_none(),
+            self.home,
+            &self.gui_variables.lidar.boundaries,
+        );
+        self.map_memory = MapMemory::new(projection);
+        let _ = self.map_memory.set_zoom(self.home_zoom);
     }
 
     fn restart_worker(&mut self) {

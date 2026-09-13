@@ -22,7 +22,7 @@ impl DrawableGeometry {
     pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         stroke: Stroke,
         special: bool,
     ) {
@@ -47,7 +47,7 @@ impl DrawablePolygonObject {
     pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -102,7 +102,7 @@ impl Triangulation {
     pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {
@@ -146,7 +146,7 @@ impl DrawableLineObject {
     pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         stroke: &Stroke,
         dashed: bool,
     ) {
@@ -252,7 +252,7 @@ impl DrawablePointObject {
     pub(crate) fn draw<P: Projection>(
         &self,
         ui: &mut egui::Ui,
-        projector: &walkers::ScreenProjector<'_, P>,
+        projector: &walkers::Projector<'_, P>,
         stroke: &Stroke,
         special: bool,
     ) {
