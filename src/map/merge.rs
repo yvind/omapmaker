@@ -49,7 +49,16 @@ impl RTreeObject for IndexedGeometryEnvelope {
 
 impl MergeLine {
     fn elevation_key(&self) -> Option<String> {
-        self.tags.get("elev").cloned()
+        matches!(
+            self.symbol,
+            LineSymbol::BasemapContour
+                | LineSymbol::FormLine
+                | LineSymbol::Contour
+                | LineSymbol::IndexContour
+                | LineSymbol::NegBasemapContour
+        )
+        .then(|| self.tags.get("elev").cloned())
+        .flatten()
     }
 
     fn requires_exact_contour_merge(&self) -> bool {
@@ -259,8 +268,9 @@ impl InternalMap {
 
     /// Merge line objects that are tip to tail.
     /// Line ends (directed) of the same symbol that are less than `delta`
-    /// units apart are merged. Elevation tags are respected and only elements
-    /// with equal elevation tags can be merged.
+    /// units apart are merged. For contour symbols, elevation tags are
+    /// respected and only elements with equal elevation tags can be merged.
+    /// Elevation tags do not constrain other line symbols.
     pub fn merge_lines(&mut self, delta: f64) {
         self.merge_lines_with_override(delta, None, false);
     }

@@ -31,6 +31,8 @@ pub struct StreamParameters {
     pub algorithm: StreamAlgorithm,
     /// Minimum upstream area needed to initiate a hydrological stream.
     pub minimum_catchment_area_m2: f32,
+    /// Maximum endpoint gap used to join adjacent stream line objects.
+    pub endpoint_merge_distance_m: f64,
     /// Raster-to-vector controls used by the ONNX stream detector.
     pub onnx_vectorization: OnnxStreamVectorizationParameters,
 }
@@ -40,18 +42,9 @@ impl Default for StreamParameters {
         Self {
             algorithm: StreamAlgorithm::Hydrological,
             minimum_catchment_area_m2: 10_000.0,
+            endpoint_merge_distance_m: 10.0,
             onnx_vectorization: Default::default(),
         }
-    }
-}
-
-impl StreamParameters {
-    pub(crate) fn endpoint_merge_distance_m(&self) -> f64 {
-        if self.algorithm == StreamAlgorithm::DitchesStreamsSvfSlope {
-            return self.onnx_vectorization.endpoint_merge_distance_m;
-        }
-
-        5. * crate::SIMPLIFICATION_DIST
     }
 }
 
@@ -74,8 +67,6 @@ pub struct OnnxStreamVectorizationParameters {
     pub branch_length_exemption_area_m2: f64,
     /// Douglas-Peucker tolerance applied to extracted centerlines.
     pub simplification_tolerance_m: f64,
-    /// Maximum endpoint gap used to join adjacent extracted line objects.
-    pub endpoint_merge_distance_m: f64,
 }
 
 impl Default for OnnxStreamVectorizationParameters {
@@ -87,7 +78,6 @@ impl Default for OnnxStreamVectorizationParameters {
             minimum_branch_length_m: 3.0,
             branch_length_exemption_area_m2: 3.,
             simplification_tolerance_m: 0.1,
-            endpoint_merge_distance_m: 10.0,
         }
     }
 }

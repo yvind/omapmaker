@@ -156,17 +156,6 @@ impl OmapMaker {
                         .on_hover_text(
                             "Grow positive raster prediction polygons or shrink them with a negative value before their centerlines are extracted.",
                         );
-            ui.add(
-                            egui::Slider::new(
-                                &mut vectorization.endpoint_merge_distance_m,
-                                0.0..=25.0,
-                            )
-                            .text("Endpoint merge distance (m)")
-                            .show_value(true),
-                        )
-                        .on_hover_text(
-                            "Join adjacent extracted stream lines when one line end is within this distance of the next line start.",
-                        );
             egui::CollapsingHeader::new("Advanced ONNX vector geometry")
                             .default_open(false)
                             .show(ui, |ui| {
@@ -213,6 +202,24 @@ impl OmapMaker {
                                 );
                             });
         }
+
+        ui.label(egui::RichText::new("Stream line post-processing").strong());
+        ui.add(
+            egui::Slider::new(
+                &mut self
+                    .gui_variables
+                    .generation
+                    .params
+                    .streams
+                    .endpoint_merge_distance_m,
+                0.0..=25.0,
+            )
+            .text("Endpoint merge distance (m)")
+            .show_value(true),
+        )
+        .on_hover_text(
+            "Join adjacent stream lines when one line end is within this distance of the next line start.",
+        );
         ui.add_space(20.);
         ui.label(egui::RichText::new("Stream Bezier simplification").strong());
         Self::render_bezier_parameters(

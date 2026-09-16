@@ -101,7 +101,7 @@ impl Default for CliffParameters {
             cliff: 0.7,
             collapse: true,
             minimum_cliff_height_m: 1.,
-            impassable_cliff_height_m: 2.,
+            impassable_cliff_height_m: 3.,
             collapse_linearity: 2.,
         }
     }

@@ -654,7 +654,7 @@ pub fn export_map(
     map.merge_lines_with_symbol_distance(
         5. * crate::SIMPLIFICATION_DIST,
         LineSymbol::SmallCrossableWatercourse,
-        map_params.streams.endpoint_merge_distance_m(),
+        map_params.streams.endpoint_merge_distance_m,
     );
 
     if map_params.geometry.cliffs.min_size_filter {

@@ -426,6 +426,7 @@ mod tests {
             &[BufferRule {
                 direction: BufferDirection::Grow,
                 amount: 1.,
+                ..Default::default()
             }],
         );
         assert_eq!(mask.field.iter().filter(|value| **value == 1.).count(), 5);
@@ -435,6 +436,7 @@ mod tests {
             &[BufferRule {
                 direction: BufferDirection::Shrink,
                 amount: 1.,
+                ..Default::default()
             }],
         );
         assert_eq!(mask.field.iter().filter(|value| **value == 1.).count(), 1);

@@ -11,7 +11,8 @@ pub use contours::{
     FormlinePruneAlgo,
 };
 pub use geometry::{
-    BezierParameters, BufferDirection, BufferRule, GeometryParameters, RdpParameters,
+    BezierParameters, BufferDirection, BufferLineCap, BufferLineJoin, BufferRule,
+    GeometryParameters, RdpParameters,
 };
 #[cfg(feature = "stream-svf-slope")]
 pub use hydrology::OnnxStreamVectorizationParameters;

@@ -149,10 +149,6 @@ fn validate_vectorization_parameters(
             "simplification tolerance",
             parameters.simplification_tolerance_m,
         ),
-        (
-            "endpoint merge distance",
-            parameters.endpoint_merge_distance_m,
-        ),
     ] {
         anyhow::ensure!(
             value.is_finite() && value >= 0.,

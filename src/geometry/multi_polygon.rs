@@ -1,9 +1,29 @@
-use crate::parameters::BufferRule;
+use crate::parameters::{BufferLineCap, BufferLineJoin, BufferRule};
 
 use super::MapLineString;
 #[cfg(test)]
 use geo::{Area, Intersects};
-use geo::{BooleanOps, Buffer, Contains, Simplify};
+use geo::{
+    BooleanOps, Buffer, Contains, Simplify,
+    algorithm::buffer::{BufferStyle, LineCap, LineJoin},
+};
+
+const DEFAULT_BUFFER_ARC_ANGLE: f64 = 0.2;
+const DEFAULT_BUFFER_MITER_ANGLE: f64 = 1.0;
+
+fn buffer_style(buffer_rule: &BufferRule, distance: f64) -> BufferStyle<f64> {
+    let line_cap = match buffer_rule.line_cap {
+        BufferLineCap::Round => LineCap::Round(DEFAULT_BUFFER_ARC_ANGLE),
+        BufferLineCap::Square => LineCap::Square,
+    };
+    let line_join = match buffer_rule.line_join {
+        BufferLineJoin::Miter => LineJoin::Miter(DEFAULT_BUFFER_MITER_ANGLE),
+        BufferLineJoin::Round => LineJoin::Round(DEFAULT_BUFFER_ARC_ANGLE),
+    };
+    BufferStyle::new(distance)
+        .line_cap(line_cap)
+        .line_join(line_join)
+}
 
 /// Match the CLI extractor's default while allowing finer sampling when the
 /// collapse threshold itself is smaller.
@@ -95,7 +115,8 @@ impl MapMultiPolygon for geo::MultiPolygon {
             crate::parameters::BufferDirection::Shrink => -1.,
         };
         let distance = sign * buffer_rule.amount;
-        self.buffer(distance).simplify(crate::SIMPLIFICATION_DIST)
+        self.buffer_with_style(buffer_style(buffer_rule, distance))
+            .simplify(crate::SIMPLIFICATION_DIST)
     }
 
     #[cfg(test)]
@@ -198,6 +219,49 @@ mod tests {
             (x: x + width, y: y + height),
             (x: x, y: y + height),
         ]
+    }
+
+    #[test]
+    fn configured_cap_style_is_applied_to_line_buffers() {
+        let line = geo::LineString::from(vec![(0., 0.), (10., 0.)]);
+        let square_rule = BufferRule {
+            line_cap: BufferLineCap::Square,
+            ..Default::default()
+        };
+        let round_rule = BufferRule {
+            line_cap: BufferLineCap::Round,
+            ..Default::default()
+        };
+
+        let square = line.buffer_with_style(buffer_style(&square_rule, 1.));
+        let round = line.buffer_with_style(buffer_style(&round_rule, 1.));
+
+        assert_eq!(square.bounding_rect().unwrap().min().x, -1.);
+        assert_eq!(square.bounding_rect().unwrap().max().x, 11.);
+        assert!(square.contains(&Point::new(-0.9, 0.9)));
+        assert!(!round.contains(&Point::new(-0.9, 0.9)));
+    }
+
+    #[test]
+    fn configured_join_style_is_applied_to_polygon_buffers() {
+        let source = geo::MultiPolygon::new(vec![rectangle(0., 0., 10., 10.)]);
+        let miter_rule = BufferRule {
+            amount: 1.,
+            line_join: BufferLineJoin::Miter,
+            ..Default::default()
+        };
+        let round_rule = BufferRule {
+            amount: 1.,
+            line_join: BufferLineJoin::Round,
+            ..Default::default()
+        };
+
+        let miter = source.clone().apply_buffer_rule(&miter_rule);
+        let round = source.apply_buffer_rule(&round_rule);
+
+        assert!(miter.unsigned_area() > round.unsigned_area());
+        assert!(miter.contains(&Point::new(-0.9, -0.9)));
+        assert!(!round.contains(&Point::new(-0.9, -0.9)));
     }
 
     #[test]

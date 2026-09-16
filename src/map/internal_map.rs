@@ -931,6 +931,28 @@ mod tests {
     }
 
     #[test]
+    fn non_contour_merge_ignores_elevation_tags() {
+        let line = |start, end, elevation: &str| MapObject::Line {
+            object: geo::LineString::new(vec![
+                geo::coord! { x: start, y: 0. },
+                geo::coord! { x: end, y: 0. },
+            ]),
+            symbol: LineSymbol::SmallCrossableWatercourse,
+            tags: HashMap::from([("elev".to_string(), elevation.to_string())]),
+        };
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(line(0., 1., "2.5"));
+        map.add_object(line(1., 2., "7.5"));
+
+        map.merge_lines(0.1);
+
+        assert_eq!(
+            map.objects[&Symbol::Line(LineSymbol::SmallCrossableWatercourse)].len(),
+            1
+        );
+    }
+
+    #[test]
     fn symbol_specific_endpoint_distance_overrides_the_default() {
         let line = |symbol, start, end| MapObject::Line {
             object: geo::LineString::new(vec![

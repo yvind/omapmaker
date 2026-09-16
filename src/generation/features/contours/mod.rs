@@ -685,7 +685,7 @@ mod tests {
                     };
                     (
                         symbol,
-                        tags["Elevation"].clone(),
+                        tags["elev"].clone(),
                         object
                             .0
                             .into_iter()
@@ -961,7 +961,7 @@ mod tests {
                     };
                     (
                         *symbol,
-                        tags["Elevation"].clone(),
+                        tags["elev"].clone(),
                         object
                             .0
                             .iter()
@@ -981,7 +981,7 @@ mod tests {
             else {
                 panic!("contour pipeline emitted a non-line object");
             };
-            let level = tags["Elevation"].parse::<f32>().unwrap();
+            let level = tags["elev"].parse::<f32>().unwrap();
             let tolerance = super::field::adjustment_bound(params.contour.interval) + 1e-3;
             assert!(line.0.iter().all(|&coordinate| {
                 source

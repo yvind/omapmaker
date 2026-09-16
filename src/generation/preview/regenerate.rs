@@ -145,12 +145,12 @@ pub fn regenerate_map_tile(
         omap.merge_lines_with_symbol_distance(
             5. * crate::SIMPLIFICATION_DIST,
             LineSymbol::SmallCrossableWatercourse,
-            params.streams.endpoint_merge_distance_m(),
+            params.streams.endpoint_merge_distance_m,
         );
     } else if steps.contours || steps.cliffs {
         omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
     } else if steps.streams {
-        omap.merge_lines(params.streams.endpoint_merge_distance_m());
+        omap.merge_lines(params.streams.endpoint_merge_distance_m);
     }
 
     if steps.cliffs && params.geometry.cliffs.min_size_filter {

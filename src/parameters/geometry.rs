@@ -48,10 +48,14 @@ impl Default for GeometryParameters {
                 BufferRule {
                     direction: BufferDirection::Shrink,
                     amount: 2.,
+                    line_cap: BufferLineCap::Square,
+                    line_join: BufferLineJoin::Miter,
                 },
                 BufferRule {
                     direction: BufferDirection::Grow,
                     amount: 2.,
+                    line_cap: BufferLineCap::Square,
+                    line_join: BufferLineJoin::Miter,
                 },
             ],
             min_size_filter: true,
@@ -63,14 +67,17 @@ impl Default for GeometryParameters {
                 BufferRule {
                     direction: BufferDirection::Shrink,
                     amount: 2.5,
+                    ..Default::default()
                 },
                 BufferRule {
                     direction: BufferDirection::Grow,
                     amount: 5.,
+                    ..Default::default()
                 },
                 BufferRule {
                     direction: BufferDirection::Shrink,
                     amount: 2.5,
+                    ..Default::default()
                 },
             ],
             min_size_filter: true,
@@ -81,18 +88,22 @@ impl Default for GeometryParameters {
                 BufferRule {
                     direction: BufferDirection::Grow,
                     amount: 1.,
+                    ..Default::default()
                 },
                 BufferRule {
                     direction: BufferDirection::Shrink,
                     amount: 2.5,
+                    ..Default::default()
                 },
                 BufferRule {
                     direction: BufferDirection::Grow,
                     amount: 5.,
+                    ..Default::default()
                 },
                 BufferRule {
                     direction: BufferDirection::Shrink,
                     amount: 2.5,
+                    ..Default::default()
                 },
             ],
             min_size_filter: true,
@@ -126,7 +137,7 @@ pub struct RdpParameters {
 impl Default for RdpParameters {
     fn default() -> Self {
         Self {
-            tolerance_m: crate::SIMPLIFICATION_DIST,
+            tolerance_m: 1.0,
             enabled: true,
         }
     }
@@ -176,6 +187,8 @@ impl Default for CliffGeometryParameters {
 pub struct BufferRule {
     pub direction: BufferDirection,
     pub amount: f64,
+    pub line_cap: BufferLineCap,
+    pub line_join: BufferLineJoin,
 }
 
 impl Default for BufferRule {
@@ -183,6 +196,8 @@ impl Default for BufferRule {
         Self {
             direction: BufferDirection::Grow,
             amount: 2.,
+            line_cap: BufferLineCap::Round,
+            line_join: BufferLineJoin::Round,
         }
     }
 }
@@ -191,4 +206,69 @@ impl Default for BufferRule {
 pub enum BufferDirection {
     Grow,
     Shrink,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BufferLineCap {
+    #[default]
+    Round,
+    Square,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum BufferLineJoin {
+    Miter,
+    #[default]
+    Round,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn building_buffers_use_square_caps_and_miter_joins_by_default() {
+        let parameters = GeometryParameters::default();
+
+        assert!(!parameters.buildings.buffer_rules.is_empty());
+        assert!(
+            parameters
+                .buildings
+                .buffer_rules
+                .iter()
+                .all(|rule| rule.line_cap == BufferLineCap::Square)
+        );
+        assert!(
+            parameters
+                .buildings
+                .buffer_rules
+                .iter()
+                .all(|rule| rule.line_join == BufferLineJoin::Miter)
+        );
+    }
+
+    #[test]
+    fn new_buffer_rules_preserve_the_previous_round_style() {
+        let rule = BufferRule::default();
+
+        assert_eq!(rule.line_cap, BufferLineCap::Round);
+        assert_eq!(rule.line_join, BufferLineJoin::Round);
+    }
+
+    #[test]
+    fn non_building_features_use_round_buffer_styles() {
+        let parameters = GeometryParameters::default();
+        let non_building_rules = [
+            &parameters.openness.buffer_rules,
+            &parameters.vegetation.buffer_rules,
+            &parameters.cliffs.buffer_rules,
+            &parameters.intensity.buffer_rules,
+            &parameters.water.buffer_rules,
+            &parameters.marsh.buffer_rules,
+        ];
+
+        assert!(non_building_rules.into_iter().flatten().all(|rule| {
+            rule.line_cap == BufferLineCap::Round && rule.line_join == BufferLineJoin::Round
+        }));
+    }
 }
