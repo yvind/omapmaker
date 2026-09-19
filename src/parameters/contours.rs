@@ -19,8 +19,6 @@ pub struct ContourParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FormlineGeometryParameters {
-    pub minimum_open_length_m: f64,
-    pub minimum_closed_length_m: f64,
     pub reconnect_gap_m: f64,
     pub closed_seed_length_m: f64,
     pub closed_all_or_none_max_length_m: f64,
@@ -205,9 +203,7 @@ impl Default for ContourParameters {
 impl Default for FormlineGeometryParameters {
     fn default() -> Self {
         Self {
-            minimum_open_length_m: 0.,
-            minimum_closed_length_m: 0.,
-            reconnect_gap_m: 3.,
+            reconnect_gap_m: 30.,
             closed_seed_length_m: 1.5,
             closed_all_or_none_max_length_m: 30.,
         }

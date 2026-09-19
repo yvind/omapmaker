@@ -894,6 +894,42 @@ mod tests {
     }
 
     #[test]
+    fn formline_minimum_length_is_applied_after_tile_stitching() {
+        let boundary_fragment = |start, end, starts_at_boundary, ends_at_boundary| {
+            let mut object = seam_stable_formline(vec![
+                geo::coord! { x: start, y: 0. },
+                geo::coord! { x: end, y: 0. },
+            ]);
+            object.mark_contour_tile_boundary_endpoints(starts_at_boundary, ends_at_boundary);
+            object
+        };
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(boundary_fragment(0., 8., false, true));
+        map.add_object(boundary_fragment(8., 16.5, true, false));
+        map.add_object(seam_stable_formline(vec![
+            geo::coord! { x: 10., y: 0. },
+            geo::coord! { x: 12., y: 0. },
+        ]));
+
+        map.merge_lines(5. * crate::SIMPLIFICATION_DIST);
+        map.filter_formlines_min_length();
+
+        let [MapObject::Line { object, .. }] =
+            map.objects[&Symbol::Line(LineSymbol::FormLine)].as_slice()
+        else {
+            panic!("expected only the stitched form line to survive");
+        };
+        assert_eq!(
+            object.0,
+            vec![
+                geo::coord! { x: 0., y: 0. },
+                geo::coord! { x: 8., y: 0. },
+                geo::coord! { x: 16.5, y: 0. },
+            ]
+        );
+    }
+
+    #[test]
     fn contour_merge_requires_exact_elevation_and_matching_orientation() {
         let line = |points, elevation| seam_stable_formline_at(points, elevation);
 

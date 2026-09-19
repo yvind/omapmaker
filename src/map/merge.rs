@@ -12,6 +12,7 @@ use super::{
 };
 
 const CLIFF_MERGE_DISTANCE_M: f64 = 1.;
+const LINE_LENGTH_TOLERANCE_METERS: f64 = 1e-6;
 
 struct MergeLine {
     object: geo::LineString,
@@ -290,6 +291,22 @@ impl InternalMap {
     /// neither input line is reversed, preserving downhill-right orientation.
     pub fn merge_cliff_lines(&mut self, delta: f64) {
         self.merge_lines_with_override(delta, None, true);
+    }
+
+    /// Remove open form lines that remain cartographically too short after
+    /// directed fragments from every ownership tile have been stitched.
+    pub fn filter_formlines_min_length(&mut self) {
+        let minimum_length = LineSymbol::FormLine.min_length(self.scale, false);
+        let Some(formlines) = self.objects.get_mut(&Symbol::Line(LineSymbol::FormLine)) else {
+            return;
+        };
+        formlines.retain(|object| {
+            let MapObject::Line { object, .. } = object else {
+                return true;
+            };
+            object.is_closed()
+                || Euclidean.length(object) + LINE_LENGTH_TOLERANCE_METERS >= minimum_length
+        });
     }
 
     fn merge_lines_with_override(

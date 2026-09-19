@@ -656,6 +656,9 @@ pub fn export_map(
         LineSymbol::SmallCrossableWatercourse,
         map_params.streams.endpoint_merge_distance_m,
     );
+    if map_params.contour.form_lines {
+        map.filter_formlines_min_length();
+    }
 
     if map_params.geometry.cliffs.min_size_filter {
         map.filter_cliff_min_size(5. * crate::SIMPLIFICATION_DIST);

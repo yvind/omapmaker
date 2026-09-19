@@ -1,4 +1,43 @@
+use std::{collections::HashMap, sync::OnceLock};
+
 use crate::parameters::Scale;
+
+const LINE_SYMBOLS: [LineSymbol; 8] = [
+    LineSymbol::BasemapContour,
+    LineSymbol::FormLine,
+    LineSymbol::Contour,
+    LineSymbol::IndexContour,
+    LineSymbol::NegBasemapContour,
+    LineSymbol::SmallCrossableWatercourse,
+    LineSymbol::Cliff,
+    LineSymbol::ImpassableCliff,
+];
+
+fn default_omap_line_minimum_lengths(scale: Scale) -> &'static HashMap<LineSymbol, f64> {
+    static S10_000: OnceLock<HashMap<LineSymbol, f64>> = OnceLock::new();
+    static S15_000: OnceLock<HashMap<LineSymbol, f64>> = OnceLock::new();
+    let cache = match scale {
+        Scale::S10_000 => &S10_000,
+        Scale::S15_000 => &S15_000,
+    };
+    cache.get_or_init(|| {
+        let map = match scale {
+            Scale::S10_000 => omap::Omap::default_10_000(),
+            Scale::S15_000 => omap::Omap::default_15_000(),
+        }
+        .expect("bundled default OMAP should be valid");
+        LINE_SYMBOLS
+            .into_iter()
+            .filter_map(|symbol| {
+                let symbol_ref = map.symbols.find_by_code(symbol.get_code())?;
+                let omap::symbols::Symbol::Line(line) = symbol_ref.symbol() else {
+                    return None;
+                };
+                Some((symbol, line.minimum_length.get()))
+            })
+            .collect()
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Symbol {
@@ -142,15 +181,15 @@ impl LineSymbol {
     }
 
     pub fn min_length(&self, scale: Scale, is_closed: bool) -> f64 {
+        if let Some(&paper_mm) = default_omap_line_minimum_lengths(scale).get(self)
+            && paper_mm > 0.
+        {
+            return scale.paper_mm_to_meters(paper_mm);
+        }
+
         let l = match self {
             LineSymbol::BasemapContour => 3.,
-            LineSymbol::FormLine => {
-                if is_closed {
-                    150.
-                } else {
-                    250.
-                }
-            }
+            LineSymbol::FormLine => unreachable!("default OMAP form line has a minimum length"),
             LineSymbol::Contour | LineSymbol::IndexContour => {
                 if is_closed {
                     120.
@@ -168,6 +207,37 @@ impl LineSymbol {
             Scale::S15_000 => 1.,
         };
         l * multiplier
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn line_minimum_lengths_match_the_bundled_omap_symbols() {
+        for scale in [Scale::S10_000, Scale::S15_000] {
+            for symbol in [
+                LineSymbol::FormLine,
+                LineSymbol::SmallCrossableWatercourse,
+                LineSymbol::Cliff,
+                LineSymbol::ImpassableCliff,
+            ] {
+                let &paper_mm = default_omap_line_minimum_lengths(scale)
+                    .get(&symbol)
+                    .expect("line symbol should exist in the bundled OMAP");
+                assert!(paper_mm > 0.);
+                assert_eq!(
+                    symbol.min_length(scale, false),
+                    scale.paper_mm_to_meters(paper_mm)
+                );
+            }
+        }
+
+        assert_eq!(LineSymbol::FormLine.min_length(Scale::S10_000, false), 16.5);
+        assert_eq!(LineSymbol::FormLine.min_length(Scale::S15_000, false), 16.5);
+        assert_eq!(LineSymbol::FormLine.min_length(Scale::S10_000, true), 16.5);
+        assert_eq!(LineSymbol::FormLine.min_length(Scale::S15_000, true), 16.5);
     }
 }
 

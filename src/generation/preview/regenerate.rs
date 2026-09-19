@@ -152,6 +152,9 @@ pub fn regenerate_map_tile(
     } else if steps.streams {
         omap.merge_lines(params.streams.endpoint_merge_distance_m);
     }
+    if steps.contours && params.contour.form_lines {
+        omap.filter_formlines_min_length();
+    }
 
     if steps.cliffs && params.geometry.cliffs.min_size_filter {
         omap.filter_cliff_min_size(5. * crate::SIMPLIFICATION_DIST);

@@ -266,35 +266,6 @@ impl OmapMaker {
                     }
                 }
                 ui.horizontal(|ui| {
-                    ui.label("Minimum open/closed length (m, 0 = symbol default):");
-                    ui.add(
-                        egui::DragValue::new(
-                            &mut self
-                                .gui_variables
-                                .generation
-                                .params
-                                .contour
-                                .form_line_geometry
-                                .minimum_open_length_m,
-                        )
-                        .speed(0.5)
-                        .range(0.0..=100.0),
-                    );
-                    ui.add(
-                        egui::DragValue::new(
-                            &mut self
-                                .gui_variables
-                                .generation
-                                .params
-                                .contour
-                                .form_line_geometry
-                                .minimum_closed_length_m,
-                        )
-                        .speed(0.5)
-                        .range(0.0..=100.0),
-                    );
-                });
-                ui.horizontal(|ui| {
                     ui.label("Reconnect culled gaps up to (m):");
                     ui.add(
                         egui::DragValue::new(
@@ -307,7 +278,7 @@ impl OmapMaker {
                                 .reconnect_gap_m,
                         )
                         .speed(0.25)
-                        .range(0.0..=20.0),
+                        .range(20.0..=100.0),
                     );
                 });
             },

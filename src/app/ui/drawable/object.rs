@@ -262,11 +262,7 @@ impl DrawablePointObject {
             ui.painter()
                 .line_segment([screen_point, projector.project(end)], *stroke);
         } else if special {
-            let radius = if self.rotation.abs() > std::f32::consts::FRAC_PI_4 {
-                egui::Vec2::new(stroke.width, 1.5 * stroke.width)
-            } else {
-                egui::Vec2::new(1.5 * stroke.width, stroke.width)
-            };
+            let radius = elongated_knoll_radii(self.rotation, stroke.width);
 
             ui.painter().add(egui::Shape::ellipse_filled(
                 screen_point,
@@ -320,5 +316,40 @@ impl DrawablePointObject {
             rotation: rot as f32,
             slope_line_end: positions.get(1).copied(),
         })
+    }
+}
+
+/// Snap the default vertical elongated-knoll symbol to the nearest screen axis.
+fn elongated_knoll_radii(rotation: f32, minor_radius: f32) -> egui::Vec2 {
+    if rotation.sin().abs() > rotation.cos().abs() {
+        egui::Vec2::new(2. * minor_radius, minor_radius)
+    } else {
+        egui::Vec2::new(minor_radius, 2. * minor_radius)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::elongated_knoll_radii;
+
+    fn is_vertical(rotation: f32) -> bool {
+        let radii = elongated_knoll_radii(rotation, 1.);
+        radii.y > radii.x
+    }
+
+    #[test]
+    fn elongated_knoll_preview_matches_the_default_symbol_orientation() {
+        assert!(is_vertical(0.));
+        assert!(is_vertical(std::f32::consts::PI));
+        assert!(!is_vertical(std::f32::consts::FRAC_PI_2));
+        assert!(!is_vertical(-std::f32::consts::FRAC_PI_2));
+    }
+
+    #[test]
+    fn elongated_knoll_preview_snaps_to_the_nearest_axis() {
+        assert!(is_vertical(30_f32.to_radians()));
+        assert!(!is_vertical(60_f32.to_radians()));
+        assert!(!is_vertical(120_f32.to_radians()));
+        assert!(is_vertical(150_f32.to_radians()));
     }
 }

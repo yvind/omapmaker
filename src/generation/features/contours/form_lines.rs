@@ -10,6 +10,11 @@ use crate::{
 use super::{ContourLevelKind, ContourLevelSpec, field};
 
 const FORMLINE_PRUNE_BUFFER_METERS: f64 = 2.;
+const FORMLINE_LENGTH_TOLERANCE_METERS: f64 = 1e-6;
+
+pub(super) fn meets_formline_minimum_length(length: f64, minimum: f64) -> bool {
+    length + FORMLINE_LENGTH_TOLERANCE_METERS >= minimum
+}
 
 pub(super) enum FormlineImportance {
     All,
@@ -21,8 +26,6 @@ pub(super) enum FormlineImportance {
 
 pub(super) struct FormlineGeometryRules {
     pub(super) scale: crate::parameters::Scale,
-    pub(super) min_open_length_m: f64,
-    pub(super) min_closed_length_m: f64,
     pub(super) reconnect_gap_m: f64,
     pub(super) closed_seed_length_m: f64,
     pub(super) closed_all_or_none_max_length_m: f64,
@@ -45,13 +48,7 @@ pub(super) struct FormlineRange {
 
 impl FormlinePostprocessor {
     pub(super) fn minimum_open_length(&self) -> f64 {
-        if self.rules.min_open_length_m > 0. {
-            self.rules.min_open_length_m
-        } else {
-            LineSymbol::FormLine.min_length(self.rules.scale, false)
-                * self.rules.scale.denominator()
-                / 1_000_000.
-        }
+        LineSymbol::FormLine.min_length(self.rules.scale, false)
     }
 
     pub(super) fn all(params: &MapParameters) -> Self {
@@ -165,11 +162,7 @@ impl FormlinePostprocessor {
             return Vec::new();
         }
 
-        let symbol_minimum = |closed| {
-            LineSymbol::FormLine.min_length(self.rules.scale, closed)
-                * self.rules.scale.denominator()
-                / 1_000_000.
-        };
+        let symbol_minimum = |closed| LineSymbol::FormLine.min_length(self.rules.scale, closed);
         if source.is_closed() {
             if protected {
                 return vec![source.clone()];
@@ -181,12 +174,8 @@ impl FormlinePostprocessor {
             if !has_seed {
                 return Vec::new();
             }
-            let closed_minimum = if self.rules.min_closed_length_m > 0. {
-                self.rules.min_closed_length_m
-            } else {
-                symbol_minimum(true)
-            };
-            if source_length < closed_minimum {
+            let closed_minimum = symbol_minimum(true);
+            if !meets_formline_minimum_length(source_length, closed_minimum) {
                 return Vec::new();
             }
             if source_length <= self.rules.closed_all_or_none_max_length_m {
@@ -194,8 +183,6 @@ impl FormlinePostprocessor {
             }
         }
 
-        // LineSymbol minimum lengths are expressed in map micrometres. Convert
-        // them back to projected ground metres before comparing geometry.
         let min_length = self.minimum_open_length();
 
         let clipped = self.clip_to_important(source, true);
@@ -238,12 +225,15 @@ impl FormlinePostprocessor {
 
         ranges.retain(|range| {
             let length = (range.end - range.start) * source_length;
-            length >= min_length || range.important
+            meets_formline_minimum_length(length, min_length) || range.important
         });
         let target_fraction = (min_length / source_length).min(1.);
         let gap_fraction = self.rules.reconnect_gap_m / source_length;
         for index in 0..ranges.len() {
-            if (ranges[index].end - ranges[index].start) * source_length >= min_length {
+            if meets_formline_minimum_length(
+                (ranges[index].end - ranges[index].start) * source_length,
+                min_length,
+            ) {
                 continue;
             }
             let lower = if index == 0 {
@@ -273,7 +263,9 @@ impl FormlinePostprocessor {
             ranges[index].end = end.min(upper);
         }
         merge_formline_ranges(&mut ranges, f64::EPSILON);
-        ranges.retain(|range| (range.end - range.start) * source_length >= min_length);
+        ranges.retain(|range| {
+            meets_formline_minimum_length((range.end - range.start) * source_length, min_length)
+        });
 
         ranges
             .into_iter()
@@ -392,8 +384,6 @@ impl FormlineGeometryRules {
     fn from_params(params: &MapParameters) -> Self {
         Self {
             scale: params.scale,
-            min_open_length_m: params.contour.form_line_geometry.minimum_open_length_m,
-            min_closed_length_m: params.contour.form_line_geometry.minimum_closed_length_m,
             reconnect_gap_m: params.contour.form_line_geometry.reconnect_gap_m.max(0.),
             closed_seed_length_m: params
                 .contour

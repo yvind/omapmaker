@@ -12,7 +12,7 @@ use super::{
 };
 use crate::{
     map::{AreaSymbol, InternalMap, LineSymbol, MapObject, Symbol},
-    parameters::GeometryParameters,
+    parameters::{GeometryParameters, Scale},
 };
 
 trait Drawable {
@@ -76,6 +76,7 @@ impl Drawable for MapObject {
 pub struct DrawableOmap {
     hull: Vec<walkers::Position>,
     map_objects: HashMap<Symbol, Vec<DrawableGeometry>>,
+    scale: Scale,
 }
 
 impl DrawableOmap {
@@ -122,6 +123,7 @@ impl DrawableOmap {
                 tmap.scale,
                 geometry,
             ),
+            scale: tmap.scale,
         })
     }
 
@@ -170,6 +172,7 @@ impl DrawableOmap {
                 let _ = self.map_objects.insert(key, objs);
             }
         }
+        self.scale = other.scale;
     }
 
     pub fn draw<P: Projection>(
@@ -215,6 +218,7 @@ impl DrawableOmap {
 
             if let Some((special, mut stroke)) = symbol.stroke(
                 projector.scale_pixel_per_meter(projector.unproject(egui::Pos2::new(0.5, 0.5))),
+                self.scale,
             ) {
                 stroke.color = stroke.color.gamma_multiply(opacity);
 

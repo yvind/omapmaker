@@ -9,7 +9,9 @@ use form_lines::{
     FormlineGeometryRules, FormlineImportance, FormlineRange, merge_formline_ranges,
     rotate_closed_line,
 };
-use form_lines::{FormlinePostprocessor, prune_formline, push_unique_coord};
+use form_lines::{
+    FormlinePostprocessor, meets_formline_minimum_length, prune_formline, push_unique_coord,
+};
 
 use crate::map::{LineSymbol, MapObject};
 #[cfg(test)]
@@ -333,10 +335,21 @@ fn emit_contour_objects(
         let boundary_reference = snap_boundary_to_source
             .then(|| contour_boundary_reference(true_dem, level.elevation, output_clip));
         for mut line in lines {
+            let start_is_tile_boundary = line.0.first().is_some_and(|&coordinate| {
+                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
+            });
+            let end_is_tile_boundary = line.0.last().is_some_and(|&coordinate| {
+                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
+            });
             if level.kind == ContourLevelKind::FormLine
                 && !line.is_closed()
+                && !start_is_tile_boundary
+                && !end_is_tile_boundary
                 && formline_postprocessor.is_some_and(|postprocessor| {
-                    Euclidean.length(&line) < postprocessor.minimum_open_length()
+                    !meets_formline_minimum_length(
+                        Euclidean.length(&line),
+                        postprocessor.minimum_open_length(),
+                    )
                 })
             {
                 continue;
@@ -357,12 +370,6 @@ fn emit_contour_objects(
                     field::adjustment_bound(regular_interval),
                 )?;
             }
-            let start_is_tile_boundary = line.0.first().is_some_and(|&coordinate| {
-                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
-            });
-            let end_is_tile_boundary = line.0.last().is_some_and(|&coordinate| {
-                squared_distance_to_polygon_boundary(coordinate, output_clip) <= 1e-12
-            });
             let mut object = MapObject::Line {
                 object: line,
                 symbol,
@@ -487,11 +494,7 @@ mod tests {
     use crate::parameters::Scale;
     use crate::raster::DfmGrid;
 
-    fn ring_pruner(
-        _protected: bool,
-        closed_minimum: f64,
-        all_or_none_maximum: f64,
-    ) -> FormlinePostprocessor {
+    fn ring_pruner(all_or_none_maximum: f64) -> FormlinePostprocessor {
         let important = geo::MultiPolygon::new(vec![
             geo::Rect::new(geo::coord! { x: 2., y: -1. }, geo::coord! { x: 6., y: 1. })
                 .to_polygon(),
@@ -503,11 +506,25 @@ mod tests {
             },
             rules: FormlineGeometryRules {
                 scale: Scale::S15_000,
-                min_open_length_m: 5.,
-                min_closed_length_m: closed_minimum,
                 reconnect_gap_m: 3.,
                 closed_seed_length_m: 1.,
                 closed_all_or_none_max_length_m: all_or_none_maximum,
+            },
+            protected_features: Vec::new(),
+        }
+    }
+
+    fn open_pruner(important: geo::MultiPolygon, reconnect_gap: f64) -> FormlinePostprocessor {
+        FormlinePostprocessor {
+            importance: FormlineImportance::Areas {
+                buffered: important.clone(),
+                important,
+            },
+            rules: FormlineGeometryRules {
+                scale: Scale::S15_000,
+                reconnect_gap_m: reconnect_gap,
+                closed_seed_length_m: 0.,
+                closed_all_or_none_max_length_m: 0.,
             },
             protected_features: Vec::new(),
         }
@@ -601,7 +618,7 @@ mod tests {
 
     #[test]
     fn persistence_protection_selects_only_the_matching_nested_ring() {
-        let mut postprocessor = ring_pruner(false, 0., 0.);
+        let mut postprocessor = ring_pruner(0.);
         postprocessor.protected_features = vec![super::field::ProtectedPersistenceFeature {
             pair_id: 1,
             kind: super::field::ExtremumKind::Maximum,
@@ -624,7 +641,7 @@ mod tests {
 
     #[test]
     fn persistence_protection_respects_extremum_polarity() {
-        let mut postprocessor = ring_pruner(false, 0., 0.);
+        let mut postprocessor = ring_pruner(0.);
         postprocessor.protected_features = vec![super::field::ProtectedPersistenceFeature {
             pair_id: 2,
             kind: super::field::ExtremumKind::Minimum,
@@ -704,7 +721,7 @@ mod tests {
 
     #[test]
     fn shared_pipeline_honors_each_formline_importance_mode() {
-        let grid = DfmGrid::new(20, 12, 0.5, geo::coord! { x: 0.25, y: 5.75 }).unwrap();
+        let grid = DfmGrid::new(60, 40, 0.5, geo::coord! { x: 0.25, y: 19.75 }).unwrap();
         let mut source = Dfm::<Elevation>::new(grid);
         for y in 0..source.height() {
             for x in 0..source.width() {
@@ -718,13 +735,11 @@ mod tests {
             .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
                 (min.min(value), max.max(value))
             });
-        let cut = geo::Rect::new(source.index2coord(10, 1), source.index2coord(1, 18)).to_polygon();
+        let cut = geo::Rect::new(source.index2coord(38, 1), source.index2coord(1, 58)).to_polygon();
         let mut params = MapParameters::default();
         params.contour.algorithm = ContourAlgo::Raw;
         params.contour.interval = 2.;
         params.contour.form_lines = true;
-        params.contour.form_line_geometry.minimum_open_length_m = 0.1;
-        params.contour.form_line_geometry.minimum_closed_length_m = 0.1;
         params.contour.form_line_geometry.closed_seed_length_m = 0.;
         params.contour.form_line_prune_threshold = f32::MAX;
         params.contour.form_line_error_threshold = f32::MAX;
@@ -821,6 +836,48 @@ mod tests {
     }
 
     #[test]
+    fn short_formline_tile_fragment_survives_until_map_stitching() {
+        let grid = DfmGrid::new(50, 20, 0.5, geo::coord! { x: 0.25, y: 9.75 }).unwrap();
+        let source_dem = Dfm::<Elevation>::new(grid);
+        let source_line = geo::LineString::new(vec![
+            geo::coord! { x: 1., y: 5. },
+            geo::coord! { x: 19., y: 5. },
+        ]);
+        let contour_set = ContourSet(vec![ContourLevel::new(
+            geo::MultiLineString::new(vec![source_line]),
+            2.5,
+        )]);
+        let levels = [ContourLevelSpec {
+            ordinal: 1,
+            elevation: 2.5,
+            kind: ContourLevelKind::FormLine,
+        }];
+        let output_clip =
+            geo::Rect::new(geo::coord! { x: 4., y: 4. }, geo::coord! { x: 6., y: 6. }).to_polygon();
+        let params = MapParameters::default();
+        let postprocessor = FormlinePostprocessor::all(&params);
+
+        let objects = emit_contour_objects(
+            &source_dem,
+            contour_set,
+            &levels,
+            &output_clip,
+            Some(&postprocessor),
+            5.,
+            false,
+            false,
+            false,
+        )
+        .unwrap();
+
+        let [MapObject::Line { object, symbol, .. }] = objects.as_slice() else {
+            panic!("expected the boundary fragment to remain available for stitching");
+        };
+        assert_eq!(*symbol, LineSymbol::FormLine);
+        assert!((Euclidean.length(object) - 2.).abs() < 1e-9);
+    }
+
+    #[test]
     fn range_reconnection_respects_culled_arc_length() {
         let mut short_gap = vec![
             FormlineRange {
@@ -873,35 +930,86 @@ mod tests {
     }
 
     #[test]
+    fn short_seeded_formline_is_exaggerated_to_the_open_minimum() {
+        // These deliberately awkward values exercise the rounding boundary:
+        // the target length is reconstructed from normalized arc fractions.
+        let source_length = 88.785_032_382_784_27;
+        let center = 80.639_073_703_201_97;
+        let important = geo::MultiPolygon::new(vec![
+            geo::Rect::new(
+                geo::coord! { x: center - 0.5, y: -1. },
+                geo::coord! { x: center + 0.5, y: 1. },
+            )
+            .to_polygon(),
+        ]);
+        let source = geo::LineString::new(vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: source_length, y: 0. },
+        ]);
+
+        let retained = open_pruner(important, 3.).prune(1, 2.5, &source, false);
+
+        assert_eq!(retained.len(), 1);
+        assert!((Euclidean.length(&retained[0]) - 16.5).abs() < 1e-6);
+        assert!(retained[0].0[0].x < center - 0.5);
+        assert!(retained[0].0[1].x > center + 0.5);
+    }
+
+    #[test]
+    fn short_gap_is_reconnected_before_formline_exaggeration() {
+        let important = geo::MultiPolygon::new(vec![
+            geo::Rect::new(
+                geo::coord! { x: 10., y: -1. },
+                geo::coord! { x: 11., y: 1. },
+            )
+            .to_polygon(),
+            geo::Rect::new(
+                geo::coord! { x: 13., y: -1. },
+                geo::coord! { x: 14., y: 1. },
+            )
+            .to_polygon(),
+        ]);
+        let source = geo::LineString::new(vec![
+            geo::coord! { x: 0., y: 0. },
+            geo::coord! { x: 30., y: 0. },
+        ]);
+
+        let retained = open_pruner(important, 3.).prune(1, 2.5, &source, false);
+
+        assert_eq!(retained.len(), 1);
+        assert!((Euclidean.length(&retained[0]) - 16.5).abs() < 1e-6);
+        assert!((retained[0].0[0].x - 3.75).abs() < 1e-9);
+        assert!((retained[0].0[1].x - 20.25).abs() < 1e-9);
+    }
+
+    #[test]
     fn protected_small_ring_does_not_require_an_importance_seed() {
-        let mut pruner = ring_pruner(true, 100., 0.);
+        let mut pruner = ring_pruner(0.);
         pruner.importance = FormlineImportance::Areas {
             important: geo::MultiPolygon::new(Vec::new()),
             buffered: geo::MultiPolygon::new(Vec::new()),
         };
-        let retained = pruner.prune(1, 2.5, &square_ring(), true);
-        assert_eq!(retained, vec![square_ring()]);
+        let source = square_ring_between(0., 4.);
+        let retained = pruner.prune(1, 2.5, &source, true);
+        assert_eq!(retained, vec![source]);
         assert!(retained[0].is_closed());
     }
 
     #[test]
     fn unprotected_subminimum_ring_is_removed() {
-        assert!(
-            ring_pruner(false, 100., 0.)
-                .prune(1, 2.5, &square_ring(), false)
-                .is_empty()
-        );
+        let source = square_ring_between(0., 4.);
+        assert!(ring_pruner(0.).prune(1, 2.5, &source, false).is_empty());
     }
 
     #[test]
     fn qualifying_small_ring_is_all_or_nothing() {
-        let retained = ring_pruner(false, 20., 50.).prune(1, 2.5, &square_ring(), false);
+        let retained = ring_pruner(50.).prune(1, 2.5, &square_ring(), false);
         assert_eq!(retained, vec![square_ring()]);
     }
 
     #[test]
     fn long_ring_pruning_is_independent_of_stored_seam() {
-        let pruner = ring_pruner(false, 20., 0.);
+        let pruner = ring_pruner(0.);
         let first = pruner.prune(1, 2.5, &square_ring(), false);
         let second = pruner.prune(1, 2.5, &rotate_closed_line(&square_ring(), 0.1), false);
         assert_eq!(first.len(), second.len());
