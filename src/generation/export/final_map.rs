@@ -180,35 +180,28 @@ pub fn export_map(
         #[rustfmt::skip]
         reporter.log("\n***********************************************".to_string());
         #[rustfmt::skip]
-        reporter.log(format!("\t Processing source group {} of {}", fi + 1, processing_bounds.len()));
-        #[rustfmt::skip]
-        reporter.log(format!("\t{} indexed COPC source(s)", source_index.len()));
+        reporter.log("\t Generating map tiles".to_string());
         #[rustfmt::skip]
         reporter.log("-----------------------------------------------".to_string());
         reporter.progress(ProgressUpdate::Start);
 
-        let (tile_bounds, mut cut_bounds, nx, ny) =
+        let (tile_bounds, mut cut_bounds, _, _) =
             generation::pipeline::retile_bounds(region_bounds);
 
         for cb in cut_bounds.iter_mut() {
             *cb = geo::Rect::new(cb.min() - ref_point, cb.max() - ref_point);
         }
 
-        let num_tiles = nx * ny;
-        let inc = 1. / num_tiles as f32;
+        let relevant_tile_indices = relevant_tile_indices(
+            &tile_bounds,
+            &cut_bounds,
+            polygon_filter.as_ref(),
+            |bounds| source_index.intersects(bounds),
+        );
+        let inc = 1. / relevant_tile_indices.len().max(1) as f32;
 
         thread_pool.install(|| {
-            (0..num_tiles).into_par_iter().for_each(|tile_i| {
-                if !source_index.intersects(tile_bounds[tile_i]) {
-                    return;
-                }
-
-                if let Some(polygon) = &polygon_filter
-                    && !cut_bounds[tile_i].intersects(polygon)
-                {
-                    return;
-                }
-
+            relevant_tile_indices.into_par_iter().for_each(|tile_i| {
                 let (cloud, all_point_cloud, hull) =
                     match lidar::read_laz(&source_index, tile_bounds[tile_i], ref_point) {
                         Ok(p) => p,
@@ -881,4 +874,61 @@ pub fn export_map(
 
     reporter.log("Done!".to_string());
     Ok(())
+}
+
+fn relevant_tile_indices(
+    tile_bounds: &[geo::Rect],
+    cut_bounds: &[geo::Rect],
+    polygon_filter: Option<&geo::Polygon>,
+    mut source_intersects: impl FnMut(geo::Rect) -> bool,
+) -> Vec<usize> {
+    debug_assert_eq!(tile_bounds.len(), cut_bounds.len());
+    (0..tile_bounds.len())
+        .filter(|&tile_i| {
+            source_intersects(tile_bounds[tile_i])
+                && polygon_filter.is_none_or(|polygon| cut_bounds[tile_i].intersects(polygon))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use geo::polygon;
+
+    use super::relevant_tile_indices;
+
+    #[test]
+    fn progress_tiles_are_limited_to_the_polygon_filter() {
+        let tile_bounds = vec![
+            geo::Rect::new((0., 0.), (10., 10.)),
+            geo::Rect::new((10., 0.), (20., 10.)),
+            geo::Rect::new((20., 0.), (30., 10.)),
+        ];
+        let polygon_filter = polygon![
+            (x: 12., y: 2.),
+            (x: 18., y: 2.),
+            (x: 18., y: 8.),
+            (x: 12., y: 8.),
+        ];
+
+        let indices =
+            relevant_tile_indices(&tile_bounds, &tile_bounds, Some(&polygon_filter), |_| true);
+
+        assert_eq!(indices, vec![1]);
+    }
+
+    #[test]
+    fn progress_tiles_exclude_empty_source_envelope_space() {
+        let tile_bounds = vec![
+            geo::Rect::new((0., 0.), (10., 10.)),
+            geo::Rect::new((10., 0.), (20., 10.)),
+            geo::Rect::new((20., 0.), (30., 10.)),
+        ];
+
+        let indices = relevant_tile_indices(&tile_bounds, &tile_bounds, None, |bounds| {
+            bounds.min().x != 10.
+        });
+
+        assert_eq!(indices, vec![0, 2]);
+    }
 }

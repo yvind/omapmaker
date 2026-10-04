@@ -68,13 +68,13 @@ geotiff-writer = "0.8"
 ndarray = "0.17"
 
 [dependencies.burn]
-version = "=0.22.0-pre.3"
+version = "=0.22.0-pre.4"
 optional = true
 default-features = false
 features = ["std", "wgpu", "fusion"]
 
 [dependencies.burn-store]
-version = "=0.22.0-pre.3"
+version = "=0.22.0-pre.4"
 optional = true
 default-features = false
 features = ["std"]
@@ -85,7 +85,7 @@ sha2 = { version = "0.10", optional = true }
 toml = { version = "1", optional = true }
 
 [build-dependencies.burn-onnx]
-version = "=0.22.0-pre.3"
+version = "=0.22.0-pre.4"
 optional = true
 default-features = false
 features = ["import"]

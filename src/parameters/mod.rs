@@ -12,7 +12,7 @@ pub use contours::{
 };
 pub use geometry::{
     BezierParameters, BufferDirection, BufferLineCap, BufferLineJoin, BufferRule,
-    GeometryParameters, RdpParameters,
+    BuildingGeometryParameters, GeometryParameters, RdpParameters,
 };
 #[cfg(feature = "stream-svf-slope")]
 pub use hydrology::OnnxStreamVectorizationParameters;

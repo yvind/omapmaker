@@ -402,9 +402,9 @@ fn ray_segment_distance(
     let ray_distance = cross(to_boundary, boundary_direction) / denominator;
     let boundary_fraction = cross(to_boundary, direction) / denominator;
     (ray_distance >= -RAY_INTERSECTION_TOLERANCE
-        && boundary_fraction >= -RAY_INTERSECTION_TOLERANCE
-        && boundary_fraction <= 1. + RAY_INTERSECTION_TOLERANCE)
-        .then(|| ray_distance.max(0.))
+        && (-RAY_INTERSECTION_TOLERANCE..=1. + RAY_INTERSECTION_TOLERANCE)
+            .contains(&boundary_fraction))
+    .then(|| ray_distance.max(0.))
 }
 
 fn cross(first: geo::Coord, second: geo::Coord) -> f64 {

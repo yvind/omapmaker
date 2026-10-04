@@ -160,7 +160,7 @@ mod tests {
             &hull,
             &hull,
             &params.building,
-            &params.geometry.buildings.buffer_rules,
+            &params.geometry.buildings,
         );
         assert_eq!(objects.len(), 1);
         assert!(matches!(
@@ -344,7 +344,11 @@ mod tests {
             ..Default::default()
         };
 
-        let objects = building_objects(&detection, &hull, &hull, &parameters, &[]);
+        let geometry_parameters = crate::parameters::BuildingGeometryParameters {
+            buffer_rules: Vec::new(),
+            ..Default::default()
+        };
+        let objects = building_objects(&detection, &hull, &hull, &parameters, &geometry_parameters);
         assert_eq!(objects.len(), 1);
         let MapObject::Area { object, .. } = &objects[0] else {
             panic!("building detector emitted a non-area object");

@@ -252,6 +252,10 @@ fn regularize_ring(
     }
 
     coalesce_parallel_lines(&mut lines, parameters.regularization_parallel_threshold_m);
+    collapse_corner_clusters(
+        &mut lines,
+        parameters.regularization_simplification_tolerance_m,
+    );
     if lines.len() < 3 {
         return None;
     }
@@ -342,6 +346,57 @@ fn coalesce_parallel_lines(lines: &mut Vec<SupportingLine>, threshold: f64) {
                 lines.remove(next);
             }
             changed = true;
+            break;
+        }
+    }
+}
+
+/// Remove a short chain that rounds or chamfers the junction of two longer
+/// supporting lines. The reconstructed ring will join the surrounding lines
+/// at their intersection, producing one corner vertex.
+fn collapse_corner_clusters(lines: &mut Vec<SupportingLine>, radius: f64) {
+    if radius <= COORDINATE_EPSILON {
+        return;
+    }
+
+    loop {
+        let mut best: Option<(usize, usize)> = None;
+        for start in 0..lines.len() {
+            if lines[start].weight <= radius {
+                continue;
+            }
+            for skipped in 1..=lines.len().saturating_sub(3) {
+                let end = (start + skipped + 1) % lines.len();
+                if lines[end].weight <= radius {
+                    continue;
+                }
+                let Some(corner) = line_intersection(lines[start], lines[end]) else {
+                    continue;
+                };
+                let within_cluster = (0..=skipped).all(|offset| {
+                    let line = lines[(start + offset) % lines.len()];
+                    squared_distance(line.end, corner) <= radius.powi(2)
+                });
+                if within_cluster && best.is_none_or(|(_, best_skipped)| skipped > best_skipped) {
+                    best = Some((start, skipped));
+                }
+            }
+        }
+
+        let Some((start, skipped)) = best else {
+            break;
+        };
+        let mut remove = vec![false; lines.len()];
+        for offset in 1..=skipped {
+            remove[(start + offset) % lines.len()] = true;
+        }
+        let mut index = 0;
+        lines.retain(|_| {
+            let keep = !remove[index];
+            index += 1;
+            keep
+        });
+        if lines.len() <= 3 {
             break;
         }
     }
@@ -484,6 +539,69 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(regularize_building_footprint(&source, &parameters), source);
+    }
+
+    #[test]
+    fn small_rounded_corner_becomes_one_vertex() {
+        let source = polygon![
+            (x: 0., y: 0.),
+            (x: 10., y: 0.),
+            (x: 10., y: 9.),
+            (x: 9.9238795, y: 9.3826834),
+            (x: 9.7071068, y: 9.7071068),
+            (x: 9.3826834, y: 9.9238795),
+            (x: 9., y: 10.),
+            (x: 0., y: 10.),
+        ];
+        let parameters = BuildingParameters {
+            regularization_simplification_tolerance_m: 1.,
+            regularization_maximum_boundary_displacement_m: 1.1,
+            regularization_maximum_angle_deviation_degrees: 10.,
+            regularization_minimum_iou: 0.95,
+            ..Default::default()
+        };
+
+        let regularized = regularize_building_footprint(&source, &parameters);
+        let coordinates = unique_ring_coordinates(regularized.exterior()).unwrap();
+
+        assert_eq!(coordinates.len(), 4);
+        assert!(
+            coordinates
+                .iter()
+                .any(|coordinate| coordinate.x > 9. && coordinate.y > 9.)
+        );
+    }
+
+    #[test]
+    fn small_rounded_reentrant_corner_becomes_one_vertex() {
+        let source = polygon![
+            (x: 0., y: 0.),
+            (x: 6., y: 0.),
+            (x: 6., y: 4.),
+            (x: 5., y: 4.),
+            (x: 4.6173166, y: 4.0761205),
+            (x: 4.2928932, y: 4.2928932),
+            (x: 4.0761205, y: 4.6173166),
+            (x: 4., y: 5.),
+            (x: 4., y: 6.),
+            (x: 0., y: 6.),
+        ];
+        let parameters = BuildingParameters {
+            regularization_simplification_tolerance_m: 1.,
+            regularization_maximum_boundary_displacement_m: 1.1,
+            regularization_maximum_angle_deviation_degrees: 10.,
+            regularization_minimum_iou: 0.95,
+            ..Default::default()
+        };
+
+        let regularized = regularize_building_footprint(&source, &parameters);
+        let coordinates = unique_ring_coordinates(regularized.exterior()).unwrap();
+
+        assert_eq!(coordinates.len(), 6);
+        assert!(coordinates.iter().any(|coordinate| coordinate.x > 3.
+            && coordinate.x < 5.
+            && coordinate.y > 3.
+            && coordinate.y < 5.));
     }
 
     #[test]

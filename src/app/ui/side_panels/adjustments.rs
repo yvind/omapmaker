@@ -182,6 +182,22 @@ impl OmapMaker {
                             .buildings
                             .buffer_rules,
                     );
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self
+                                .gui_variables
+                                .generation
+                                .params
+                                .geometry
+                                .buildings
+                                .maximum_hole_area_m2,
+                            0.0..=500.0,
+                        )
+                        .text("Fill polygon holes up to (m²)"),
+                    )
+                    .on_hover_text(
+                        "Applied after all building polygon buffer rules and before footprint regularization. Set to zero to keep every hole.",
+                    );
                 }
                 ProcessStage::AdjustCliffs => self.render_cliff_adjustments(ui),
                 ProcessStage::AdjustWater => self.render_water_adjustments(ui),

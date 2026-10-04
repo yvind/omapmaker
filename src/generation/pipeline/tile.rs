@@ -378,7 +378,7 @@ impl PreparedTile {
                         &self.hull,
                         &self.cut_overlay,
                         &params.building,
-                        &params.geometry.buildings.buffer_rules,
+                        &params.geometry.buildings,
                     )
                     .into_iter()
                     .filter_map(|object| match object {

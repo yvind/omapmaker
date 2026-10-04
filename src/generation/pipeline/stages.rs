@@ -83,7 +83,7 @@ pub fn compute_marsh(tile: &PreparedTile, params: &MapParameters) -> crate::Resu
                 &tile.hull,
                 &tile.cut_overlay,
                 &params.building,
-                &params.geometry.buildings.buffer_rules,
+                &params.geometry.buildings,
             )
             .into_iter()
             .filter_map(|object| match object {
@@ -269,7 +269,7 @@ pub fn compute_tile_cancellable(
             &tile.hull,
             &tile.cut_overlay,
             &params.building,
-            &params.geometry.buildings.buffer_rules,
+            &params.geometry.buildings,
         ));
     }
 

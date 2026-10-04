@@ -195,8 +195,8 @@ fn ray_segment_intersection(
     let ray_distance = cross(to_boundary, boundary_direction) / denominator;
     let boundary_fraction = cross(to_boundary, direction) / denominator;
     if ray_distance < -ENDPOINT_CONNECTION_TOLERANCE
-        || boundary_fraction < -ENDPOINT_CONNECTION_TOLERANCE
-        || boundary_fraction > 1. + ENDPOINT_CONNECTION_TOLERANCE
+        || !(-ENDPOINT_CONNECTION_TOLERANCE..=1. + ENDPOINT_CONNECTION_TOLERANCE)
+            .contains(&boundary_fraction)
     {
         return None;
     }

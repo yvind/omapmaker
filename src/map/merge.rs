@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use geo::{Area, BooleanOps, BoundingRect, Buffer, Distance, Euclidean, Intersects, Length};
+use geo::{
+    Area, BooleanOps, BoundingRect, Buffer, Distance, Euclidean, Intersects, Length,
+    algorithm::buffer::{BufferStyle, LineJoin},
+};
 use rstar::{AABB, PointDistance, RTree, RTreeObject, primitives::GeomWithData};
 
 use super::{
@@ -13,6 +16,7 @@ use super::{
 
 const CLIFF_MERGE_DISTANCE_M: f64 = 1.;
 const LINE_LENGTH_TOLERANCE_METERS: f64 = 1e-6;
+const BUILDING_MERGE_MITER_ANGLE: f64 = 1.;
 
 struct MergeLine {
     object: geo::LineString,
@@ -146,9 +150,9 @@ impl InternalMap {
             })
             .collect::<anyhow::Result<geo::MultiPolygon>>()?;
 
-        let areas = areas.buffer(delta);
+        let areas = area_merge_buffer(&areas, symbol, delta);
         let areas = geo::unary_union(&areas);
-        let areas = areas.buffer(-delta);
+        let areas = area_merge_buffer(&areas, symbol, -delta);
 
         let objects = areas
             .into_iter()
@@ -662,6 +666,20 @@ impl InternalMap {
     }
 }
 
+fn area_merge_buffer(
+    areas: &geo::MultiPolygon,
+    symbol: AreaSymbol,
+    distance: f64,
+) -> geo::MultiPolygon {
+    if symbol == AreaSymbol::Building {
+        areas.buffer_with_style(
+            BufferStyle::new(distance).line_join(LineJoin::Miter(BUILDING_MERGE_MITER_ANGLE)),
+        )
+    } else {
+        areas.buffer(distance)
+    }
+}
+
 fn directed_map_lines_can_merge(first: &MapObject, second: &MapObject, tolerance: f64) -> bool {
     let (
         MapObject::Line {
@@ -916,4 +934,44 @@ fn polygon_envelope(polygon: &geo::Polygon) -> Option<AABB<[f64; 2]>> {
         [rect.min().x, rect.min().y],
         [rect.max().x, rect.max().y],
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parameters::Scale;
+    use geo::polygon;
+
+    #[test]
+    fn building_merge_keeps_reentrant_corners_sharp() {
+        let mut map = InternalMap::new(geo::coord! { x: 0., y: 0. }, Scale::S15_000, None);
+        map.add_object(MapObject::Area {
+            object: polygon![
+                (x: 0., y: 0.),
+                (x: 10., y: 0.),
+                (x: 10., y: 4.),
+                (x: 4., y: 4.),
+                (x: 4., y: 10.),
+                (x: 0., y: 10.),
+            ],
+            symbol: AreaSymbol::Building,
+            tags: HashMap::new(),
+        });
+
+        map.merge_areas(AreaSymbol::Building, 0.2).unwrap();
+
+        let [MapObject::Area { object, .. }] =
+            map.objects[&Symbol::Area(AreaSymbol::Building)].as_slice()
+        else {
+            panic!("expected one merged building");
+        };
+        let reentrant_vertices = object
+            .exterior()
+            .0
+            .iter()
+            .filter(|coordinate| (coordinate.x - 4.).hypot(coordinate.y - 4.) < 0.5)
+            .count();
+
+        assert_eq!(reentrant_vertices, 1);
+    }
 }

@@ -5,7 +5,7 @@ pub struct GeometryParameters {
     pub contours: BezierParameters,
     pub openness: BufferedGeometryParameters,
     pub vegetation: BufferedGeometryParameters,
-    pub buildings: BufferedGeometryParameters,
+    pub buildings: BuildingGeometryParameters,
     pub cliffs: CliffGeometryParameters,
     pub intensity: BufferedGeometryParameters,
     pub water: BufferedGeometryParameters,
@@ -39,27 +39,7 @@ impl GeometryParameters {
 
 impl Default for GeometryParameters {
     fn default() -> Self {
-        let buildings = BufferedGeometryParameters {
-            bezier: BezierParameters {
-                error: 0.25,
-                enabled: false,
-            },
-            buffer_rules: vec![
-                BufferRule {
-                    direction: BufferDirection::Shrink,
-                    amount: 2.,
-                    line_cap: BufferLineCap::Square,
-                    line_join: BufferLineJoin::Miter,
-                },
-                BufferRule {
-                    direction: BufferDirection::Grow,
-                    amount: 2.,
-                    line_cap: BufferLineCap::Square,
-                    line_join: BufferLineJoin::Miter,
-                },
-            ],
-            min_size_filter: true,
-        };
+        let buildings = BuildingGeometryParameters::default();
         let cliffs = CliffGeometryParameters::default();
         let openness = BufferedGeometryParameters {
             bezier: BezierParameters::default(),
@@ -160,6 +140,33 @@ pub struct BufferedGeometryParameters {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct BuildingGeometryParameters {
+    pub bezier: BezierParameters,
+    pub buffer_rules: Vec<BufferRule>,
+    pub maximum_hole_area_m2: f64,
+    pub min_size_filter: bool,
+}
+
+impl Default for BuildingGeometryParameters {
+    fn default() -> Self {
+        Self {
+            bezier: BezierParameters {
+                error: 0.25,
+                enabled: false,
+            },
+            buffer_rules: vec![BufferRule {
+                direction: BufferDirection::Grow,
+                amount: 1.,
+                line_cap: BufferLineCap::Square,
+                line_join: BufferLineJoin::Miter,
+            }],
+            maximum_hole_area_m2: 30.,
+            min_size_filter: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct CliffGeometryParameters {
     pub bezier: BezierParameters,
     pub rdp: RdpParameters,
@@ -177,7 +184,7 @@ impl Default for CliffGeometryParameters {
             },
             rdp: RdpParameters::default(),
             buffer_rules: Vec::new(),
-            maximum_hole_area_m2: 4.,
+            maximum_hole_area_m2: 20.,
             min_size_filter: true,
         }
     }

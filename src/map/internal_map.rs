@@ -236,7 +236,8 @@ impl InternalMap {
     /// re-entrant direction for a clockwise (negative-area) contour. A mark is
     /// only accepted when its full footprint stays inside the depression and
     /// has enough room from the host contour and all other contour lines. The
-    /// target count grows with the depression perimeter measured on paper.
+    /// target count grows logarithmically with the depression perimeter
+    /// measured on paper so large depressions are marked less densely.
     pub fn add_depression_slope_lines(&mut self) {
         let contour_symbols = [
             LineSymbol::Contour,
@@ -310,10 +311,7 @@ fn depression_slope_lines(
     if line.0.len() < 4 || !total_length.is_finite() || total_length <= f64::EPSILON {
         return Vec::new();
     }
-    let target_count = ((scale.meters_to_paper_mm(total_length)
-        / SLOPE_LINE_TARGET_INTERVAL_PAPER_MM)
-        .floor() as usize)
-        .clamp(1, MAX_SLOPE_LINE_CANDIDATES);
+    let target_count = slope_line_target_count(total_length, scale);
     let minimum_separation = scale.paper_mm_to_meters(SLOPE_LINE_MINIMUM_SEPARATION_PAPER_MM);
 
     let polygon = geo::Polygon::new(line.clone(), Vec::new());
@@ -404,6 +402,14 @@ fn depression_slope_lines(
             (geo::Point::from(candidate.anchor), rotation)
         })
         .collect()
+}
+
+fn slope_line_target_count(total_length: f64, scale: Scale) -> usize {
+    let interval_count =
+        scale.meters_to_paper_mm(total_length) / SLOPE_LINE_TARGET_INTERVAL_PAPER_MM;
+    (interval_count.max(1.).log2().floor() as usize)
+        .saturating_add(1)
+        .min(MAX_SLOPE_LINE_CANDIDATES)
 }
 
 fn cyclic_distance(first: f64, second: f64, total: f64) -> f64 {
@@ -651,6 +657,13 @@ mod tests {
                 assert!(polygon.contains(&geo::Point::from(object.0 + inward)));
             }
         }
+    }
+
+    #[test]
+    fn slope_line_count_grows_logarithmically_with_depression_size() {
+        assert_eq!(slope_line_target_count(120., Scale::S15_000), 2);
+        assert_eq!(slope_line_target_count(1_200., Scale::S15_000), 5);
+        assert_eq!(slope_line_target_count(12_000., Scale::S15_000), 9);
     }
 
     #[test]
