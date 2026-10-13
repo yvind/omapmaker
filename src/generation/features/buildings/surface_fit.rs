@@ -298,7 +298,7 @@ fn point_cell<T: crate::raster::RasterMarker>(x: f64, y: f64, raster: &Dfm<T>) -
     let xi = ((x - raster.grid.top_left.x) / raster.grid.cell_size_m).round() as isize;
     let yi = ((raster.grid.top_left.y - y) / raster.grid.cell_size_m).round() as isize;
     (xi >= 0 && yi >= 0 && xi < raster.width() as isize && yi < raster.height() as isize)
-        .then_some(yi as usize * raster.width() + xi as usize)
+        .then(|| yi as usize * raster.width() + xi as usize)
 }
 
 fn label_candidate_components(

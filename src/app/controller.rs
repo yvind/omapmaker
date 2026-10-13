@@ -80,6 +80,7 @@ impl eframe::App for OmapMaker {
                     | ProcessStage::AdjustVegetation
                     | ProcessStage::AdjustBuildings
                     | ProcessStage::AdjustCliffs
+                    | ProcessStage::AdjustBoulders
                     | ProcessStage::AdjustWater
                     | ProcessStage::AdjustMarsh
                     | ProcessStage::AdjustStreams
@@ -102,6 +103,7 @@ impl eframe::App for OmapMaker {
                 | ProcessStage::AdjustVegetation
                 | ProcessStage::AdjustBuildings
                 | ProcessStage::AdjustCliffs
+                | ProcessStage::AdjustBoulders
                 | ProcessStage::AdjustWater
                 | ProcessStage::AdjustMarsh
                 | ProcessStage::AdjustStreams
@@ -458,6 +460,7 @@ impl OmapMaker {
                     ProcessStage::AdjustVegetation => MapPreviewSection::Vegetation,
                     ProcessStage::AdjustBuildings => MapPreviewSection::Buildings,
                     ProcessStage::AdjustCliffs => MapPreviewSection::Cliffs,
+                    ProcessStage::AdjustBoulders => MapPreviewSection::Boulders,
                     ProcessStage::AdjustWater => MapPreviewSection::Water,
                     ProcessStage::AdjustMarsh => MapPreviewSection::Marsh,
                     ProcessStage::AdjustStreams => MapPreviewSection::Streams,

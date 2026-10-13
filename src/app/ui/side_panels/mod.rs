@@ -1,4 +1,5 @@
 mod adjustments;
+mod boulder;
 mod building;
 mod contour;
 mod hydrology;

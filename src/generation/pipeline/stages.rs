@@ -23,6 +23,7 @@ pub struct PipelineOutput {
     pub objects: Vec<MapObject>,
     pub contour_error: f32,
     pub contour_energy: f32,
+    pub boulder_diagnostics: Option<generation::features::BoulderDiagnostics>,
 }
 
 pub struct MarshOutput {
@@ -38,6 +39,7 @@ pub struct PipelineSteps {
     pub vegetation: bool,
     pub buildings: bool,
     pub cliffs: bool,
+    pub boulders: bool,
     pub intensity: bool,
     pub water: bool,
     pub streams: bool,
@@ -184,6 +186,7 @@ pub fn compute_tile_cancellable(
     let mut objects = Vec::new();
     let mut contour_error = 0.;
     let mut contour_energy = 0.;
+    let mut boulder_diagnostics = None;
 
     if steps.basemap && params.contour.basemap_contour && params.contour.basemap_interval >= 0.1 {
         objects.extend(generation::features::compute_basemap(
@@ -342,6 +345,12 @@ pub fn compute_tile_cancellable(
         ));
     }
 
+    if steps.boulders {
+        let detection = tile.boulder_detection(&params.boulder);
+        boulder_diagnostics = Some(detection.diagnostics);
+        objects.extend(detection.objects);
+    }
+
     resolve_building_conflicts(&mut objects);
     cancellation.check()?;
 
@@ -349,6 +358,7 @@ pub fn compute_tile_cancellable(
         objects,
         contour_error,
         contour_energy,
+        boulder_diagnostics,
     })
 }
 

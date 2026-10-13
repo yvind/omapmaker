@@ -1,3 +1,4 @@
+mod boulders;
 mod contours;
 mod geometry;
 mod hydrology;
@@ -6,6 +7,7 @@ mod output;
 mod terrain_features;
 mod vegetation;
 
+pub use boulders::BoulderParameters;
 pub use contours::{
     ContourAlgo, ContourFieldParameters, ContourGeneralization, ContourParameters,
     FormlinePruneAlgo,
@@ -35,6 +37,7 @@ pub struct MapParameters {
     pub contour: ContourParameters,
     pub vegetation: VegetationParameters,
     pub building: BuildingParameters,
+    pub boulder: BoulderParameters,
     pub geometry: GeometryParameters,
     pub intensity: IntensityParameters,
     pub cliff: CliffParameters,

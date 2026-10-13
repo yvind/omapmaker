@@ -7,6 +7,7 @@ pub(crate) enum ProcessStage {
     AdjustVegetation,
     AdjustBuildings,
     AdjustCliffs,
+    AdjustBoulders,
     AdjustWater,
     AdjustMarsh,
     AdjustStreams,
@@ -35,7 +36,8 @@ impl ProcessStage {
             Self::AdjustOpenness => Self::AdjustVegetation,
             Self::AdjustVegetation => Self::AdjustBuildings,
             Self::AdjustBuildings => Self::AdjustCliffs,
-            Self::AdjustCliffs => Self::AdjustWater,
+            Self::AdjustCliffs => Self::AdjustBoulders,
+            Self::AdjustBoulders => Self::AdjustWater,
             Self::AdjustWater => Self::AdjustMarsh,
             Self::AdjustMarsh => Self::AdjustStreams,
             Self::AdjustStreams => Self::AdjustIntensity,
@@ -52,10 +54,11 @@ impl ProcessStage {
             Self::AdjustVegetation => Self::AdjustOpenness,
             Self::AdjustBuildings => Self::AdjustVegetation,
             Self::AdjustCliffs => Self::AdjustBuildings,
+            Self::AdjustBoulders => Self::AdjustCliffs,
             Self::AdjustIntensity => Self::AdjustStreams,
             Self::AdjustStreams => Self::AdjustMarsh,
             Self::AdjustMarsh => Self::AdjustWater,
-            Self::AdjustWater => Self::AdjustCliffs,
+            Self::AdjustWater => Self::AdjustBoulders,
             Self::ShowComponents => Self::CheckLidar,
             stage => unreachable!("cannot go back from {stage:?}"),
         };
@@ -69,6 +72,7 @@ impl ProcessStage {
                 | Self::AdjustVegetation
                 | Self::AdjustBuildings
                 | Self::AdjustCliffs
+                | Self::AdjustBoulders
                 | Self::AdjustWater
                 | Self::AdjustMarsh
                 | Self::AdjustStreams

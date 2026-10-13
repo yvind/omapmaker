@@ -7,7 +7,7 @@ use crate::{
     },
     lidar,
     lidar::LidarStats,
-    map::{AreaSymbol, InternalMap, LineSymbol},
+    map::{AreaSymbol, InternalMap, LineSymbol, PointSymbol},
     parameters::{FileParameters, MapParameters},
     progress::{ProgressReporter, ProgressUpdate},
     raster::{
@@ -41,8 +41,9 @@ use crate::{
 pub fn compute_tile_map_objects(
     args: &MapParameters,
     tile: &PreparedTile,
+    reporter: &dyn ProgressReporter,
 ) -> crate::Result<Vec<MapObject>> {
-    Ok(pipeline::compute_tile(
+    let output = pipeline::compute_tile(
         tile,
         args,
         PipelineSteps {
@@ -52,6 +53,7 @@ pub fn compute_tile_map_objects(
             vegetation: true,
             buildings: true,
             cliffs: true,
+            boulders: true,
             intensity: true,
             water: true,
             // Hydrological streams are deferred until accumulation has been
@@ -62,8 +64,13 @@ pub fn compute_tile_map_objects(
             marsh: false,
         },
         false,
-    )?
-    .objects)
+    )?;
+    if args.boulder.enabled
+        && let Some(diagnostics) = output.boulder_diagnostics
+    {
+        reporter.log(diagnostics.summary());
+    }
+    Ok(output.objects)
 }
 
 pub fn export_map(
@@ -247,7 +254,7 @@ pub fn export_map(
                     }
                 };
 
-                let objects = match compute_tile_map_objects(&map_params, &tile) {
+                let objects = match compute_tile_map_objects(&map_params, &tile, reporter) {
                     Ok(objects) => objects,
                     Err(e) => {
                         reporter.error(e.to_string());
@@ -664,6 +671,20 @@ pub fn export_map(
         1.5,
     );
     map.add_depression_slope_lines();
+    map.filter_boulder_points(map_params.boulder.minimum_separation_m);
+    if map_params.boulder.enabled {
+        let large = map
+            .objects
+            .get(&PointSymbol::LargeBoulder.into())
+            .map_or(0, Vec::len);
+        let small = map
+            .objects
+            .get(&PointSymbol::SmallBoulder.into())
+            .map_or(0, Vec::len);
+        reporter.log(format!(
+            "Mapped boulders after building/cliff/spacing checks: {large} large, {small} small"
+        ));
+    }
 
     reporter.log("Writing Omap file...".to_string());
 

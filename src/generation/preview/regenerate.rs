@@ -11,6 +11,7 @@ use rayon::{ThreadPool, prelude::*};
 pub(crate) struct PreviewUpdate {
     pub(crate) document: InternalMap,
     pub(crate) contour_score: Option<(f32, f32)>,
+    pub(crate) boulder_summary: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -73,7 +74,11 @@ pub fn regenerate_map_tile(
         return Ok(None);
     }
 
+    let mut boulder_diagnostics = crate::generation::features::BoulderDiagnostics::default();
     for output in outputs {
+        if let Some(diagnostics) = output.boulder_diagnostics {
+            boulder_diagnostics.add(diagnostics);
+        }
         tot_energy += f64::from(output.contour_energy);
         tot_error += f64::from(output.contour_error);
         for object in output.objects {
@@ -123,6 +128,10 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(AreaSymbol::GiganticBoulder, 0);
         omap.reserve_capacity(LineSymbol::Cliff, 0);
         omap.reserve_capacity(LineSymbol::ImpassableCliff, 0);
+    }
+    if steps.boulders {
+        omap.reserve_capacity(PointSymbol::SmallBoulder, 0);
+        omap.reserve_capacity(PointSymbol::LargeBoulder, 0);
     }
     if steps.water {
         omap.reserve_capacity(AreaSymbol::UncrossableWaterWithBankLine, 0);
@@ -178,6 +187,10 @@ pub fn regenerate_map_tile(
         return Ok(None);
     }
 
+    if steps.boulders {
+        omap.filter_boulder_points(params.boulder.minimum_separation_m);
+    }
+
     let contour_score = if steps.contours {
         tot_energy /= tiles.len() as f64;
         tot_error /= tiles.len() as f64;
@@ -186,9 +199,24 @@ pub fn regenerate_map_tile(
         None
     };
 
+    let boulder_summary = (steps.boulders && params.boulder.enabled).then(|| {
+        let large = omap
+            .objects
+            .get(&PointSymbol::LargeBoulder.into())
+            .map_or(0, Vec::len);
+        let small = omap
+            .objects
+            .get(&PointSymbol::SmallBoulder.into())
+            .map_or(0, Vec::len);
+        format!(
+            "{}; mapped after building/cliff/spacing checks: {large} large, {small} small",
+            boulder_diagnostics.summary()
+        )
+    });
     Ok(Some(PreviewUpdate {
         document: omap,
         contour_score,
+        boulder_summary,
     }))
 }
 
@@ -217,6 +245,7 @@ fn changed_steps(
             vegetation: true,
             buildings: true,
             cliffs: true,
+            boulders: true,
             intensity: true,
             water: true,
             streams: true,
@@ -253,6 +282,7 @@ fn changed_steps(
     steps.water = new.water != old.water || new.geometry.water != old.geometry.water;
     steps.streams = new.streams != old.streams || new.geometry.streams != old.geometry.streams;
     steps.marsh = new.marsh != old.marsh || new.geometry.marsh != old.geometry.marsh || steps.water;
+    steps.boulders = new.boulder != old.boulder || buildings_changed || steps.cliffs;
 
     // Building precedence changes the geometry of these layers. Regenerate
     // the affected counterparts together so incremental preview updates do
@@ -293,6 +323,16 @@ fn changed_steps(
         || new.contour.dot_knoll_area.1 != old.contour.dot_knoll_area.1;
 
     force_scope(&mut steps, scope);
+    // Point cleanup needs current building/cliff/knoll geometry even when
+    // only a boulder threshold changed. Refresh these layers together.
+    if preview_section_reached.is_some_and(|section| section >= MapPreviewSection::Boulders)
+        && (steps.boulders || steps.cliffs || steps.contours)
+    {
+        steps.boulders = true;
+        steps.buildings = true;
+        steps.cliffs = true;
+        steps.contours = true;
+    }
     limit_to_reached_sections(&mut steps, preview_section_reached);
     steps
 }
@@ -321,6 +361,9 @@ fn limit_to_reached_sections(
     }
     if reached < MapPreviewSection::Cliffs {
         steps.cliffs = false;
+    }
+    if reached < MapPreviewSection::Boulders {
+        steps.boulders = false;
     }
     if reached < MapPreviewSection::Water {
         steps.water = false;
@@ -352,6 +395,7 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
             steps.openness = true;
             steps.vegetation = true;
             steps.cliffs = true;
+            steps.boulders = true;
             steps.intensity = true;
             steps.water = true;
             steps.marsh = true;
@@ -359,6 +403,12 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
         RegenerationScope::Section(MapPreviewSection::Cliffs) => {
             steps.cliffs = true;
             steps.buildings = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::Boulders) => {
+            steps.boulders = true;
+            steps.cliffs = true;
+            steps.buildings = true;
+            steps.contours = true;
         }
         RegenerationScope::Section(MapPreviewSection::Water) => {
             steps.water = true;
@@ -391,6 +441,30 @@ mod tests {
             RegenerationScope::Section(section),
             Some(section),
         )
+    }
+
+    #[test]
+    fn boulder_preview_refreshes_conflicts_and_clears_disabled_symbols() {
+        let steps = first_generation_steps(MapPreviewSection::Boulders);
+        assert!(steps.boulders && steps.contours && steps.cliffs && steps.buildings);
+        assert!(!steps.water);
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.boulder.enabled = false;
+        let steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(steps.boulders && steps.contours && steps.cliffs && steps.buildings);
+        let early = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Cliffs),
+        );
+        assert!(!early.boulders);
     }
 
     #[test]

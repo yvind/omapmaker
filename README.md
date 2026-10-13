@@ -33,10 +33,10 @@ The written omap-file is automatically georeferenced.
 - Form lines
 - Water detection
 - Building detection
+- Boulder detection (experimental tree-filtered, opaque non-ground surfaces; large boulders ≥2 m by default, small boulders ≥1 m with a lower height threshold)
 
 ### Wish List:
 - Vegetation boundaries
-- Boulder detection
 - Road/path detection
 - Marsh detection
 - Lidar CRS transformation

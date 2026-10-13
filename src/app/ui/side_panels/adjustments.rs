@@ -27,6 +27,10 @@ impl OmapMaker {
                 "Adjust cliff settings",
                 "Tune cliff detection and cliff geometry.",
             ),
+            ProcessStage::AdjustBoulders => (
+                "Adjust boulder detection",
+                "Detect elevated, opaque boulders from non-ground last returns, with clear separation from canopy.",
+            ),
             ProcessStage::AdjustWater => (
                 "Adjust water settings",
                 "Tune water seeds, flood-fill behavior, and the resulting polygon geometry.",
@@ -200,6 +204,7 @@ impl OmapMaker {
                     );
                 }
                 ProcessStage::AdjustCliffs => self.render_cliff_adjustments(ui),
+                ProcessStage::AdjustBoulders => self.render_boulder_adjustments(ui),
                 ProcessStage::AdjustWater => self.render_water_adjustments(ui),
                 ProcessStage::AdjustStreams => self.render_stream_adjustments(ui),
                 ProcessStage::AdjustMarsh => self.render_marsh_adjustments(ui),

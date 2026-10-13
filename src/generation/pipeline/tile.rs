@@ -14,7 +14,7 @@ use crate::{
     inference::models::ditches_streams_svf_slope as stream_model,
     lidar::LidarStats,
     map::MapObject,
-    parameters::{BuildingParameters, MapParameters, VegetationWeights},
+    parameters::{BoulderParameters, BuildingParameters, MapParameters, VegetationWeights},
     raster::{
         BuildingProbability, ContourTerrain, D8Flow, Dfm, Elevation, FilteredSurface, Ground,
         GroundPointDensity, GroundRelief2m, GroundRelief5m, HardObjectConfidence, HardObjectHeight,
@@ -71,7 +71,8 @@ pub struct PreparedTile {
     >,
     contour_field_cache:
         Mutex<BoundedCache<ContourFieldCacheKey, generation::features::ProducedContourField, 2>>,
-    building_cloud: Option<Arc<PointCloud>>,
+    source_cloud: Option<Arc<PointCloud>>,
+    boulder_evidence_cache: Mutex<BoundedCache<u64, generation::features::BoulderEvidence, 2>>,
     building_fit_cache:
         Mutex<BoundedCache<BuildingFitCacheKey, generation::features::BuildingSurfaceFit, 2>>,
     building_detection_cache:
@@ -154,7 +155,8 @@ impl PreparedTile {
             revision: NEXT_TILE_REVISION.fetch_add(1, AtomicOrdering::Relaxed),
             terrain_fit_cache: Mutex::default(),
             contour_field_cache: Mutex::default(),
-            building_cloud: None,
+            source_cloud: None,
+            boulder_evidence_cache: Mutex::default(),
             building_fit_cache: Mutex::default(),
             building_detection_cache: Mutex::default(),
             marsh_hydrology_cache: Mutex::default(),
@@ -162,8 +164,8 @@ impl PreparedTile {
         }
     }
 
-    pub fn with_building_cloud(mut self, cloud: PointCloud) -> Self {
-        self.building_cloud = Some(Arc::new(cloud));
+    pub fn with_source_cloud(mut self, cloud: PointCloud) -> Self {
+        self.source_cloud = Some(Arc::new(cloud));
         self
     }
 
@@ -188,7 +190,7 @@ impl PreparedTile {
         let dfms =
             generation::features::compute_dfms(ground_cloud, stats, &all_point_cloud, cut_bounds)?;
         Ok(Some(
-            Self::new(dfms, convex_hull, mp.0.swap_remove(0)).with_building_cloud(all_point_cloud),
+            Self::new(dfms, convex_hull, mp.0.swap_remove(0)).with_source_cloud(all_point_cloud),
         ))
     }
 
@@ -240,7 +242,7 @@ impl PreparedTile {
         &self,
         params: &BuildingParameters,
     ) -> crate::Result<Option<Arc<generation::features::BuildingSurfaceFit>>> {
-        let Some(cloud) = &self.building_cloud else {
+        let Some(cloud) = &self.source_cloud else {
             return Ok(None);
         };
         let key = BuildingFitCacheKey::new(self.revision, params);
@@ -286,6 +288,43 @@ impl PreparedTile {
             .expect("building-detection cache poisoned");
         cache.insert(key, Arc::clone(&detection));
         Ok(Some(detection))
+    }
+
+    pub(super) fn boulder_detection(
+        &self,
+        params: &BoulderParameters,
+    ) -> generation::features::BoulderDetection {
+        // Disabling the detector avoids point indexing and surface-layer work.
+        if !params.enabled {
+            return generation::features::BoulderDetection::default();
+        }
+        let Some(cloud) = &self.source_cloud else {
+            return generation::features::BoulderDetection::default();
+        };
+        let key = self.revision;
+        let mut cache = self
+            .boulder_evidence_cache
+            .lock()
+            .expect("boulder-evidence cache poisoned");
+        let evidence = if let Some(evidence) = cache.get(&key) {
+            evidence
+        } else {
+            let evidence = Arc::new(generation::features::compute_boulder_evidence(
+                cloud,
+                &self.rasters.dem,
+            ));
+            cache.insert(key, Arc::clone(&evidence));
+            evidence
+        };
+        drop(cache);
+        generation::features::detect_boulders(
+            &evidence,
+            cloud,
+            &self.rasters.dem,
+            &self.hull,
+            &self.cut_overlay,
+            params,
+        )
     }
 
     pub fn marsh_hydrology(&self, drainage_area_m2: f32) -> crate::Result<Arc<MarshHydrology>> {
@@ -422,5 +461,153 @@ impl TileRasters {
             &self.high_vegetation,
             weights,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        geometry::PointLaz,
+        raster::{DfmGrid, RasterMarker},
+    };
+
+    fn zero<T: RasterMarker>(dem: &Dfm<Elevation>) -> Dfm<T> {
+        let mut raster = Dfm::new_like(dem);
+        raster.field.fill(0.);
+        raster
+    }
+
+    fn test_tile() -> PreparedTile {
+        // PreparedTile's hydrology preparation currently uses standard tiles.
+        let grid = DfmGrid::standard(geo::coord! { x: 0., y: 255.5 });
+        let mut dem = Dfm::<Elevation>::new(grid);
+        dem.field.fill(0.);
+        let dfms = ComputedDfms {
+            return_number: zero(&dem),
+            intensity: zero(&dem),
+            last_return: zero(&dem),
+            ground_vegetation: zero(&dem),
+            low_vegetation: zero(&dem),
+            medium_vegetation: zero(&dem),
+            high_vegetation: zero(&dem),
+            surface_objects: zero(&dem),
+            ground_relief_2m: zero(&dem),
+            ground_relief_5m: zero(&dem),
+            hard_object_height: zero(&dem),
+            hard_object_confidence: zero(&dem),
+            vegetation_likelihood: zero(&dem),
+            filtered_surface: zero(&dem),
+            water: zero(&dem),
+            canopy_height: zero(&dem),
+            point_density: zero(&dem),
+            ground_point_density: zero(&dem),
+            z_range: (0., 0.),
+            dem,
+        };
+        let mut points = Vec::new();
+        for y in 14..=16 {
+            for x in 14..=16 {
+                for offset in [-0.1, 0.1] {
+                    let mut point =
+                        PointLaz::new(125. + x as f64 * 0.5 + offset, 125. + y as f64 * 0.5, 2.5);
+                    point.0.classification = las::point::Classification::Unclassified;
+                    points.push(point);
+                }
+            }
+        }
+        for y in 8..=22 {
+            for x in 8..=22 {
+                if (14..=16).contains(&x) && (14..=16).contains(&y) {
+                    continue;
+                }
+                points.push(PointLaz::new(
+                    125. + x as f64 * 0.5,
+                    125. + y as f64 * 0.5,
+                    0.,
+                ));
+            }
+        }
+        let bounds = las::Bounds {
+            min: las::Vector {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            max: las::Vector {
+                x: 256.,
+                y: 256.,
+                z: 3.,
+            },
+        };
+        let hull = geo::Rect::new((0., 0.), (256., 256.)).to_polygon();
+        PreparedTile::new(dfms, hull.clone(), hull)
+            .with_source_cloud(PointCloud::new(points, bounds))
+    }
+
+    #[test]
+    fn boulder_stage_skips_disabled_work_and_reuses_evidence_for_scoring_changes() {
+        use crate::{
+            generation::pipeline::{PipelineSteps, compute_tile},
+            map::PointSymbol,
+        };
+        let tile = test_tile();
+        let mut params = MapParameters::default();
+        let steps = PipelineSteps {
+            boulders: true,
+            ..Default::default()
+        };
+        let skipped = compute_tile(&tile, &params, PipelineSteps::default(), false).unwrap();
+        assert!(skipped.objects.is_empty());
+        assert!(
+            tile.boulder_evidence_cache
+                .lock()
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+        params.boulder.enabled = false;
+        assert!(
+            compute_tile(&tile, &params, steps, false)
+                .unwrap()
+                .objects
+                .is_empty()
+        );
+        assert!(
+            tile.boulder_evidence_cache
+                .lock()
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+
+        params.boulder.enabled = true;
+        let output = compute_tile(&tile, &params, steps, false).unwrap();
+        assert_eq!(output.objects.len(), 1);
+        assert!(matches!(
+            output.objects[0],
+            MapObject::Point {
+                symbol: PointSymbol::LargeBoulder,
+                ..
+            }
+        ));
+        let cached = Arc::clone(&tile.boulder_evidence_cache.lock().unwrap().entries[0].1);
+        params.boulder.confidence_threshold = 0.95;
+        params.boulder.maximum_surface_roughness_m = 0.1;
+        params.boulder.minimum_top_fraction = 0.4;
+        tile.boulder_detection(&params.boulder);
+        assert!(Arc::ptr_eq(
+            &cached,
+            &tile.boulder_evidence_cache.lock().unwrap().entries[0].1
+        ));
+        params.boulder.minimum_height_m = 1.;
+        params.boulder.minimum_area_m2 = 1.;
+        params.boulder.maximum_nonterminal_fraction = 0.1;
+        tile.boulder_detection(&params.boulder);
+        assert_eq!(tile.boulder_evidence_cache.lock().unwrap().entries.len(), 1);
+        assert!(Arc::ptr_eq(
+            &cached,
+            &tile.boulder_evidence_cache.lock().unwrap().entries[0].1
+        ));
     }
 }

@@ -1,4 +1,5 @@
 mod basemap;
+mod boulders;
 mod buildings;
 mod cliffs;
 pub(crate) mod contours;
@@ -11,6 +12,10 @@ mod vegetation;
 mod water;
 
 pub(crate) use basemap::compute_basemap;
+pub(crate) use boulders::{
+    BoulderDetection, BoulderDiagnostics, BoulderEvidence, compute_boulder_evidence,
+    detect_boulders,
+};
 pub(crate) use buildings::{
     BuildingDetection, BuildingSurfaceFit, building_objects, compute_building_surface_fit,
     detect_buildings,
