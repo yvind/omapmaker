@@ -260,6 +260,8 @@ impl Worker {
                             update.document,
                             self.hull.exterior().clone(),
                             &params.geometry,
+                            f64::from(self.map_tiles[0].z_range.0 + self.map_tiles[0].z_range.1)
+                                / 2.,
                         ) {
                             Ok(map) => {
                                 if let Some(summary) = update.boulder_summary {

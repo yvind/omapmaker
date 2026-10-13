@@ -12,6 +12,7 @@ mod parameters;
 mod progress;
 mod projection;
 mod raster;
+mod rendering;
 
 pub use app::run;
 pub(crate) use consts::{

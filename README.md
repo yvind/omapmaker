@@ -8,6 +8,7 @@ The written omap-file is automatically georeferenced.
 
 ### Implemented:
 - GUI with live map parameter tuning
+- Preview uses the exported OMAP symbol definitions for colours, dashed contours, area patterns, water boundaries and point shapes
 - Connected and overlapping lidar files are queried together, with exact duplicate returns removed
 - Raw, smoothed and interpolation-based (experimental) contours
 - Basemap-contours (with marked depressions)
@@ -52,6 +53,12 @@ Add a polygon filter. Only the area inside the filter is processed.
 
 ### Parameter tuning
 OmapMaker let's the user adjust parameters live.
+
+The preview renderer lives in `src/rendering`, adapted from the private
+`omap-projects` renderer and its paper-geometry helpers. Its source is included
+in this repository, so building OmapMaker requires no sibling checkout.
+Symbol visibility and map opacity can still be adjusted over the background map;
+maps without a CRS use a local planar preview.
 
 #### Contour tuning
 ![Contour tuning in OmapMaker](./readme_images/contours.png)
