@@ -54,11 +54,37 @@ impl OmapMaker {
         ui.add_space(20.);
         ui.label(help_text);
 
+        if self.state == ProcessStage::AdjustContours {
+            self.render_map_scale(ui);
+        }
+
+        let params = &mut self.gui_variables.generation.params;
+        let enabled = match self.state {
+            ProcessStage::AdjustContours => &mut params.contour.enabled,
+            ProcessStage::AdjustOpenness => &mut params.vegetation.openness_enabled,
+            ProcessStage::AdjustVegetation => &mut params.vegetation.enabled,
+            ProcessStage::AdjustBuildings => &mut params.building.enabled,
+            ProcessStage::AdjustCliffs => &mut params.cliff.enabled,
+            ProcessStage::AdjustBoulders => &mut params.boulder.enabled,
+            ProcessStage::AdjustWater => &mut params.water.enabled,
+            ProcessStage::AdjustMarsh => &mut params.marsh.enabled,
+            ProcessStage::AdjustStreams => &mut params.streams.enabled,
+            ProcessStage::AdjustIntensity => &mut params.intensity.enabled,
+            _ => unreachable!("An adjustment stage must have an enable switch"),
+        };
+        let changed = ui
+            .checkbox(enabled, "Enable this generation step")
+            .changed();
+        let enabled = *enabled;
+        if changed {
+            self.dispatch_action(AppAction::RegenerateMap(RegenerationScope::Changed));
+        }
+
         egui::ScrollArea::both()
             .auto_shrink(false)
             .max_height(ui.available_height() / 1.2)
             .max_width(f32::INFINITY)
-            .show(ui, |ui| match self.state {
+            .show(ui, |ui| ui.add_enabled_ui(enabled, |ui| match self.state {
                 ProcessStage::AdjustContours => {
                     self.render_contour_adjustments(ui);
                     ui.add_space(20.);
@@ -246,7 +272,7 @@ impl OmapMaker {
                     );
                 }
                 _ => unreachable!("Should not render adjustment panel for {:?}", self.state),
-            });
+            }));
 
         ui.add_space(20.);
 

@@ -54,6 +54,11 @@ Add a polygon filter. Only the area inside the filter is processed.
 ### Parameter tuning
 OmapMaker let's the user adjust parameters live.
 
+Every generation step is optional and enabled by default. Use **Enable this
+generation step** in each adjustment panel to choose which features to generate.
+Disabled steps are omitted from both the
+preview and the exported map; their parameter settings are kept for re-enabling.
+
 The preview renderer lives in `src/rendering`, adapted from the private
 `omap-projects` renderer and its paper-geometry helpers. Its source is included
 in this repository, so building OmapMaker requires no sibling checkout.

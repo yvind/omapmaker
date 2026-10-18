@@ -188,7 +188,11 @@ pub fn compute_tile_cancellable(
     let mut contour_energy = 0.;
     let mut boulder_diagnostics = None;
 
-    if steps.basemap && params.contour.basemap_contour && params.contour.basemap_interval >= 0.1 {
+    if steps.basemap
+        && params.contour.enabled
+        && params.contour.basemap_contour
+        && params.contour.basemap_interval >= 0.1
+    {
         objects.extend(generation::features::compute_basemap(
             &tile.rasters.contour_terrain,
             tile.z_range,
@@ -197,7 +201,7 @@ pub fn compute_tile_cancellable(
         ));
     }
 
-    if steps.contours {
+    if steps.contours && params.contour.enabled {
         let (contours, error, energy) = match params.contour.algorithm {
             ContourAlgo::NaiveIterations => generation::features::compute_naive_contours(
                 &tile.rasters.dem,
@@ -233,7 +237,7 @@ pub fn compute_tile_cancellable(
         contour_energy = energy;
     }
 
-    if steps.openness {
+    if steps.openness && params.vegetation.openness_enabled {
         objects.extend(generation::features::compute_vegetation(
             &tile.rasters.return_number,
             Threshold::Upper(params.vegetation.yellow),
@@ -245,7 +249,7 @@ pub fn compute_tile_cancellable(
         ));
     }
 
-    if steps.vegetation {
+    if steps.vegetation && params.vegetation.enabled {
         let ndvd = tile.rasters.compute_ndvd(params.vegetation.weights);
         for (threshold, symbol) in [
             (params.vegetation.green.0, AreaSymbol::LightGreen),
@@ -265,6 +269,7 @@ pub fn compute_tile_cancellable(
     }
 
     if steps.buildings
+        && params.building.enabled
         && let Some(detection) = tile.building_detection(&params.building)?
     {
         objects.extend(generation::features::building_objects(
@@ -276,7 +281,7 @@ pub fn compute_tile_cancellable(
         ));
     }
 
-    if steps.cliffs {
+    if steps.cliffs && params.cliff.enabled {
         let cliffs = match params.cliff.algorithm {
             CliffAlgorithm::SobelSlope => generation::features::compute_cliffs(
                 &tile.rasters.slope,
@@ -301,7 +306,7 @@ pub fn compute_tile_cancellable(
         objects.extend(cliffs);
     }
 
-    if steps.water {
+    if steps.water && params.water.enabled {
         let water_extent = generation::features::compute_water_extent(
             &tile.rasters.water,
             &tile.rasters.hydro_corrected,
@@ -326,7 +331,7 @@ pub fn compute_tile_cancellable(
         objects.extend(compute_marsh(tile, params)?.objects);
     }
 
-    if steps.streams {
+    if steps.streams && params.streams.enabled {
         objects.extend(generation::features::streams::compute_selected(
             &tile.rasters.stream_flow,
             &tile.cut_overlay,
@@ -335,7 +340,7 @@ pub fn compute_tile_cancellable(
         )?);
     }
 
-    if steps.intensity {
+    if steps.intensity && params.intensity.enabled {
         objects.extend(generation::features::compute_intensity(
             &tile.rasters.intensity,
             &tile.hull,
@@ -345,7 +350,7 @@ pub fn compute_tile_cancellable(
         ));
     }
 
-    if steps.boulders {
+    if steps.boulders && params.boulder.enabled {
         let detection = tile.boulder_detection(&params.boulder);
         boulder_diagnostics = Some(detection.diagnostics);
         objects.extend(detection.objects);

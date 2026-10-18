@@ -86,6 +86,7 @@ impl Display for BuildingClassificationEvidence {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CliffParameters {
+    pub enabled: bool,
     pub algorithm: CliffAlgorithm,
     pub cliff: f32,
     pub collapse: bool,
@@ -97,6 +98,7 @@ pub struct CliffParameters {
 impl Default for CliffParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
             algorithm: Default::default(),
             cliff: 0.7,
             collapse: true,

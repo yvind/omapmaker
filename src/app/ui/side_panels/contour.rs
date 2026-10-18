@@ -6,7 +6,7 @@ use eframe::egui;
 use egui_double_slider::DoubleSlider;
 
 impl OmapMaker {
-    pub(super) fn render_contour_adjustments(&mut self, ui: &mut egui::Ui) {
+    pub(super) fn render_map_scale(&mut self, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Map Scale").strong());
         ui.horizontal(|ui| {
             if ui
@@ -30,7 +30,9 @@ impl OmapMaker {
             };
         });
         ui.add_space(20.);
+    }
 
+    pub(super) fn render_contour_adjustments(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Contour interval: ");
             ui.add(

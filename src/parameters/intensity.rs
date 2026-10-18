@@ -1,8 +1,18 @@
 use crate::map::AreaSymbol;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct IntensityParameters {
+    pub enabled: bool,
     pub filters: Vec<IntensityFilter>,
+}
+
+impl Default for IntensityParameters {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            filters: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

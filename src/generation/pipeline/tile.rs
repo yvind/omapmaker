@@ -546,6 +546,120 @@ mod tests {
     }
 
     #[test]
+    fn disabled_generation_steps_skip_work_and_clear_preview_layers() {
+        use crate::{
+            cancellation::CancellationToken,
+            generation::{
+                pipeline::{PipelineSteps, compute_tile},
+                preview::{MapPreviewSection, RegenerationScope, regenerate_map_tile},
+            },
+            map::{AreaSymbol, LineSymbol, PointSymbol, Symbol},
+            parameters::StreamAlgorithm,
+        };
+
+        let tile = test_tile();
+        let mut old = MapParameters::default();
+        old.intensity.filters.push(Default::default());
+        let mut params = old.clone();
+        params.contour.enabled = false;
+        params.vegetation.openness_enabled = false;
+        params.vegetation.enabled = false;
+        params.building.enabled = false;
+        params.cliff.enabled = false;
+        params.boulder.enabled = false;
+        params.water.enabled = false;
+        params.marsh.enabled = false;
+        params.streams.enabled = false;
+        params.intensity.enabled = false;
+        // A disabled algorithm must not be validated, fitted, or loaded.
+        params.contour.algorithm = crate::parameters::ContourAlgo::WeightedScalarField;
+        params.streams.algorithm = StreamAlgorithm::DitchesStreamsSvfSlope;
+        let output = compute_tile(
+            &tile,
+            &params,
+            PipelineSteps {
+                basemap: true,
+                contours: true,
+                openness: true,
+                vegetation: true,
+                buildings: true,
+                cliffs: true,
+                boulders: true,
+                intensity: true,
+                water: true,
+                marsh: true,
+                streams: true,
+            },
+            true,
+        )
+        .unwrap();
+        assert!(output.objects.is_empty());
+        assert!(output.boulder_diagnostics.is_none());
+        assert!(tile.contour_field_cache.lock().unwrap().entries.is_empty());
+        assert!(tile.building_fit_cache.lock().unwrap().entries.is_empty());
+        assert!(
+            tile.boulder_evidence_cache
+                .lock()
+                .unwrap()
+                .entries
+                .is_empty()
+        );
+
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let update = regenerate_map_tile(
+            &pool,
+            &[tile],
+            geo::coord! { x: 0., y: 0. },
+            &params,
+            &Some(old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+            &CancellationToken::default(),
+        )
+        .unwrap()
+        .unwrap();
+        // Empty entries replace previously generated objects in the preview.
+        let cleared: [Symbol; 23] = [
+            LineSymbol::BasemapContour.into(),
+            LineSymbol::NegBasemapContour.into(),
+            LineSymbol::Contour.into(),
+            LineSymbol::IndexContour.into(),
+            LineSymbol::FormLine.into(),
+            PointSymbol::DotKnoll.into(),
+            PointSymbol::ElongatedDotKnoll.into(),
+            PointSymbol::UDepression.into(),
+            PointSymbol::SlopeLineContour.into(),
+            PointSymbol::SlopeLineFormLine.into(),
+            AreaSymbol::RoughOpenLand.into(),
+            AreaSymbol::LightGreen.into(),
+            AreaSymbol::MediumGreen.into(),
+            AreaSymbol::DarkGreen.into(),
+            AreaSymbol::Building.into(),
+            AreaSymbol::GiganticBoulder.into(),
+            LineSymbol::Cliff.into(),
+            LineSymbol::ImpassableCliff.into(),
+            PointSymbol::SmallBoulder.into(),
+            PointSymbol::LargeBoulder.into(),
+            AreaSymbol::UncrossableWaterWithBankLine.into(),
+            AreaSymbol::Marsh.into(),
+            LineSymbol::SmallCrossableWatercourse.into(),
+        ];
+        for symbol in cleared.into_iter().chain([AreaSymbol::BareRock.into()]) {
+            assert!(
+                update
+                    .document
+                    .objects
+                    .get(&symbol)
+                    .is_some_and(Vec::is_empty),
+                "Missing preview removal for {symbol:?}"
+            );
+        }
+    }
+
+    #[test]
     fn boulder_stage_skips_disabled_work_and_reuses_evidence_for_scoring_changes() {
         use crate::{
             generation::pipeline::{PipelineSteps, compute_tile},

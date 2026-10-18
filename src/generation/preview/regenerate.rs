@@ -37,7 +37,7 @@ pub fn regenerate_map_tile(
             }
         }
     }
-    if !params.contour.basemap_contour {
+    if !params.contour.enabled || !params.contour.basemap_contour {
         // make sure that the basemap gets removed if it is toggled off
         omap.reserve_capacity(LineSymbol::NegBasemapContour, 0);
         omap.reserve_capacity(LineSymbol::BasemapContour, 0);
@@ -170,6 +170,9 @@ pub fn regenerate_map_tile(
     }
 
     if steps.contours {
+        omap.reserve_capacity(LineSymbol::Contour, 0);
+        omap.reserve_capacity(LineSymbol::IndexContour, 0);
+        omap.reserve_capacity(LineSymbol::FormLine, 0);
         omap.reserve_capacity(PointSymbol::DotKnoll, 1);
         omap.reserve_capacity(PointSymbol::ElongatedDotKnoll, 1);
         omap.reserve_capacity(PointSymbol::UDepression, 1);
@@ -255,12 +258,15 @@ fn changed_steps(
         return steps;
     }
 
-    steps.intensity = new.intensity.filters != old.intensity.filters
+    steps.intensity = new.intensity.enabled != old.intensity.enabled
+        || new.intensity.filters != old.intensity.filters
         || new.geometry.intensity != old.geometry.intensity;
 
-    steps.openness = new.vegetation.yellow != old.vegetation.yellow
+    steps.openness = new.vegetation.openness_enabled != old.vegetation.openness_enabled
+        || new.vegetation.yellow != old.vegetation.yellow
         || new.geometry.openness != old.geometry.openness;
-    steps.vegetation = new.vegetation.green != old.vegetation.green
+    steps.vegetation = new.vegetation.enabled != old.vegetation.enabled
+        || new.vegetation.green != old.vegetation.green
         || new.vegetation.weights != old.vegetation.weights
         || new.geometry.vegetation != old.geometry.vegetation;
     let buildings_changed =
@@ -271,7 +277,8 @@ fn changed_steps(
             != old.contour.contour_field.slope_fit_radius_m
             || new.contour.contour_field.curvature_fit_radius_m
                 != old.contour.contour_field.curvature_fit_radius_m);
-    steps.cliffs = new.cliff.algorithm != old.cliff.algorithm
+    steps.cliffs = new.cliff.enabled != old.cliff.enabled
+        || new.cliff.algorithm != old.cliff.algorithm
         || new.cliff.cliff != old.cliff.cliff
         || new.geometry.cliffs != old.geometry.cliffs
         || new.cliff.collapse != old.cliff.collapse
@@ -305,10 +312,12 @@ fn changed_steps(
         steps.buildings = true;
     }
 
-    steps.basemap = new.contour.basemap_interval != old.contour.basemap_interval
+    steps.basemap = new.contour.enabled != old.contour.enabled
+        || new.contour.basemap_interval != old.contour.basemap_interval
         || new.contour.basemap_contour != old.contour.basemap_contour;
 
-    steps.contours = new.contour.algorithm != old.contour.algorithm
+    steps.contours = new.contour.enabled != old.contour.enabled
+        || new.contour.algorithm != old.contour.algorithm
         || new.contour.algo_lambda != old.contour.algo_lambda
         || new.contour.algo_steps != old.contour.algo_steps
         || new.contour.contour_field != old.contour.contour_field
@@ -441,6 +450,50 @@ mod tests {
             RegenerationScope::Section(section),
             Some(section),
         )
+    }
+
+    #[test]
+    fn toggling_any_generation_step_refreshes_its_preview_in_both_directions() {
+        let enabled = MapParameters::default();
+        let switches: [fn(&mut MapParameters) -> &mut bool; 11] = [
+            |params| &mut params.contour.enabled,
+            |params| &mut params.contour.basemap_contour,
+            |params| &mut params.vegetation.openness_enabled,
+            |params| &mut params.vegetation.enabled,
+            |params| &mut params.building.enabled,
+            |params| &mut params.cliff.enabled,
+            |params| &mut params.boulder.enabled,
+            |params| &mut params.water.enabled,
+            |params| &mut params.marsh.enabled,
+            |params| &mut params.streams.enabled,
+            |params| &mut params.intensity.enabled,
+        ];
+        for (index, switch) in switches.into_iter().enumerate() {
+            let mut disabled = enabled.clone();
+            *switch(&mut disabled) = false;
+            for (new, old) in [(&disabled, &enabled), (&enabled, &disabled)] {
+                let steps = changed_steps(
+                    new,
+                    Some(old),
+                    RegenerationScope::Changed,
+                    Some(MapPreviewSection::Intensity),
+                );
+                let refreshed = [
+                    steps.contours && steps.basemap,
+                    steps.basemap,
+                    steps.openness,
+                    steps.vegetation,
+                    steps.buildings,
+                    steps.cliffs,
+                    steps.boulders,
+                    steps.water,
+                    steps.marsh,
+                    steps.streams,
+                    steps.intensity,
+                ];
+                assert!(refreshed[index], "Step {index} was not refreshed");
+            }
+        }
     }
 
     #[test]

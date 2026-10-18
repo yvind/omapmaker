@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 #[derive(Clone, Debug)]
 pub struct ContourParameters {
+    pub enabled: bool,
     pub algorithm: ContourAlgo,
     pub form_line_prune_algorithm: FormlinePruneAlgo,
     pub basemap_interval: f32,
@@ -183,6 +184,7 @@ impl Display for FormlinePruneAlgo {
 impl Default for ContourParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
             algorithm: Default::default(),
             form_line_prune_algorithm: Default::default(),
             basemap_interval: 0.5,
@@ -190,7 +192,7 @@ impl Default for ContourParameters {
             dot_knoll_area: (10., 160.),
             algo_steps: 0,
             algo_lambda: 0.01,
-            basemap_contour: false,
+            basemap_contour: true,
             form_lines: false,
             form_line_prune_threshold: 0.8,
             form_line_error_threshold: 0.15,

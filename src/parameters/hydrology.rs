@@ -4,6 +4,7 @@ use super::BufferRule;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct WaterParameters {
+    pub enabled: bool,
     /// Minimum likelihood needed for a cell to seed a water region.
     pub threshold: f32,
     /// Ordered raster-mask buffers applied to thresholded seeds before the
@@ -18,6 +19,7 @@ pub struct WaterParameters {
 impl Default for WaterParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
             threshold: 0.70,
             seed_buffer_rules: Vec::new(),
             elevation_tolerance_m: 0.05,
@@ -28,6 +30,7 @@ impl Default for WaterParameters {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StreamParameters {
+    pub enabled: bool,
     pub algorithm: StreamAlgorithm,
     /// Minimum upstream area needed to initiate a hydrological stream.
     pub minimum_catchment_area_m2: f32,
@@ -40,6 +43,7 @@ pub struct StreamParameters {
 impl Default for StreamParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
             algorithm: StreamAlgorithm::Hydrological,
             minimum_catchment_area_m2: 10_000.0,
             endpoint_merge_distance_m: 10.0,
@@ -142,7 +146,7 @@ pub struct MarshEvidenceWeights {
 impl Default for MarshParameters {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: true,
             sensitivity: 0.5,
             minimum_polygon_area_m2: 45.,
             planarity_radius_m: 1.5,

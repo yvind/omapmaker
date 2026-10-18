@@ -4,7 +4,6 @@ use eframe::egui;
 impl OmapMaker {
     pub(super) fn render_boulder_adjustments(&mut self, ui: &mut egui::Ui) {
         let params = &mut self.gui_variables.generation.params.boulder;
-        ui.checkbox(&mut params.enabled, "Detect boulders from LiDAR");
         ui.add_enabled_ui(params.enabled, |ui| {
             ui.label("Opaque surfaces above ground, checked against full tree profiles.");
             ui.add(

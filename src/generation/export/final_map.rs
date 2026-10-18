@@ -58,7 +58,7 @@ pub fn compute_tile_map_objects(
             water: true,
             // Hydrological streams are deferred until accumulation has been
             // reconciled across tiles. ONNX streams are tile-local.
-            streams: !args.streams.algorithm.uses_deferred_hydrology(),
+            streams: args.streams.enabled && !args.streams.algorithm.uses_deferred_hydrology(),
             // Marsh uses the globally reconciled accumulation field and is
             // therefore deferred by final-map generation.
             marsh: false,
@@ -174,6 +174,9 @@ pub fn export_map(
         .save_marsh_reason_raster
         .then(|| Arc::new(Mutex::new(Vec::<Dfm<MarshReason>>::new())));
     let deferred_stream_tiles = Arc::new(Mutex::new(Vec::<DeferredStreamTile>::new()));
+    let needs_deferred_hydrology = map_params.marsh.enabled
+        || (map_params.streams.enabled && map_params.streams.algorithm.uses_deferred_hydrology())
+        || file_params.save_flow_accumulation_raster;
 
     if let Some(polygon) = &mut polygon_filter {
         polygon.exterior_mut(|l| {
@@ -508,21 +511,23 @@ pub fn export_map(
                     return;
                 }
 
-                let tile = match tile.into_deferred_hydrology(&map_params) {
-                    Ok(tile) => tile,
-                    Err(e) => {
-                        reporter.error(e.to_string());
+                if needs_deferred_hydrology {
+                    let tile = match tile.into_deferred_hydrology(&map_params) {
+                        Ok(tile) => tile,
+                        Err(e) => {
+                            reporter.error(e.to_string());
+                            return;
+                        }
+                    };
+                    if let Ok(mut stream_tiles) = deferred_stream_tiles.lock() {
+                        stream_tiles.push(DeferredStreamTile {
+                            key: (fi, tile_i),
+                            tile,
+                        });
+                    } else {
+                        reporter.error("Deferred stream tile mutex was poisoned".to_string());
                         return;
                     }
-                };
-                if let Ok(mut stream_tiles) = deferred_stream_tiles.lock() {
-                    stream_tiles.push(DeferredStreamTile {
-                        key: (fi, tile_i),
-                        tile,
-                    });
-                } else {
-                    reporter.error("Deferred stream tile mutex was poisoned".to_string());
-                    return;
                 }
                 {
                     if let Ok(mut map) = map.lock() {
@@ -547,12 +552,14 @@ pub fn export_map(
         .map_err(|_| anyhow::anyhow!("Deferred stream tile mutex was poisoned"))?;
     stream_tiles.sort_by_key(|tile| tile.key);
 
-    reporter.log("Accumulating flow across tile boundaries...".to_string());
-    crate::raster::accumulate_cross_tile_flow(
-        stream_tiles
-            .iter_mut()
-            .map(|tile| &mut tile.tile.stream_flow),
-    )?;
+    if needs_deferred_hydrology {
+        reporter.log("Accumulating flow across tile boundaries...".to_string());
+        crate::raster::accumulate_cross_tile_flow(
+            stream_tiles
+                .iter_mut()
+                .map(|tile| &mut tile.tile.stream_flow),
+        )?;
+    }
 
     if let Some(saved_rasters) = &saved_flow_accumulation_rasters {
         let mut saved_rasters = saved_rasters
@@ -576,7 +583,7 @@ pub fn export_map(
     // owning tiles.
     final_marsh_params.marsh.minimum_polygon_area_m2 = 0.;
     for tile in &stream_tiles {
-        if map_params.streams.algorithm.uses_deferred_hydrology() {
+        if map_params.streams.enabled && map_params.streams.algorithm.uses_deferred_hydrology() {
             for object in generation::features::compute_streams(
                 &tile.tile.stream_flow,
                 &tile.tile.cut_overlay,

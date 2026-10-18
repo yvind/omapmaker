@@ -4,7 +4,6 @@ use eframe::egui;
 impl OmapMaker {
     pub(super) fn render_building_adjustments(&mut self, ui: &mut egui::Ui) {
         let parameters = &mut self.gui_variables.generation.params.building;
-        ui.checkbox(&mut parameters.enabled, "Detect buildings from LiDAR");
         ui.add_enabled_ui(parameters.enabled, |ui| {
             ui.label(egui::RichText::new("Roof elevation and fit").strong());
             ui.add(

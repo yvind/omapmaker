@@ -230,10 +230,6 @@ impl OmapMaker {
 
     pub(super) fn render_marsh_adjustments(&mut self, ui: &mut egui::Ui) {
         ui.label(egui::RichText::new("Marsh detection").strong());
-        ui.checkbox(
-            &mut self.gui_variables.generation.params.marsh.enabled,
-            "Generate marsh polygons",
-        );
         ui.add(
                         egui::Slider::new(
                             &mut self.gui_variables.generation.params.marsh.sensitivity,

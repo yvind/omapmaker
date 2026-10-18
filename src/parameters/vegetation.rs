@@ -1,5 +1,7 @@
 #[derive(Clone, Debug)]
 pub struct VegetationParameters {
+    pub enabled: bool,
+    pub openness_enabled: bool,
     pub green: (f32, f32, f32),
     pub weights: VegetationWeights,
     pub yellow: f32,
@@ -15,6 +17,8 @@ pub struct VegetationWeights {
 impl Default for VegetationParameters {
     fn default() -> Self {
         Self {
+            enabled: true,
+            openness_enabled: true,
             green: (0.4, 0.6, 0.8),
             weights: Default::default(),
             yellow: 0.01,
