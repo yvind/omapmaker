@@ -192,7 +192,7 @@ impl Default for ContourParameters {
             dot_knoll_area: (10., 160.),
             algo_steps: 0,
             algo_lambda: 0.01,
-            basemap_contour: true,
+            basemap_contour: false,
             form_lines: false,
             form_line_prune_threshold: 0.8,
             form_line_error_threshold: 0.15,
@@ -205,7 +205,7 @@ impl Default for ContourParameters {
 impl Default for FormlineGeometryParameters {
     fn default() -> Self {
         Self {
-            reconnect_gap_m: 30.,
+            reconnect_gap_m: 75.,
             closed_seed_length_m: 1.5,
             closed_all_or_none_max_length_m: 30.,
         }

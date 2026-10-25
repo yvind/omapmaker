@@ -280,7 +280,7 @@ impl OmapMaker {
                                 .reconnect_gap_m,
                         )
                         .speed(0.25)
-                        .range(20.0..=100.0),
+                        .range(25.0..=200.0),
                     );
                 });
             },

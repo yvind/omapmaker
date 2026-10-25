@@ -52,7 +52,7 @@ impl Default for VegetationParameters {
             weights: Default::default(),
             yellow: 0.01,
             undergrowth_enabled: true,
-            undergrowth_threshold: 0.5,
+            undergrowth_threshold: 0.6,
             boundaries: Default::default(),
         }
     }
@@ -61,9 +61,9 @@ impl Default for VegetationParameters {
 impl Default for VegetationWeights {
     fn default() -> Self {
         Self {
-            low: 0.5,
-            medium: 0.35,
-            high: 0.15,
+            low: 1.0,
+            medium: 0.5,
+            high: 0.1,
         }
     }
 }
