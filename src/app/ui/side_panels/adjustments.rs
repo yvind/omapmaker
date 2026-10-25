@@ -29,7 +29,7 @@ impl OmapMaker {
             ),
             ProcessStage::AdjustBoulders => (
                 "Adjust boulder detection",
-                "Detect elevated, opaque boulders from non-ground last returns, with clear separation from canopy.",
+                "Detect broad, opaque boulders from non-ground last returns, with clear separation from canopy.",
             ),
             ProcessStage::AdjustWater => (
                 "Adjust water settings",

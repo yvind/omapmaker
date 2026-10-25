@@ -506,8 +506,8 @@ mod tests {
             dem,
         };
         let mut points = Vec::new();
-        for y in 14..=16 {
-            for x in 14..=16 {
+        for y in 13..=17 {
+            for x in 13..=17 {
                 for offset in [-0.1, 0.1] {
                     let mut point =
                         PointLaz::new(125. + x as f64 * 0.5 + offset, 125. + y as f64 * 0.5, 2.5);
@@ -518,7 +518,7 @@ mod tests {
         }
         for y in 8..=22 {
             for x in 8..=22 {
-                if (14..=16).contains(&x) && (14..=16).contains(&y) {
+                if (13..=17).contains(&x) && (13..=17).contains(&y) {
                     continue;
                 }
                 points.push(PointLaz::new(
@@ -706,7 +706,7 @@ mod tests {
             }
         ));
         let cached = Arc::clone(&tile.boulder_evidence_cache.lock().unwrap().entries[0].1);
-        params.boulder.confidence_threshold = 0.95;
+        params.boulder.maximum_height_to_diameter = 0.8;
         params.boulder.maximum_surface_roughness_m = 0.1;
         params.boulder.minimum_top_fraction = 0.4;
         tile.boulder_detection(&params.boulder);
@@ -715,7 +715,6 @@ mod tests {
             &tile.boulder_evidence_cache.lock().unwrap().entries[0].1
         ));
         params.boulder.minimum_height_m = 1.;
-        params.boulder.minimum_area_m2 = 1.;
         params.boulder.maximum_nonterminal_fraction = 0.1;
         tile.boulder_detection(&params.boulder);
         assert_eq!(tile.boulder_evidence_cache.lock().unwrap().entries.len(), 1);

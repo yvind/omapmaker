@@ -79,7 +79,9 @@ pub(crate) fn detect_boulders(
         }
         diagnostics.proposed += 1;
         let initial = classify(&cells, &response, evidence, cloud, dem, params);
-        let classified = if matches!(initial, Err(Rejection::Shape | Rejection::Pointed)) {
+        // Recover rocks joined to thin branches, but never trim a pointed
+        // candidate until its tip appears to cover the remaining footprint.
+        let classified = if matches!(initial, Err(Rejection::Shape)) {
             let recovered = surface::coherent_cores(&cells, &response, dem, seed_height)
                 .iter()
                 .filter_map(|core| classify(core, &response, evidence, cloud, dem, params).ok())

@@ -9,6 +9,8 @@ use crate::{
 use super::BoulderEvidence;
 use super::evidence::{is_last, object_class};
 
+const GROUND_LEVEL_TOLERANCE_M: f64 = 0.5;
+
 pub(super) struct GroundedSides {
     pub(super) grounded_fraction: f64,
     pub(super) minimum_slope_degrees: f64,
@@ -22,6 +24,7 @@ pub(super) fn grounded_runoffs(
     cloud: &PointCloud,
     dem: &Dfm<Elevation>,
     center: geo::Coord,
+    height: f64,
     params: &BoulderParameters,
 ) -> Option<GroundedSides> {
     const DIRECTIONS: usize = 16;
@@ -33,10 +36,13 @@ pub(super) fn grounded_runoffs(
             (p.x - center.x).hypot(p.y - center.y)
         })
         .fold(0_f64, f64::max);
-    let reach = radius + params.maximum_side_runoff_m + cell_size;
     let required_slope = f64::from(params.minimum_side_slope_degrees)
         .to_radians()
         .tan();
+    // A taller rock can have a longer side at the same steepness. Search as
+    // far as a qualifying drop could reach, rather than imposing a metre cap.
+    let maximum_runoff = (height + GROUND_LEVEL_TOLERANCE_M) / required_slope;
+    let reach = radius + maximum_runoff + cell_size;
     let minimum_drop = f64::from(params.minimum_height_m.max(1.)) * 0.35;
     let mut slopes = Vec::new();
     // Ground samples are not aligned to raster centers or the 16 profiles.
@@ -67,7 +73,7 @@ pub(super) fn grounded_runoffs(
                     && (point.0.classification == las::point::Classification::Ground
                         || object_class(point.0.classification))
                     && f64::from(evidence.heights_above_ground[index]).abs()
-                        <= f64::from(params.ground_level_tolerance_m)
+                        <= GROUND_LEVEL_TOLERANCE_M
                     && dx.hypot(dy) <= reach + ground_search_radius
                 {
                     ground_angles.push(dy.atan2(dx));
@@ -139,7 +145,7 @@ pub(super) fn grounded_runoffs(
                         let angle_difference = (point_angle - angle + std::f64::consts::PI)
                             .rem_euclid(std::f64::consts::TAU)
                             - std::f64::consts::PI;
-                        if ground_height.abs() <= f64::from(params.ground_level_tolerance_m)
+                        if ground_height.abs() <= GROUND_LEVEL_TOLERANCE_M
                             && distance <= ground_search_radius
                             && angle_difference.abs() <= std::f64::consts::TAU / DIRECTIONS as f64
                             && distance < closest
@@ -158,7 +164,7 @@ pub(super) fn grounded_runoffs(
                 .filter_map(|(p, height)| {
                     let run = (p.x - point.x()).hypot(p.y - point.y());
                     let drop = height - ground_height;
-                    (run > 0. && run <= params.maximum_side_runoff_m && drop >= minimum_drop)
+                    (run > 0. && run <= maximum_runoff && drop >= minimum_drop)
                         .then_some(drop / run)
                 })
                 .fold(0_f64, f64::max);

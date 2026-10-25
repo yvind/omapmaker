@@ -5,7 +5,6 @@ pub(super) enum Rejection {
     Support,
     Height,
     Opacity,
-    Confidence,
     Sides,
     Pointed,
     Roughness,
@@ -23,7 +22,6 @@ pub(crate) struct BoulderDiagnostics {
     rejected_support: usize,
     rejected_sides: usize,
     rejected_context: usize,
-    rejected_confidence: usize,
 }
 
 impl BoulderDiagnostics {
@@ -38,7 +36,6 @@ impl BoulderDiagnostics {
             Rejection::Support => &mut self.rejected_support,
             Rejection::Sides => &mut self.rejected_sides,
             Rejection::Context => &mut self.rejected_context,
-            Rejection::Confidence => &mut self.rejected_confidence,
         };
         *count += 1;
     }
@@ -53,12 +50,11 @@ impl BoulderDiagnostics {
         self.rejected_support += other.rejected_support;
         self.rejected_sides += other.rejected_sides;
         self.rejected_context += other.rejected_context;
-        self.rejected_confidence += other.rejected_confidence;
     }
 
     pub(crate) fn summary(&self) -> String {
         format!(
-            "Boulders: {} detected from {} candidates; rejected tree structure={}, opacity={}, footprint/top shape={}, height={}, insufficient surface returns={}, surrounding ground={}, terrain={}, confidence={}",
+            "Boulders: {} detected from {} candidates; rejected tree structure={}, opacity={}, footprint/top shape={}, height={}, insufficient surface returns={}, surrounding ground={}, terrain={}",
             self.detected,
             self.proposed,
             self.rejected_tree_structure,
@@ -68,7 +64,6 @@ impl BoulderDiagnostics {
             self.rejected_support,
             self.rejected_sides,
             self.rejected_context,
-            self.rejected_confidence,
         )
     }
 }

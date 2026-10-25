@@ -194,8 +194,10 @@ impl DrawableOmap {
             .copied()
             .unwrap_or(true)
         {
-            let mut mesh = egui::Mesh::default();
-            mesh.indices = triangulate_rings(&hull, &[]);
+            let mut mesh = egui::Mesh {
+                indices: triangulate_rings(&hull, &[]),
+                ..Default::default()
+            };
             for &p in &hull {
                 mesh.colored_vertex(p, Color32::WHITE);
             }

@@ -109,9 +109,7 @@ pub(super) fn shape(
     let top_cells = heights.values().filter(|&&z| z >= 0.75 * height).count();
     let top_area = top_cells as f64 * dem.grid.cell_size_m.powi(2);
     let top_fraction = top_cells as f64 / heights.len() as f64;
-    if top_area < params.minimum_top_area_m2
-        || top_fraction < f64::from(params.minimum_top_fraction)
-    {
+    if (top_fraction as f32) < params.minimum_top_fraction {
         return Err(Rejection::Pointed);
     }
     let mut curvatures = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];

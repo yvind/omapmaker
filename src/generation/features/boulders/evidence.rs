@@ -176,7 +176,7 @@ impl BoulderEvidence {
                                 <= params.maximum_under_surface_fraction
                     })
                     .map(|layer| self.layer_heights[layer])
-                    .find(|&height| height >= minimum && height <= params.maximum_height_m)
+                    .find(|&height| height.is_finite() && height >= minimum)
                     .unwrap_or(0.)
             })
             .collect()

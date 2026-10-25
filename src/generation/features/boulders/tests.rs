@@ -92,8 +92,20 @@ fn block(half_width: usize, ground_classified: bool) -> (Dfm<Elevation>, PointCl
     (dem, cloud)
 }
 
+// Keep the algorithm fixtures permissive so their return, surface and terrain
+// checks are exercised independently. Production defaults are tested below.
+fn permissive_parameters() -> BoulderParameters {
+    BoulderParameters {
+        maximum_height_to_diameter: 2.5,
+        minimum_top_fraction: 0.25,
+        maximum_nonterminal_fraction: 0.25,
+        minimum_side_slope_degrees: 35.,
+        ..Default::default()
+    }
+}
+
 fn detect(dem: &Dfm<Elevation>, cloud: &PointCloud) -> Vec<MapObject> {
-    detect_with_params(dem, cloud, &BoulderParameters::default())
+    detect_with_params(dem, cloud, &permissive_parameters())
 }
 
 fn detect_with_params(
@@ -123,6 +135,149 @@ fn point_result(objects: &[MapObject]) -> (geo::Point, PointSymbol, f64) {
         panic!("boulder detector emitted an area or line")
     };
     (*object, *symbol, tags["boulder_height_m"].parse().unwrap())
+}
+
+#[test]
+fn conservative_defaults_reject_ambiguous_shapes_but_keep_broad_solid_blocks() {
+    let params = BoulderParameters::default();
+    for (dem, cloud) in [rock(3., false, 0.), block(2, false)] {
+        assert_eq!(detect(&dem, &cloud).len(), 1);
+        assert!(detect_with_params(&dem, &cloud, &params).is_empty());
+    }
+
+    let (dem, mut cloud) = block(3, false);
+    assert_eq!(detect_with_params(&dem, &cloud, &params).len(), 1);
+    // One passing echo per five last returns was tolerated by the older
+    // settings, but is too much evidence of foliage for the new defaults.
+    let surface = cloud
+        .points
+        .iter()
+        .take_while(|point| point.0.z > 1.)
+        .step_by(2)
+        .cloned()
+        .collect::<Vec<_>>();
+    for mut point in surface {
+        for offset in [-0.08, 0.08, 0.24] {
+            let mut last = point.clone();
+            last.0.x += offset;
+            cloud.points.push(last);
+        }
+        point.0.return_number = 1;
+        point.0.number_of_returns = 2;
+        point.0.z += 0.1;
+        cloud.points.push(point);
+    }
+    assert_eq!(detect(&dem, &cloud).len(), 1);
+    assert!(detect_with_params(&dem, &cloud, &params).is_empty());
+}
+
+#[test]
+fn top_coverage_cannot_be_increased_by_discarding_shoulders() {
+    let (dem, mut cloud) = block(3, false);
+    for (cell, pair) in cloud.points[..98].chunks_mut(2).enumerate() {
+        if cell / 7 == 0 || (cell / 7 == 6 && (1..=5).contains(&(cell % 7))) {
+            for point in pair {
+                point.0.z = 2.;
+            }
+        }
+    }
+    // Isolate broadness from the abrupt shoulder's surface roughness.
+    let mut params = BoulderParameters {
+        maximum_surface_roughness_m: 3.,
+        ..Default::default()
+    };
+    assert!(detect_with_params(&dem, &cloud, &params).is_empty());
+    params.minimum_top_fraction = 0.6;
+    let objects = detect_with_params(&dem, &cloud, &params);
+    assert_eq!(point_result(&objects).1, PointSymbol::LargeBoulder);
+    let MapObject::Point { tags, .. } = &objects[0] else {
+        unreachable!()
+    };
+    let fraction = tags["boulder_top_fraction"].parse::<f64>().unwrap();
+    assert!(fraction > 0.6 && fraction < 0.8);
+}
+
+#[test]
+fn a_top_covering_exactly_eighty_percent_of_the_footprint_is_accepted() {
+    let (dem, _) = block(2, false);
+    let mut heights = std::collections::HashMap::new();
+    for y in 38..42 {
+        for x in 38..43 {
+            let corner = (y == 38 || y == 41) && (x == 38 || x == 42);
+            heights.insert(y * dem.width() + x, if corner { 2. } else { 3. });
+        }
+    }
+    let params = BoulderParameters {
+        maximum_surface_roughness_m: 3.,
+        ..Default::default()
+    };
+    assert!(surface::shape(&heights, &dem, 3., &params).is_ok());
+    heights.insert(40 * dem.width() + 40, 2.);
+    assert!(matches!(
+        surface::shape(&heights, &dem, 3., &params),
+        Err(Rejection::Pointed)
+    ));
+}
+
+#[test]
+fn very_large_boulders_with_long_steep_sides_have_no_upper_size_limit() {
+    let params = BoulderParameters::default();
+    for (scale, rounded) in [(1, false), (1, true), (2, false), (2, true)] {
+        let extent = 40. * scale as f64;
+        let peak = 18. * scale as f64;
+        let grid = DfmGrid::new(
+            80 * scale + 1,
+            80 * scale + 1,
+            0.5,
+            geo::coord! { x: 0., y: extent },
+        )
+        .unwrap();
+        let mut dem = Dfm::<Elevation>::new(grid);
+        dem.field.fill(0.);
+        let mut points = Vec::new();
+        for y in 0..dem.height() {
+            for x in 0..dem.width() {
+                let p = dem.index2coord(y, x);
+                let radius = (p.x - extent * 0.5).abs().max((p.y - extent * 0.5).abs());
+                // Broad flat or rounded top, then steep sides reaching ground
+                // 4 or 8 m away: beyond the former fixed 3 m search limit.
+                let dome = if rounded {
+                    1. - 0.15 * (radius / (10. * scale as f64)).min(1.).powi(2)
+                } else {
+                    1.
+                };
+                let height = peak
+                    * dome
+                    * (1. - (radius - 10. * scale as f64).max(0.) / (4. * scale as f64)).max(0.);
+                let mut point = PointLaz::new(p.x, p.y, height);
+                point.0.classification = if height > 0. {
+                    Classification::Unclassified
+                } else {
+                    Classification::Ground
+                };
+                points.push(point);
+            }
+        }
+        let bounds = Bounds {
+            min: Vector {
+                x: 0.,
+                y: 0.,
+                z: 0.,
+            },
+            max: Vector {
+                x: extent,
+                y: extent,
+                z: peak,
+            },
+        };
+        let cloud = PointCloud::new(points, bounds);
+        let evidence = compute_boulder_evidence(&cloud, &dem);
+        let hull = geo::Rect::new((0., 0.), (extent, extent)).to_polygon();
+        let objects = boulder_objects(&evidence, &cloud, &dem, &hull, &hull, &params);
+        let (_, symbol, height) = point_result(&objects);
+        assert_eq!(symbol, PointSymbol::LargeBoulder);
+        assert!((height - peak).abs() < 0.01);
+    }
 }
 
 #[test]
@@ -277,7 +432,7 @@ fn a_dense_opaque_broad_crown_is_rejected_by_surface_roughness() {
     assert!(detect(&dem, &cloud).is_empty());
     let params = BoulderParameters {
         maximum_surface_roughness_m: 3.,
-        ..Default::default()
+        ..permissive_parameters()
     };
     let evidence = compute_boulder_evidence(&cloud, &dem);
     let hull = geo::Rect::new((0., 0.), (40., 40.)).to_polygon();
@@ -319,10 +474,9 @@ fn a_smooth_opaque_pointed_crown_is_rejected_even_with_a_dense_tip() {
     }
     assert!(detect(&dem, &cloud).is_empty());
     let params = BoulderParameters {
-        minimum_top_area_m2: 0.,
         minimum_top_fraction: 0.,
         maximum_surface_roughness_m: 3.,
-        ..Default::default()
+        ..permissive_parameters()
     };
     let evidence = compute_boulder_evidence(&cloud, &dem);
     let hull = geo::Rect::new((0., 0.), (40., 40.)).to_polygon();
@@ -469,7 +623,7 @@ fn a_gentle_non_ground_mound_is_rejected_by_its_sides() {
             cloud.points.push(point);
         }
     }
-    let params = BoulderParameters::default();
+    let params = permissive_parameters();
     let evidence = compute_boulder_evidence(&cloud, &dem);
     let response = evidence.filtered_surface(1.5, &params);
     let cells = (0..dem.field.len())
@@ -678,7 +832,7 @@ fn surface_return_opacity_is_configurable() {
     assert!(detect(&dem, &cloud).is_empty());
     let params = BoulderParameters {
         maximum_nonterminal_fraction: 0.6,
-        ..Default::default()
+        ..permissive_parameters()
     };
     assert_eq!(detect_with_params(&dem, &cloud, &params).len(), 1);
 }
@@ -714,7 +868,7 @@ fn minimum_height_changes_acceptance_without_changing_symbol_height_rules() {
     let (dem, mut cloud) = block(2, false);
     let params = BoulderParameters {
         minimum_height_m: 1.,
-        ..Default::default()
+        ..permissive_parameters()
     };
     for height in [1., 1.25, 2., 2.01] {
         for point in &mut cloud.points[..50] {
@@ -735,13 +889,13 @@ fn minimum_height_changes_acceptance_without_changing_symbol_height_rules() {
     }
     let params = BoulderParameters {
         minimum_height_m: 4.,
-        ..Default::default()
+        ..permissive_parameters()
     };
     assert!(detect_with_params(&dem, &cloud, &params).is_empty());
 }
 
 #[test]
-fn minimum_surface_area_uses_observed_cells_and_has_no_hidden_eight_cell_floor() {
+fn footprint_width_uses_observed_cells_and_has_no_hidden_eight_cell_floor() {
     let (dem, mut cloud) = block(1, false);
     cloud.points.retain(|point| point.0.z == 0.);
     for (x, y) in [(40, 40), (39, 40), (41, 40), (40, 39), (40, 41)] {
@@ -753,17 +907,14 @@ fn minimum_surface_area_uses_observed_cells_and_has_no_hidden_eight_cell_floor()
         }
     }
     let mut params = BoulderParameters {
-        minimum_area_m2: 2.,
-        ..Default::default()
+        maximum_height_to_diameter: 2.3,
+        ..permissive_parameters()
     };
+    // Five cells cover 1.25 m²; their equivalent width is 1.26 m, rather
+    // than the 1.69 m width implied by filling their 3 × 3 bounding box.
     assert!(detect_with_params(&dem, &cloud, &params).is_empty());
-    params.minimum_area_m2 = 1.;
+    params.maximum_height_to_diameter = 2.4;
     assert_eq!(detect_with_params(&dem, &cloud, &params).len(), 1);
-    params.minimum_area_m2 = 1.26;
-    assert!(detect_with_params(&dem, &cloud, &params).is_empty());
-    let (dem, cloud) = block(2, false);
-    params.minimum_area_m2 = 7.;
-    assert!(detect_with_params(&dem, &cloud, &params).is_empty());
 }
 
 #[test]
@@ -790,7 +941,7 @@ fn single_and_multi_return_last_hits_both_count_as_support() {
 #[test]
 fn neighboring_cut_tiles_emit_a_boundary_boulder_once() {
     let (dem, cloud) = rock(3., false, 0.);
-    let params = BoulderParameters::default();
+    let params = permissive_parameters();
     let evidence = compute_boulder_evidence(&cloud, &dem);
     let hull = geo::Rect::new((0., 0.), (40., 40.)).to_polygon();
     let position = point_result(&detect(&dem, &cloud)).0;
@@ -847,7 +998,7 @@ fn boulders_below_one_metre_are_never_accepted() {
     let (dem, mut cloud) = block(2, false);
     let params = BoulderParameters {
         minimum_height_m: 0.1,
-        ..Default::default()
+        ..permissive_parameters()
     };
     for point in &mut cloud.points[..50] {
         point.0.z = 0.99;
@@ -962,8 +1113,8 @@ fn dense_tree_skirts_connected_to_a_tall_crown_are_rejected() {
             point.0.classification = class;
         }
         // The low skirt alone looks exactly like a broad solid block.
-        // Higher branches connect it to a tall crown, including echoes
-        // above the detector's height ceiling.
+        // Higher branches connect it to a tall crown throughout the full
+        // vertical return profile.
         for y in 39..=41 {
             for x in 39..=41 {
                 let p = dem.index2coord(y, x);
@@ -1179,7 +1330,7 @@ fn small_high_surface_fragments_require_boulder_proportions() {
     assert!(detect(&dem, &cloud).is_empty());
     let params = BoulderParameters {
         maximum_height_to_diameter: 4.,
-        ..Default::default()
+        ..permissive_parameters()
     };
     assert_eq!(detect_with_params(&dem, &cloud, &params).len(), 1);
 }

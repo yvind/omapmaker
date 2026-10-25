@@ -35,8 +35,8 @@ pub(super) fn check(
             let mut occupied = [false; LAYERS];
             checked_cells += 1;
             for &index in evidence.points_in_cell(cell) {
-                // Includes first, intermediate and last echoes, and heights
-                // above the boulder ceiling. Removing these hides the tree.
+                // Includes first, intermediate and last echoes throughout
+                // the vertical profile. Removing these hides the tree.
                 let z = f64::from(evidence.heights_above_ground[index]);
                 maximum = maximum.max(z);
                 let above = z - height - LAYER_THICKNESS_M;

@@ -118,16 +118,9 @@ pub(super) fn classify(
         },
     );
     let cell_size = dem.grid.cell_size_m;
-    let area = cells.len() as f64 * cell_size.powi(2);
-    let equivalent_diameter = (4. * area / std::f64::consts::PI).sqrt();
     let diameter = ((max_x - min_x + 1) as f64).hypot((max_y - min_y + 1) as f64) * cell_size;
     let compactness = cells.len() as f64 / ((max_x - min_x + 1) * (max_y - min_y + 1)) as f64;
-    if cells.len() < 4
-        || area < params.minimum_area_m2
-        || equivalent_diameter < params.minimum_diameter_m
-        || diameter > params.maximum_diameter_m
-        || compactness < 0.4
-    {
+    if cells.len() < 4 || compactness < 0.4 {
         return Err(Rejection::Shape);
     }
     let count = cells.len() as f64;
@@ -151,7 +144,7 @@ pub(super) fn classify(
     }
     let spread = (xx - yy).hypot(2. * xy);
     let elongation = ((xx + yy + spread) / (xx + yy - spread).max(1e-9)).sqrt();
-    if elongation > params.maximum_elongation.max(1.) {
+    if elongation > 2.5 {
         return Err(Rejection::Shape);
     }
 
@@ -208,16 +201,14 @@ pub(super) fn classify(
             .then(a.0.number_of_returns.cmp(&b.0.number_of_returns))
     });
     support.dedup_by(|(a, _), (b, _)| a.x() == b.x() && a.y() == b.y() && a.0.z == b.0.z);
-    if support.len() < params.minimum_point_support.max(6) || surface_heights.len() < 4 {
+    if support.len() < 6 || surface_heights.len() < 4 {
         return Err(Rejection::Support);
     }
     // Sparse rocks often have just one observation at their highest point.
     // Validate that peak against a neighboring surface cell instead of always
     // deleting the highest return with a percentile rounded downward.
     let height = surface::supported_peak(&surface_heights, dem).ok_or(Rejection::Support)?;
-    if height < f64::from(params.minimum_height_m.max(1.))
-        || height > f64::from(params.maximum_height_m)
-    {
+    if height < f64::from(params.minimum_height_m.max(1.)) {
         return Err(Rejection::Height);
     }
     // A small patch high in a crown can look locally opaque after vegetation
@@ -233,8 +224,18 @@ pub(super) fn classify(
     let surface = surface::shape(&surface_heights, dem, height, params)?;
     let opacity = opacity::check(&surface_heights, evidence, cloud, dem, params)?;
 
-    let sides = sides::grounded_runoffs(&surface_heights, evidence, cloud, dem, center, params)
-        .ok_or(Rejection::Sides)?;
+    let sides = sides::grounded_runoffs(
+        &surface_heights,
+        evidence,
+        cloud,
+        dem,
+        center,
+        height,
+        params,
+    )
+    .ok_or(Rejection::Sides)?;
+    // Physical checks decide acceptance; this score ranks accepted boulders
+    // when their symbols compete for map space.
     let confidence = 0.2 * sides.grounded_fraction
         + 0.35 * (1. - opacity.under_surface_fraction)
         + 0.25 * (1. - opacity.nonterminal_fraction)
@@ -246,9 +247,6 @@ pub(super) fn classify(
         } else {
             0.
         };
-    if confidence < f64::from(params.confidence_threshold) {
-        return Err(Rejection::Confidence);
-    }
     // Choose a supported upper-surface return nearest its robust centroid.
     // Extreme outliers cannot control either the symbol height or placement.
     let upper = support
