@@ -38,9 +38,9 @@ The written omap-file is automatically georeferenced.
 - Experimental undergrowth (409), using returns 0.2 - 0.8 m above ground, and boulder fields (211), using rough terrain and coherent near-ground surfaces.
 Undergrowth over green darkens it by one shade (406 → 408 → 410), over boulder fields it becomes green so the two patterns never overlap.
 - Experimental Marsh detection based on catchment area
+- Experimental vegetation boundaries (416) from sharp canopy-height edges
 
 ### Wish List:
-- Vegetation boundaries
 - Road/path detection
 - Lidar CRS transformation
 
@@ -61,11 +61,7 @@ generation step** in each adjustment panel to choose which features to generate.
 Disabled steps are omitted from both the
 preview and the exported map; their parameter settings are kept for re-enabling.
 
-The preview renderer lives in `src/rendering`, adapted from the private
-`omap-projects` renderer and its paper-geometry helpers. Its source is included
-in this repository, so building OmapMaker requires no sibling checkout.
-Symbol visibility and map opacity can still be adjusted over the background map;
-maps without a CRS use a local planar preview.
+Symbol visibility and map opacity can be adjusted over the background map, maps without a CRS use a local planar preview.
 
 #### Contour tuning
 ![Contour tuning in OmapMaker](./readme_images/contours.png)

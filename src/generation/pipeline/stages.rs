@@ -251,6 +251,13 @@ pub fn compute_tile_cancellable(
     }
 
     if steps.vegetation && params.vegetation.enabled {
+        objects.extend(generation::features::compute_vegetation_boundaries(
+            &tile.rasters.canopy_height,
+            &tile.rasters.point_density,
+            &tile.hull,
+            &tile.cut_overlay,
+            &params.vegetation.boundaries,
+        ));
         let ndvd = tile.rasters.compute_ndvd(params.vegetation.weights);
         for (threshold, symbol) in [
             (params.vegetation.green.0, AreaSymbol::LightGreen),
@@ -548,6 +555,40 @@ mod tests {
                 assert_eq!(object.intersection(&building).unsigned_area(), 0.);
             }
         }
+    }
+
+    #[test]
+    fn roof_edges_are_removed_from_vegetation_boundaries() {
+        use crate::map::LineSymbol;
+        use geo::Intersects;
+
+        let building = geo::Rect::new((10., 10.), (30., 30.)).to_polygon();
+        let mut objects = vec![
+            MapObject::Area {
+                object: building.clone(),
+                symbol: AreaSymbol::Building,
+                tags: Default::default(),
+            },
+            MapObject::Line {
+                object: geo::LineString::from(vec![(0., 10.), (40., 10.)]),
+                symbol: LineSymbol::ClearVegetationBoundary,
+                tags: Default::default(),
+            },
+        ];
+        resolve_building_conflicts(&mut objects);
+        let lines = objects
+            .iter()
+            .filter_map(|object| match object {
+                MapObject::Line {
+                    object,
+                    symbol: LineSymbol::ClearVegetationBoundary,
+                    ..
+                } => Some(object),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().all(|line| !building.intersects(*line)));
     }
 
     #[test]

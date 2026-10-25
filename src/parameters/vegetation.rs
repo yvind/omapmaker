@@ -8,6 +8,31 @@ pub struct VegetationParameters {
     pub undergrowth_enabled: bool,
     /// Threshold on the supported 0.2–0.8 m vegetation score.
     pub undergrowth_threshold: f32,
+    pub boundaries: VegetationBoundaryParameters,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VegetationBoundaryParameters {
+    pub enabled: bool,
+    /// Gaussian standard deviation in ground metres; zero disables smoothing.
+    pub smoothing_m: f64,
+    pub minimum_height_change_m: f32,
+    /// Minimum canopy-height gradient in metres of height per ground metre.
+    pub minimum_gradient: f32,
+    /// Applied after clipping and stitching tile fragments, in ground metres.
+    pub minimum_length_m: f64,
+}
+
+impl Default for VegetationBoundaryParameters {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            smoothing_m: 0.75,
+            minimum_height_change_m: 3.,
+            minimum_gradient: 1.,
+            minimum_length_m: 20.,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,6 +53,7 @@ impl Default for VegetationParameters {
             yellow: 0.01,
             undergrowth_enabled: true,
             undergrowth_threshold: 0.5,
+            boundaries: Default::default(),
         }
     }
 }

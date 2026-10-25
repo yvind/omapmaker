@@ -61,5 +61,28 @@ impl OmapMaker {
             egui::Slider::new(&mut vegetation.undergrowth_threshold, 0.1..=0.9)
                 .text("Undergrowth threshold"),
         );
+
+        ui.add_space(20.);
+        let boundaries = &mut vegetation.boundaries;
+        ui.checkbox(&mut boundaries.enabled, "Clear vegetation boundaries (416)")
+            .on_hover_text("Trace sharp changes in canopy height. Only continuous edges longer than the minimum length are emitted.");
+        ui.add_enabled_ui(boundaries.enabled, |ui| {
+            ui.add(
+                egui::Slider::new(&mut boundaries.minimum_height_change_m, 0.5..=15.)
+                    .text("Minimum height change (m)"),
+            ).on_hover_text("Required canopy-height difference across the edge.");
+            ui.add(
+                egui::Slider::new(&mut boundaries.minimum_gradient, 0.1..=5.)
+                    .text("Minimum sharpness (m/m)"),
+            ).on_hover_text("Minimum height change per ground metre after smoothing. Increase this to reject gradual transitions.");
+            ui.add(
+                egui::Slider::new(&mut boundaries.minimum_length_m, 5.0..=100.)
+                    .text("Minimum boundary length (m)"),
+            ).on_hover_text("Applied to continuous lines after clipping and joining adjacent tiles.");
+            ui.add(
+                egui::Slider::new(&mut boundaries.smoothing_m, 0.0..=3.)
+                    .text("Canopy smoothing (m)"),
+            ).on_hover_text("Gaussian smoothing suppresses individual crown fluctuations. Zero disables smoothing.");
+        });
     }
 }

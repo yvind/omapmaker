@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::OnceLock};
 
 use crate::parameters::Scale;
 
-const LINE_SYMBOLS: [LineSymbol; 8] = [
+const LINE_SYMBOLS: [LineSymbol; 9] = [
     LineSymbol::BasemapContour,
     LineSymbol::FormLine,
     LineSymbol::Contour,
@@ -11,6 +11,7 @@ const LINE_SYMBOLS: [LineSymbol; 8] = [
     LineSymbol::SmallCrossableWatercourse,
     LineSymbol::Cliff,
     LineSymbol::ImpassableCliff,
+    LineSymbol::ClearVegetationBoundary,
 ];
 
 fn default_omap_line_minimum_lengths(scale: Scale) -> &'static HashMap<LineSymbol, f64> {
@@ -170,6 +171,7 @@ pub enum LineSymbol {
     SmallCrossableWatercourse,
     Cliff,
     ImpassableCliff,
+    ClearVegetationBoundary,
 }
 
 impl LineSymbol {
@@ -183,6 +185,7 @@ impl LineSymbol {
             LineSymbol::SmallCrossableWatercourse => omap::Code::new(305, 0, 0),
             LineSymbol::Cliff => omap::Code::new(202, 0, 0),
             LineSymbol::ImpassableCliff => omap::Code::new(201, 0, 0),
+            LineSymbol::ClearVegetationBoundary => omap::Code::new(416, 0, 0),
         }
     }
 
@@ -207,6 +210,8 @@ impl LineSymbol {
             LineSymbol::SmallCrossableWatercourse => 15.,
             LineSymbol::Cliff => 9.,
             LineSymbol::ImpassableCliff => 9.,
+            // The vegetation step supplies a tunable length in ground metres.
+            LineSymbol::ClearVegetationBoundary => 0.,
         };
         let multiplier = match scale {
             Scale::S10_000 => 2. / 3.,
@@ -219,6 +224,19 @@ impl LineSymbol {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clear_vegetation_boundary_uses_416_at_both_scales() {
+        let symbol = LineSymbol::ClearVegetationBoundary;
+        assert_eq!(symbol.get_code(), omap::Code::new(416, 0, 0));
+        for map in [
+            omap::Omap::default_10_000().unwrap(),
+            omap::Omap::default_15_000().unwrap(),
+        ] {
+            let reference = map.symbols.find_by_code(symbol.get_code()).unwrap();
+            assert!(matches!(reference.symbol(), omap::symbols::Symbol::Line(_)));
+        }
+    }
 
     #[test]
     fn ground_cover_symbols_exist_as_areas_at_both_scales() {

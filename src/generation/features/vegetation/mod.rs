@@ -1,7 +1,9 @@
 #![allow(clippy::too_many_arguments)]
 
 mod bands;
+mod boundaries;
 pub(super) use bands::{HeightBand, height_band};
+pub(crate) use boundaries::compute_vegetation_boundaries;
 
 use std::collections::HashMap;
 

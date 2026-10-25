@@ -29,6 +29,7 @@ impl DrawOrder for Symbol {
             Symbol::Point(PointSymbol::SlopeLineContour),
             Symbol::Line(LineSymbol::NegBasemapContour),
             Symbol::Line(LineSymbol::SmallCrossableWatercourse),
+            Symbol::Line(LineSymbol::ClearVegetationBoundary),
             Symbol::Point(PointSymbol::DotKnoll),
             Symbol::Point(PointSymbol::ElongatedDotKnoll),
             Symbol::Point(PointSymbol::UDepression),

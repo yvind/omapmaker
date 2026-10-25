@@ -28,7 +28,7 @@ pub use output::{FileParameters, OutputParameters, Scale};
 pub use terrain_features::{
     BuildingClassificationEvidence, BuildingParameters, CliffAlgorithm, CliffParameters,
 };
-pub use vegetation::{VegetationParameters, VegetationWeights};
+pub use vegetation::{VegetationBoundaryParameters, VegetationParameters, VegetationWeights};
 
 use crate::map::AreaSymbol;
 

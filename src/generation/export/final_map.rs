@@ -672,6 +672,7 @@ pub fn export_map(
     if map_params.contour.form_lines {
         map.filter_formlines_min_length();
     }
+    map.filter_vegetation_boundaries_min_length(map_params.vegetation.boundaries.minimum_length_m);
 
     if map_params.geometry.cliffs.min_size_filter {
         map.filter_cliff_min_size(5. * crate::SIMPLIFICATION_DIST);

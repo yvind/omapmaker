@@ -271,6 +271,24 @@ impl InternalMap {
         map_objects.extend(others);
     }
 
+    /// Measure only after tile fragments have been stitched. Short edges must
+    /// not qualify by proximity to another disconnected canopy-height edge.
+    pub fn filter_vegetation_boundaries_min_length(&mut self, minimum_length_m: f64) {
+        if let Some(objects) = self
+            .objects
+            .get_mut(&LineSymbol::ClearVegetationBoundary.into())
+        {
+            objects.retain(|object| {
+                matches!(object,
+                    MapObject::Line { object, .. }
+                        if minimum_length_m.is_finite()
+                            && minimum_length_m >= 0.
+                            && Euclidean.length(object) > minimum_length_m
+                )
+            });
+        }
+    }
+
     /// Merge line objects that are tip to tail.
     /// Line ends (directed) of the same symbol that are less than `delta`
     /// units apart are merged. For contour symbols, elevation tags are
@@ -328,7 +346,12 @@ impl InternalMap {
             {
                 continue;
             }
+            // Offset sampling grids can displace an edge slightly at a tile
+            // seam. Interior endpoints still require an exact match below.
             let delta = match symbol_override {
+                _ if line_symbol == LineSymbol::ClearVegetationBoundary => {
+                    2. * crate::CELL_SIZE_METERS
+                }
                 Some((symbol, delta)) if line_symbol == symbol => delta,
                 _ => default_delta,
             };
@@ -391,23 +414,30 @@ impl InternalMap {
 
                 let mut merges = Vec::with_capacity(line_starts.len());
                 for (start_i, line_start) in line_starts.iter().enumerate() {
-                    if let Some(nn) =
-                        end_tree
-                            .nearest_neighbor_iter(*line_start)
-                            .find(|candidate| {
-                                if !allow_self_merge && start_i == candidate.data {
-                                    return false;
-                                }
-                                let seam_merge = unclosed_objects[candidate.data]
-                                    .ends_at_tile_boundary()
-                                    && unclosed_objects[start_i].starts_at_tile_boundary();
-                                let candidate_delta = if exact_contour_merge && !seam_merge {
-                                    1e-16
-                                } else {
-                                    delta
-                                };
-                                candidate.distance_2(line_start) <= candidate_delta
-                            })
+                    if let Some(nn) = end_tree
+                        .nearest_neighbor_iter(*line_start)
+                        .take_while(|candidate| {
+                            candidate.distance_2(line_start) <= delta.max(1e-16)
+                        })
+                        .find(|candidate| {
+                            if !allow_self_merge && start_i == candidate.data {
+                                return false;
+                            }
+                            let seam_merge = unclosed_objects[candidate.data]
+                                .ends_at_tile_boundary()
+                                && unclosed_objects[start_i].starts_at_tile_boundary();
+                            let candidate_delta = if line_symbol
+                                == LineSymbol::ClearVegetationBoundary
+                                && !seam_merge
+                            {
+                                1e-12
+                            } else if exact_contour_merge && !seam_merge {
+                                1e-16
+                            } else {
+                                delta
+                            };
+                            candidate.distance_2(line_start) <= candidate_delta
+                        })
                     {
                         merges.push((start_i, nn.data));
                     }

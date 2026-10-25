@@ -32,5 +32,5 @@ pub(crate) use marsh::{MarshDetection, compute_marsh_detection, marsh_objects};
 pub(crate) use streams::compute_streams;
 pub(crate) use surface_features::{SurfaceFeatureRasters, compute_surface_features};
 pub(crate) use terrain::{ComputedDfms, compute_dfms, compute_ndvd};
-pub(crate) use vegetation::compute_vegetation;
+pub(crate) use vegetation::{compute_vegetation, compute_vegetation_boundaries};
 pub(crate) use water::{compute_water_extent, compute_water_probability};

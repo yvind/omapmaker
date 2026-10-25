@@ -124,6 +124,11 @@ impl MapObject {
     }
 
     pub fn mark_contour_tile_boundary_endpoints(&mut self, start: bool, end: bool) {
+        self.mark_tile_boundary_endpoints(start, end);
+    }
+
+    /// Shared seam markers for directed contours and vegetation boundaries.
+    pub fn mark_tile_boundary_endpoints(&mut self, start: bool, end: bool) {
         if let MapObject::Line { tags, .. } = self {
             if start {
                 tags.insert(CONTOUR_START_TILE_BOUNDARY_TAG.to_string(), String::new());

@@ -11,7 +11,6 @@ use rayon::{ThreadPool, prelude::*};
 pub(crate) struct PreviewUpdate {
     pub(crate) document: InternalMap,
     pub(crate) contour_score: Option<(f32, f32)>,
-    pub(crate) boulder_summary: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -129,6 +128,7 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(AreaSymbol::MediumGreen, 0);
         omap.reserve_capacity(AreaSymbol::DarkGreen, 0);
         omap.reserve_capacity(AreaSymbol::Undergrowth, 0);
+        omap.reserve_capacity(LineSymbol::ClearVegetationBoundary, 0);
     }
     if steps.buildings {
         omap.reserve_capacity(AreaSymbol::Building, 0);
@@ -170,8 +170,11 @@ pub fn regenerate_map_tile(
         );
     } else if steps.contours || steps.cliffs {
         omap.merge_lines(5. * crate::SIMPLIFICATION_DIST);
-    } else if steps.streams {
+    } else if steps.streams || steps.vegetation {
         omap.merge_lines(params.streams.endpoint_merge_distance_m);
+    }
+    if steps.vegetation {
+        omap.filter_vegetation_boundaries_min_length(params.vegetation.boundaries.minimum_length_m);
     }
     if steps.contours && params.contour.form_lines {
         omap.filter_formlines_min_length();
@@ -214,24 +217,9 @@ pub fn regenerate_map_tile(
         None
     };
 
-    let boulder_summary = (steps.boulders && params.boulder.enabled).then(|| {
-        let large = omap
-            .objects
-            .get(&PointSymbol::LargeBoulder.into())
-            .map_or(0, Vec::len);
-        let small = omap
-            .objects
-            .get(&PointSymbol::SmallBoulder.into())
-            .map_or(0, Vec::len);
-        format!(
-            "{}; mapped after building/cliff/spacing checks: {large} large, {small} small",
-            boulder_diagnostics.summary()
-        )
-    });
     Ok(Some(PreviewUpdate {
         document: omap,
         contour_score,
-        boulder_summary,
     }))
 }
 
@@ -284,6 +272,7 @@ fn changed_steps(
         || new.vegetation.weights != old.vegetation.weights
         || new.vegetation.undergrowth_enabled != old.vegetation.undergrowth_enabled
         || new.vegetation.undergrowth_threshold != old.vegetation.undergrowth_threshold
+        || new.vegetation.boundaries != old.vegetation.boundaries
         || new.geometry.vegetation != old.geometry.vegetation;
     let buildings_changed =
         new.building != old.building || new.geometry.buildings != old.geometry.buildings;
@@ -486,6 +475,30 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boundary_controls_refresh_the_vegetation_preview() {
+        let old = MapParameters::default();
+        for mutate in [
+            (|p: &mut MapParameters| p.vegetation.boundaries.enabled = false)
+                as fn(&mut MapParameters),
+            |p| p.vegetation.boundaries.minimum_height_change_m += 1.,
+            |p| p.vegetation.boundaries.minimum_gradient += 0.5,
+            |p| p.vegetation.boundaries.minimum_length_m += 5.,
+            |p| p.vegetation.boundaries.smoothing_m += 0.5,
+        ] {
+            let mut new = old.clone();
+            mutate(&mut new);
+            let steps = changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Vegetation),
+            );
+            assert!(steps.vegetation);
+            assert!(!steps.contours && !steps.cliffs && !steps.boulders);
+        }
+    }
 
     #[test]
     fn ground_cover_changes_refresh_fields_and_vegetation_without_individual_boulders() {

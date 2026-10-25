@@ -1,5 +1,5 @@
-use crate::map::{AreaSymbol, MapObject};
-use geo::{Area, BooleanOps};
+use crate::map::{AreaSymbol, LineSymbol, MapObject};
+use geo::{Area, BooleanOps, Buffer};
 
 pub(super) fn resolve_building_conflicts(objects: &mut Vec<MapObject>) {
     let footprints = geo::MultiPolygon::new(
@@ -18,10 +18,27 @@ pub(super) fn resolve_building_conflicts(objects: &mut Vec<MapObject>) {
     if footprints.0.is_empty() {
         return;
     }
+    // The canopy raster includes roofs. Leave a cell of clearance around
+    // mapped buildings so roof edges cannot become vegetation boundaries.
+    let boundary_exclusions = footprints.buffer(crate::CELL_SIZE_METERS);
 
     let mut resolved = Vec::with_capacity(objects.len());
     for object in objects.drain(..) {
         match object {
+            MapObject::Line {
+                object,
+                symbol: LineSymbol::ClearVegetationBoundary,
+                tags,
+            } => resolved.extend(
+                boundary_exclusions
+                    .clip(&geo::MultiLineString::new(vec![object]), true)
+                    .into_iter()
+                    .map(|object| MapObject::Line {
+                        object,
+                        symbol: LineSymbol::ClearVegetationBoundary,
+                        tags: tags.clone(),
+                    }),
+            ),
             MapObject::Area {
                 object,
                 symbol:

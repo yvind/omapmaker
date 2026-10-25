@@ -550,6 +550,64 @@ mod tests {
     }
 
     #[test]
+    fn disabling_vegetation_boundaries_clears_their_preview_layer() {
+        use crate::{
+            cancellation::CancellationToken,
+            generation::{
+                pipeline::{PipelineSteps, compute_tile},
+                preview::{MapPreviewSection, RegenerationScope, regenerate_map_tile},
+            },
+            map::LineSymbol,
+        };
+
+        let mut tile = test_tile();
+        tile.rasters.point_density.field.fill(8.);
+        let canopy = &mut tile.rasters.canopy_height;
+        for y in 0..canopy.height() {
+            for x in 0..canopy.width() {
+                canopy[(y, x)] = if x >= canopy.width() / 2 { 14. } else { 2. };
+            }
+        }
+        let old = MapParameters::default();
+        let output = compute_tile(
+            &tile,
+            &old,
+            PipelineSteps {
+                vegetation: true,
+                ..Default::default()
+            },
+            false,
+        )
+        .unwrap();
+        assert!(
+            output
+                .objects
+                .iter()
+                .any(|object| object.get_symbol() == LineSymbol::ClearVegetationBoundary.into())
+        );
+
+        let mut params = old.clone();
+        params.vegetation.boundaries.enabled = false;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let update = regenerate_map_tile(
+            &pool,
+            &[tile],
+            geo::coord! { x: 0., y: 0. },
+            &params,
+            &Some(old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Vegetation),
+            &CancellationToken::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(update.document.objects[&LineSymbol::ClearVegetationBoundary.into()].is_empty());
+    }
+
+    #[test]
     fn disabled_generation_steps_skip_work_and_clear_preview_layers() {
         use crate::{
             cancellation::CancellationToken,
@@ -628,7 +686,7 @@ mod tests {
         .unwrap()
         .unwrap();
         // Empty entries replace previously generated objects in the preview.
-        let cleared: [Symbol; 25] = [
+        let cleared: [Symbol; 26] = [
             LineSymbol::BasemapContour.into(),
             LineSymbol::NegBasemapContour.into(),
             LineSymbol::Contour.into(),
@@ -644,6 +702,7 @@ mod tests {
             AreaSymbol::MediumGreen.into(),
             AreaSymbol::DarkGreen.into(),
             AreaSymbol::Undergrowth.into(),
+            LineSymbol::ClearVegetationBoundary.into(),
             AreaSymbol::BoulderField.into(),
             AreaSymbol::Building.into(),
             AreaSymbol::GiganticBoulder.into(),
@@ -734,7 +793,6 @@ mod tests {
         assert!(area(&updated.document, AreaSymbol::Undergrowth) > initial_hatching + 500.);
         assert!(updated.document.objects[&Symbol::Area(AreaSymbol::BoulderField)].is_empty());
         assert!(updated.document.objects[&Symbol::Area(AreaSymbol::LightGreen)].is_empty());
-        assert!(updated.boulder_summary.is_none());
         for point in [PointSymbol::SmallBoulder, PointSymbol::LargeBoulder] {
             assert!(!updated.document.objects.contains_key(&Symbol::Point(point)));
         }

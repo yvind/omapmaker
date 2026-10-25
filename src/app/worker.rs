@@ -264,9 +264,6 @@ impl Worker {
                                 / 2.,
                         ) {
                             Ok(map) => {
-                                if let Some(summary) = update.boulder_summary {
-                                    let _ = self.comms.send(AppEvent::Log(summary));
-                                }
                                 if let Some(score) = update.contour_score {
                                     let _ = self.comms.send(AppEvent::UpdateVariable(
                                         Variable::ContourScore(job_id, score),
