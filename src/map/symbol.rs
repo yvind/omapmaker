@@ -98,6 +98,8 @@ pub enum AreaSymbol {
     LightGreen,
     MediumGreen,
     DarkGreen,
+    Undergrowth,
+    BoulderField,
     Marsh,
     PrivateArea,
     PavedAreaWithBoundary,
@@ -117,6 +119,8 @@ impl AreaSymbol {
             AreaSymbol::LightGreen => omap::Code::new(406, 0, 0),
             AreaSymbol::MediumGreen => omap::Code::new(408, 0, 0),
             AreaSymbol::DarkGreen => omap::Code::new(410, 0, 0),
+            AreaSymbol::Undergrowth => omap::Code::new(409, 0, 0),
+            AreaSymbol::BoulderField => omap::Code::new(211, 0, 0),
             AreaSymbol::Marsh => omap::Code::new(308, 0, 0),
             AreaSymbol::PrivateArea => omap::Code::new(520, 0, 0),
             AreaSymbol::PavedAreaWithBoundary => omap::Code::new(501, 0, 0),
@@ -138,6 +142,8 @@ impl AreaSymbol {
             AreaSymbol::LightGreen => 225.,
             AreaSymbol::MediumGreen => 110.,
             AreaSymbol::DarkGreen => 64.,
+            AreaSymbol::Undergrowth => 110.,
+            AreaSymbol::BoulderField => 64.,
             AreaSymbol::Marsh => 45.,
             AreaSymbol::PrivateArea => 225.,
             AreaSymbol::PavedAreaWithBoundary => 225.,
@@ -213,6 +219,23 @@ impl LineSymbol {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ground_cover_symbols_exist_as_areas_at_both_scales() {
+        assert_eq!(
+            AreaSymbol::BoulderField.get_code(),
+            omap::Code::new(211, 0, 0)
+        );
+        for map in [
+            omap::Omap::default_10_000().unwrap(),
+            omap::Omap::default_15_000().unwrap(),
+        ] {
+            for symbol in [AreaSymbol::Undergrowth, AreaSymbol::BoulderField] {
+                let reference = map.symbols.find_by_code(symbol.get_code()).unwrap();
+                assert!(matches!(reference.symbol(), omap::symbols::Symbol::Area(_)));
+            }
+        }
+    }
 
     #[test]
     fn line_minimum_lengths_match_the_bundled_omap_symbols() {

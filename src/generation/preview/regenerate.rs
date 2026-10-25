@@ -90,7 +90,7 @@ pub fn regenerate_map_tile(
         omap.merge_areas(AreaSymbol::Building, 2. * crate::SIMPLIFICATION_DIST)?;
     }
 
-    let min_size_filter_symbols = params.min_size_filter_symbols(
+    let mut min_size_filter_symbols = params.min_size_filter_symbols(
         steps.openness,
         steps.vegetation,
         steps.buildings,
@@ -98,7 +98,15 @@ pub fn regenerate_map_tile(
         steps.intensity,
         steps.water || steps.marsh,
     );
+    if steps.boulder_fields
+        && params.boulder_fields.enabled
+        && params.geometry.boulder_fields.min_size_filter
+    {
+        min_size_filter_symbols.push(AreaSymbol::BoulderField);
+    }
     omap.merge_and_filter_min_size(min_size_filter_symbols)?;
+
+    omap.resolve_ground_cover_conflicts();
 
     if old_params.is_none() {
         // remove empty hashmap entries
@@ -120,6 +128,7 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(AreaSymbol::LightGreen, 0);
         omap.reserve_capacity(AreaSymbol::MediumGreen, 0);
         omap.reserve_capacity(AreaSymbol::DarkGreen, 0);
+        omap.reserve_capacity(AreaSymbol::Undergrowth, 0);
     }
     if steps.buildings {
         omap.reserve_capacity(AreaSymbol::Building, 0);
@@ -128,6 +137,9 @@ pub fn regenerate_map_tile(
         omap.reserve_capacity(AreaSymbol::GiganticBoulder, 0);
         omap.reserve_capacity(LineSymbol::Cliff, 0);
         omap.reserve_capacity(LineSymbol::ImpassableCliff, 0);
+    }
+    if steps.boulder_fields {
+        omap.reserve_capacity(AreaSymbol::BoulderField, 0);
     }
     if steps.boulders {
         omap.reserve_capacity(PointSymbol::SmallBoulder, 0);
@@ -233,6 +245,7 @@ fn changed_steps(
 
     let Some(old) = old else {
         force_scope(&mut steps, scope);
+        include_ground_cover_dependencies(&mut steps, preview_section_reached);
         limit_to_reached_sections(&mut steps, preview_section_reached);
         return steps;
     };
@@ -249,6 +262,7 @@ fn changed_steps(
             buildings: true,
             cliffs: true,
             boulders: true,
+            boulder_fields: true,
             intensity: true,
             water: true,
             streams: true,
@@ -268,6 +282,8 @@ fn changed_steps(
     steps.vegetation = new.vegetation.enabled != old.vegetation.enabled
         || new.vegetation.green != old.vegetation.green
         || new.vegetation.weights != old.vegetation.weights
+        || new.vegetation.undergrowth_enabled != old.vegetation.undergrowth_enabled
+        || new.vegetation.undergrowth_threshold != old.vegetation.undergrowth_threshold
         || new.geometry.vegetation != old.geometry.vegetation;
     let buildings_changed =
         new.building != old.building || new.geometry.buildings != old.geometry.buildings;
@@ -290,6 +306,9 @@ fn changed_steps(
     steps.streams = new.streams != old.streams || new.geometry.streams != old.geometry.streams;
     steps.marsh = new.marsh != old.marsh || new.geometry.marsh != old.geometry.marsh || steps.water;
     steps.boulders = new.boulder != old.boulder || buildings_changed || steps.cliffs;
+    steps.boulder_fields = new.boulder_fields != old.boulder_fields
+        || new.geometry.boulder_fields != old.geometry.boulder_fields
+        || buildings_changed;
 
     // Building precedence changes the geometry of these layers. Regenerate
     // the affected counterparts together so incremental preview updates do
@@ -342,8 +361,24 @@ fn changed_steps(
         steps.cliffs = true;
         steps.contours = true;
     }
+    include_ground_cover_dependencies(&mut steps, preview_section_reached);
     limit_to_reached_sections(&mut steps, preview_section_reached);
     steps
+}
+
+/// 211 and 409 share exclusions and promoted green shades. Refresh these
+/// together without running individual-boulder detection or contour fitting.
+fn include_ground_cover_dependencies(
+    steps: &mut PipelineSteps,
+    reached: Option<MapPreviewSection>,
+) {
+    if reached.is_some_and(|section| section >= MapPreviewSection::BoulderFields)
+        && (steps.vegetation || steps.boulder_fields)
+    {
+        steps.vegetation = true;
+        steps.boulder_fields = true;
+        steps.buildings = true;
+    }
 }
 
 fn limit_to_reached_sections(
@@ -373,6 +408,9 @@ fn limit_to_reached_sections(
     }
     if reached < MapPreviewSection::Boulders {
         steps.boulders = false;
+    }
+    if reached < MapPreviewSection::BoulderFields {
+        steps.boulder_fields = false;
     }
     if reached < MapPreviewSection::Water {
         steps.water = false;
@@ -405,6 +443,7 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
             steps.vegetation = true;
             steps.cliffs = true;
             steps.boulders = true;
+            steps.boulder_fields = true;
             steps.intensity = true;
             steps.water = true;
             steps.marsh = true;
@@ -418,6 +457,11 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
             steps.cliffs = true;
             steps.buildings = true;
             steps.contours = true;
+        }
+        RegenerationScope::Section(MapPreviewSection::BoulderFields) => {
+            steps.boulder_fields = true;
+            steps.vegetation = true;
+            steps.buildings = true;
         }
         RegenerationScope::Section(MapPreviewSection::Water) => {
             steps.water = true;
@@ -443,6 +487,68 @@ fn force_scope(steps: &mut PipelineSteps, scope: RegenerationScope) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn ground_cover_changes_refresh_fields_and_vegetation_without_individual_boulders() {
+        let old = MapParameters::default();
+        for mutate in [
+            (|p: &mut MapParameters| p.vegetation.undergrowth_enabled = false)
+                as fn(&mut MapParameters),
+            |p| p.vegetation.undergrowth_threshold += 0.1,
+            |p| p.boulder_fields.enabled = false,
+            |p| p.boulder_fields.threshold += 0.1,
+            |p| p.geometry.boulder_fields.min_size_filter = false,
+        ] {
+            let mut new = old.clone();
+            mutate(&mut new);
+            let steps = changed_steps(
+                &new,
+                Some(&old),
+                RegenerationScope::Changed,
+                Some(MapPreviewSection::Intensity),
+            );
+            assert!(steps.vegetation && steps.boulder_fields && steps.buildings);
+            assert!(!steps.boulders && !steps.cliffs && !steps.contours);
+        }
+        let mut new = old.clone();
+        new.vegetation.undergrowth_enabled = false;
+        let steps = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Vegetation),
+        );
+        assert!(steps.vegetation);
+        assert!(!steps.boulders);
+    }
+
+    #[test]
+    fn field_preview_waits_for_its_own_stage_and_does_not_run_point_detection() {
+        let old = MapParameters::default();
+        let mut new = old.clone();
+        new.boulder_fields.threshold += 0.1;
+        let early = changed_steps(
+            &new,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Boulders),
+        );
+        assert!(!early.boulder_fields);
+        assert!(!early.boulders);
+        let fields = first_generation_steps(MapPreviewSection::BoulderFields);
+        assert!(fields.boulder_fields && fields.vegetation && fields.buildings);
+        assert!(!fields.boulders && !fields.cliffs && !fields.contours);
+        let mut points = old.clone();
+        points.boulder.minimum_height_m += 0.5;
+        let changed = changed_steps(
+            &points,
+            Some(&old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::Intensity),
+        );
+        assert!(changed.boulders);
+        assert!(!changed.boulder_fields && !changed.vegetation);
+    }
+
     fn first_generation_steps(section: MapPreviewSection) -> PipelineSteps {
         changed_steps(
             &MapParameters::default(),
@@ -455,7 +561,7 @@ mod tests {
     #[test]
     fn toggling_any_generation_step_refreshes_its_preview_in_both_directions() {
         let enabled = MapParameters::default();
-        let switches: [fn(&mut MapParameters) -> &mut bool; 11] = [
+        let switches: [fn(&mut MapParameters) -> &mut bool; 12] = [
             |params| &mut params.contour.enabled,
             |params| &mut params.contour.basemap_contour,
             |params| &mut params.vegetation.openness_enabled,
@@ -463,6 +569,7 @@ mod tests {
             |params| &mut params.building.enabled,
             |params| &mut params.cliff.enabled,
             |params| &mut params.boulder.enabled,
+            |params| &mut params.boulder_fields.enabled,
             |params| &mut params.water.enabled,
             |params| &mut params.marsh.enabled,
             |params| &mut params.streams.enabled,
@@ -486,6 +593,7 @@ mod tests {
                     steps.buildings,
                     steps.cliffs,
                     steps.boulders,
+                    steps.boulder_fields,
                     steps.water,
                     steps.marsh,
                     steps.streams,
@@ -500,6 +608,7 @@ mod tests {
     fn boulder_preview_refreshes_conflicts_and_clears_disabled_symbols() {
         let steps = first_generation_steps(MapPreviewSection::Boulders);
         assert!(steps.boulders && steps.contours && steps.cliffs && steps.buildings);
+        assert!(!steps.boulder_fields && !steps.vegetation);
         assert!(!steps.water);
         let old = MapParameters::default();
         let mut new = old.clone();

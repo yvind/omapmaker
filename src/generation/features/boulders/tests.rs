@@ -776,11 +776,10 @@ fn nearby_branches_do_not_veto_an_opaque_surface() {
                 canopy.0.number_of_returns = number_of_returns;
                 cloud.points.push(canopy);
                 let actual = point_result(&detect(&dem, &cloud));
-                if class == Classification::Unclassified && number_of_returns == 1 && height == 3.2
-                {
-                    // A terminal echo only 20 cm above the top with no
-                    // vegetation label is indistinguishable from a rock
-                    // measurement. Keep the candidate within that error.
+                if number_of_returns == 1 && height == 3.2 {
+                    // A terminal echo only 20 cm above the top cannot be
+                    // distinguished from a rock measurement by its label.
+                    // Keep the candidate within that measurement error.
                     assert_eq!(actual.1, expected.1);
                     assert!(
                         (actual.0.x() - expected.0.x()).hypot(actual.0.y() - expected.0.y()) < 0.5
@@ -1081,7 +1080,7 @@ fn a_nearby_penetrable_crown_is_removed_before_grouping_the_rock() {
 }
 
 #[test]
-fn vegetation_labels_cannot_override_an_observed_opaque_rock() {
+fn untrusted_labels_cannot_override_an_observed_opaque_rock() {
     let (dem, original) = rock(3., false, 0.);
     let expected = point_result(&detect(&dem, &original));
     for classification in [

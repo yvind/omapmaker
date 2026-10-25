@@ -5,6 +5,7 @@ pub struct GeometryParameters {
     pub contours: BezierParameters,
     pub openness: BufferedGeometryParameters,
     pub vegetation: BufferedGeometryParameters,
+    pub boulder_fields: BufferedGeometryParameters,
     pub buildings: BuildingGeometryParameters,
     pub cliffs: CliffGeometryParameters,
     pub intensity: BufferedGeometryParameters,
@@ -23,6 +24,8 @@ impl GeometryParameters {
             Symbol::Area(AreaSymbol::LightGreen)
             | Symbol::Area(AreaSymbol::MediumGreen)
             | Symbol::Area(AreaSymbol::DarkGreen) => &self.vegetation.bezier,
+            // Shared exclusions need exact boundaries after conflict clipping.
+            Symbol::Area(AreaSymbol::Undergrowth | AreaSymbol::BoulderField) => return None,
             Symbol::Area(AreaSymbol::Building) => &self.buildings.bezier,
             Symbol::Area(AreaSymbol::GiganticBoulder)
             | Symbol::Line(LineSymbol::Cliff)
@@ -92,6 +95,22 @@ impl Default for GeometryParameters {
             contours: Default::default(),
             openness,
             vegetation,
+            boulder_fields: BufferedGeometryParameters {
+                buffer_rules: vec![
+                    BufferRule {
+                        direction: BufferDirection::Grow,
+                        amount: 2.,
+                        ..Default::default()
+                    },
+                    BufferRule {
+                        direction: BufferDirection::Shrink,
+                        amount: 2.,
+                        ..Default::default()
+                    },
+                ],
+                min_size_filter: true,
+                ..Default::default()
+            },
             buildings,
             cliffs,
             intensity: Default::default(),

@@ -16,6 +16,8 @@ impl DrawOrder for Symbol {
             Symbol::Area(AreaSymbol::LightGreen),
             Symbol::Area(AreaSymbol::MediumGreen),
             Symbol::Area(AreaSymbol::DarkGreen),
+            Symbol::Area(AreaSymbol::Undergrowth),
+            Symbol::Area(AreaSymbol::BoulderField),
             Symbol::Area(AreaSymbol::Marsh),
             Symbol::Area(AreaSymbol::PrivateArea),
             Symbol::Area(AreaSymbol::PavedAreaWithBoundary),

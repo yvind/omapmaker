@@ -54,6 +54,7 @@ pub fn compute_tile_map_objects(
             buildings: true,
             cliffs: true,
             boulders: true,
+            boulder_fields: true,
             intensity: true,
             water: true,
             // Hydrological streams are deferred until accumulation has been
@@ -645,12 +646,17 @@ pub fn export_map(
     map.subtract_area_symbol(AreaSymbol::Marsh, AreaSymbol::Building)?;
     map.filter_area_min_size(AreaSymbol::Marsh, map_params.marsh.minimum_polygon_area_m2);
 
-    let min_size_filter_symbols =
+    let mut min_size_filter_symbols =
         map_params.min_size_filter_symbols(true, true, true, true, true, true);
+    if map_params.boulder_fields.enabled && map_params.geometry.boulder_fields.min_size_filter {
+        min_size_filter_symbols.push(AreaSymbol::BoulderField);
+    }
     if !min_size_filter_symbols.is_empty() {
         reporter.log("Filtering polygons by minimum symbol size...".to_string());
         map.merge_and_filter_min_size(min_size_filter_symbols)?;
     }
+
+    map.resolve_ground_cover_conflicts();
 
     reporter.log("Post-processing contours...".to_string());
 

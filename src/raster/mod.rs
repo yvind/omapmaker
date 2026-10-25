@@ -139,6 +139,10 @@ pub struct Water;
 #[derive(Clone, Copy, Debug)]
 pub struct Ndvd;
 #[derive(Clone, Copy, Debug)]
+pub struct Undergrowth;
+#[derive(Clone, Copy, Debug)]
+pub struct BoulderField;
+#[derive(Clone, Copy, Debug)]
 pub struct PointDensity;
 #[derive(Clone, Copy, Debug)]
 pub struct GroundPointDensity;
@@ -250,6 +254,8 @@ continuous_raster_markers!(
     FilteredSurface,
     Water,
     Ndvd,
+    Undergrowth,
+    BoulderField,
     PointDensity,
     GroundPointDensity,
     FlowAccumulation,

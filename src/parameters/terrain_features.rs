@@ -52,7 +52,7 @@ impl Default for BuildingParameters {
             minimum_rectangularity_or_compactness: 0.35,
             maximum_vegetation_fraction: 0.45,
             confidence_threshold: 0.7,
-            class_6_evidence: BuildingClassificationEvidence::Supporting,
+            class_6_evidence: BuildingClassificationEvidence::Authoritative,
             regularize_footprints: true,
             regularization_simplification_tolerance_m: 1.0,
             regularization_parallel_threshold_m: 1.0,
@@ -68,8 +68,8 @@ impl Default for BuildingParameters {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum BuildingClassificationEvidence {
-    Authoritative,
     #[default]
+    Authoritative,
     Supporting,
     Ignore,
 }

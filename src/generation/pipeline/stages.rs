@@ -40,6 +40,7 @@ pub struct PipelineSteps {
     pub buildings: bool,
     pub cliffs: bool,
     pub boulders: bool,
+    pub boulder_fields: bool,
     pub intensity: bool,
     pub water: bool,
     pub streams: bool,
@@ -266,6 +267,29 @@ pub fn compute_tile_cancellable(
                 &params.geometry.vegetation.buffer_rules,
             ));
         }
+    }
+
+    if steps.vegetation && params.vegetation.enabled && params.vegetation.undergrowth_enabled {
+        objects.extend(generation::features::compute_vegetation(
+            &tile.rasters.ground_cover.undergrowth,
+            Threshold::Lower(params.vegetation.undergrowth_threshold),
+            &tile.hull,
+            &tile.cut_overlay,
+            AreaSymbol::Undergrowth,
+            params,
+            &params.geometry.vegetation.buffer_rules,
+        ));
+    }
+    if steps.boulder_fields && params.boulder_fields.enabled {
+        objects.extend(generation::features::compute_vegetation(
+            &tile.rasters.ground_cover.boulder_field,
+            Threshold::Lower(params.boulder_fields.threshold),
+            &tile.hull,
+            &tile.cut_overlay,
+            AreaSymbol::BoulderField,
+            params,
+            &params.geometry.boulder_fields.buffer_rules,
+        ));
     }
 
     if steps.buildings

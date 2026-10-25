@@ -24,7 +24,7 @@ The written omap-file is automatically georeferenced.
 - Coordinate system assignment tool for CRS-less lidar-files (Lantmäteriet in Sweden uses EPSG:3006, but often skips writing the __mandatory__ CRS-VLR to their files)
 - CRS-less files are supported if the CRS is unknown
 - Non-connected lidar file detection (Useful when accidentally adding a file that should not have been added or assigning the wrong CRS to a file)
-- OpenStreetMap, OpenTopoMap or ESRI satellite background map
+- OpenStreetMap, OpenTopoMap or Google satellite background map
 - Experimental lidar-intensity filter
 - Hydrologically corrected D8 stream detection, with an optional AI stream-detection in `deep-learning` builds
 - Buffering on polygons to remove small holes and too thin areas or exaggerating small details
@@ -35,11 +35,13 @@ The written omap-file is automatically georeferenced.
 - Water detection
 - Building detection
 - Boulder detection (experimental tree-filtered, opaque non-ground surfaces; large boulders ≥2 m by default, small boulders ≥1 m with a lower height threshold)
+- Experimental undergrowth (409), using returns 0.2 - 0.8 m above ground, and boulder fields (211), using rough terrain and coherent near-ground surfaces.
+Undergrowth over green darkens it by one shade (406 → 408 → 410), over boulder fields it becomes green so the two patterns never overlap.
+- Experimental Marsh detection based on catchment area
 
 ### Wish List:
 - Vegetation boundaries
 - Road/path detection
-- Marsh detection
 - Lidar CRS transformation
 
 ## Step-by-step

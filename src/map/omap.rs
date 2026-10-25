@@ -45,12 +45,17 @@ impl InternalMap {
                     MapObject::Area {
                         mut object,
                         symbol,
-                        tags,
+                        mut tags,
                     } => {
                         object.map_coords_in_place(|c| c + self.ref_point);
 
+                        let preserve_geometry = tags
+                            .remove(super::ground_cover::PRESERVE_AREA_GEOMETRY_TAG)
+                            .is_some();
                         let geometry = transform.to_map_polygon(object);
-                        let geometry = if let Some(bezier) = bezier_error {
+                        let geometry = if let Some(bezier) =
+                            bezier_error.filter(|_| !preserve_geometry)
+                        {
                             match BezierPolygon::fit_polygon(geometry.clone(), bezier.try_into()?) {
                                 Ok(s) => s,
                                 Err(_) => geometry.into(),

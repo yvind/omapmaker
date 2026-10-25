@@ -70,6 +70,14 @@ pub fn compute_building_surface_fit(
     // count. An exact cell maximum is more appropriate for a DSM than the
     // power-mean canopy raster used by the vegetation pipeline.
     for point in &cloud.points {
+        if point.0.is_withheld
+            || matches!(
+                point.0.classification,
+                Classification::LowPoint | Classification::HighNoise | Classification::Water
+            )
+        {
+            continue;
+        }
         let Some(cell) = point_cell(point.x(), point.y(), dem) else {
             continue;
         };
@@ -124,6 +132,14 @@ pub fn compute_building_surface_fit(
     // without ever fitting the rest of the tile.
     let mut samples = Vec::new();
     for point in &cloud.points {
+        if point.0.is_withheld
+            || matches!(
+                point.0.classification,
+                Classification::LowPoint | Classification::HighNoise | Classification::Water
+            )
+        {
+            continue;
+        }
         if point.0.number_of_returns == 0 || point.0.return_number != point.0.number_of_returns {
             continue;
         }
@@ -137,25 +153,16 @@ pub fn compute_building_surface_fit(
         {
             continue;
         }
-        let vegetation_class = matches!(
-            point.0.classification,
-            Classification::LowVegetation
-                | Classification::MediumVegetation
-                | Classification::HighVegetation
-        );
         samples.push(ElevatedSample {
             x: point.x() - dem.grid.top_left.x,
             y: point.y() - dem.grid.top_left.y,
             z: point.0.z,
             height: point_height,
             cell,
-            vegetation_evidence: vegetation_class || point.0.number_of_returns > 1,
+            vegetation_evidence: point.0.number_of_returns > 1,
             class_6: point.0.classification == Classification::Building,
             classification_priority: match point.0.classification {
                 Classification::Building => 2,
-                Classification::LowVegetation
-                | Classification::MediumVegetation
-                | Classification::HighVegetation => 1,
                 _ => 0,
             },
             return_number: point.0.return_number,

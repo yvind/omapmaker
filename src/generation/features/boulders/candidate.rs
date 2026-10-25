@@ -7,7 +7,7 @@ use crate::{
     raster::{Dfm, Elevation},
 };
 
-use super::evidence::{is_last, object_class, vegetation_class};
+use super::evidence::{is_last, object_class};
 use super::{BoulderEvidence, Rejection, opacity, sides, surface, terrain, trees};
 
 pub(super) struct Candidate {
@@ -172,15 +172,6 @@ pub(super) fn classify(
             {
                 cell_support.push((point, height));
             }
-        }
-        // Prefer non-vegetation observations when a labeled branch overlaps
-        // the rock in this cell. An entirely mislabeled opaque rock can still
-        // pass the independent return and full-profile checks.
-        if cell_support
-            .iter()
-            .any(|(point, _)| !vegetation_class(point.0.classification))
-        {
-            cell_support.retain(|(point, _)| !vegetation_class(point.0.classification));
         }
         for (point, height) in cell_support {
             support.push((point, height));

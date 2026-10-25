@@ -1,5 +1,6 @@
 mod adjustments;
 mod boulder;
+mod boulder_fields;
 mod building;
 mod contour;
 mod hydrology;

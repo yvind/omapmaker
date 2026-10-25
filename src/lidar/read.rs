@@ -44,7 +44,15 @@ impl From<&las::Point> for ExactPointKey {
             intensity: point.intensity,
             return_number: point.return_number,
             number_of_returns: point.number_of_returns,
-            classification: point.classification.into(),
+            // Untrusted labels cannot distinguish duplicate observations.
+            classification: match point.classification {
+                class @ (Classification::Building
+                | Classification::Ground
+                | Classification::LowPoint
+                | Classification::Water
+                | Classification::HighNoise) => class.into(),
+                _ => 0,
+            },
             point_source_id: point.point_source_id,
             gps_time: point.gps_time.map(f64::to_bits),
         }
@@ -209,6 +217,29 @@ mod tests {
         assert_eq!(selected.len(), 1);
         assert!(!selected[0].is_overlap);
         assert_eq!(selected[0].scan_angle, 2.);
+    }
+
+    #[test]
+    fn duplicate_keys_ignore_vegetation_labels_but_preserve_trusted_classes() {
+        let mut first = point();
+        first.classification = Classification::Unclassified;
+        let mut duplicate = first.clone();
+        duplicate.classification = Classification::HighVegetation;
+        let mut indices = HashMap::new();
+        let mut selected = Vec::new();
+        insert_exact_point(&mut indices, &mut selected, first.clone());
+        insert_exact_point(&mut indices, &mut selected, duplicate);
+        assert_eq!(selected.len(), 1);
+        for label in [
+            Classification::Ground,
+            Classification::Water,
+            Classification::Building,
+        ] {
+            let mut distinct = first.clone();
+            distinct.classification = label;
+            insert_exact_point(&mut indices, &mut selected, distinct);
+        }
+        assert_eq!(selected.len(), 4);
     }
 
     #[test]

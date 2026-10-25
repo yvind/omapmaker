@@ -1,3 +1,4 @@
+mod boulder_fields;
 mod boulders;
 mod contours;
 mod geometry;
@@ -7,6 +8,7 @@ mod output;
 mod terrain_features;
 mod vegetation;
 
+pub use boulder_fields::BoulderFieldParameters;
 pub use boulders::BoulderParameters;
 pub use contours::{
     ContourAlgo, ContourFieldParameters, ContourGeneralization, ContourParameters,
@@ -38,6 +40,7 @@ pub struct MapParameters {
     pub vegetation: VegetationParameters,
     pub building: BuildingParameters,
     pub boulder: BoulderParameters,
+    pub boulder_fields: BoulderFieldParameters,
     pub geometry: GeometryParameters,
     pub intensity: IntensityParameters,
     pub cliff: CliffParameters,
@@ -70,6 +73,9 @@ impl MapParameters {
             push_unique(AreaSymbol::LightGreen);
             push_unique(AreaSymbol::MediumGreen);
             push_unique(AreaSymbol::DarkGreen);
+            if self.vegetation.undergrowth_enabled {
+                push_unique(AreaSymbol::Undergrowth);
+            }
         }
         if buildings && self.building.enabled && self.geometry.buildings.min_size_filter {
             push_unique(AreaSymbol::Building);
@@ -107,6 +113,7 @@ mod tests {
         assert!(params.building.enabled);
         assert!(params.cliff.enabled);
         assert!(params.boulder.enabled);
+        assert!(params.boulder_fields.enabled);
         assert!(params.water.enabled);
         assert!(params.marsh.enabled);
         assert!(params.streams.enabled);

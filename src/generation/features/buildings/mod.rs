@@ -173,6 +173,38 @@ mod tests {
     }
 
     #[test]
+    fn vegetation_labels_do_not_change_roof_or_tree_detection() {
+        let (dem, cloud) = synthetic_roof(false);
+        let params = BuildingParameters {
+            minimum_building_area_m2: 10.,
+            ..Default::default()
+        };
+        let fit = compute_building_surface_fit(&cloud, &dem, &params).unwrap();
+        let expected = detect_buildings(&fit, &params);
+        for label in [
+            Classification::Unclassified,
+            Classification::LowVegetation,
+            Classification::MediumVegetation,
+            Classification::HighVegetation,
+        ] {
+            let mut relabelled = cloud.clone();
+            for point in &mut relabelled.points {
+                point.0.classification = label;
+            }
+            let actual_fit = compute_building_surface_fit(&relabelled, &dem, &params).unwrap();
+            let actual = detect_buildings(&actual_fit, &params);
+            assert_eq!(
+                actual.accepted_mask.field, expected.accepted_mask.field,
+                "{label:?}"
+            );
+            assert_eq!(
+                actual.probability.field, expected.probability.field,
+                "{label:?}"
+            );
+        }
+    }
+
+    #[test]
     fn authoritative_class_6_accepts_a_nonplanar_component() {
         let (dem, mut cloud) = synthetic_roof(false);
         for point in &mut cloud.points {
@@ -188,9 +220,13 @@ mod tests {
         let fit = compute_building_surface_fit(&cloud, &dem, &ignored_params).unwrap();
         let ignored = detect_buildings(&fit, &ignored_params);
         let authoritative_params = BuildingParameters {
-            class_6_evidence: BuildingClassificationEvidence::Authoritative,
-            ..ignored_params
+            minimum_building_area_m2: ignored_params.minimum_building_area_m2,
+            ..Default::default()
         };
+        assert_eq!(
+            authoritative_params.class_6_evidence,
+            BuildingClassificationEvidence::Authoritative
+        );
         let authoritative_fit =
             compute_building_surface_fit(&cloud, &dem, &authoritative_params).unwrap();
         let authoritative = detect_buildings(&authoritative_fit, &authoritative_params);
@@ -269,10 +305,19 @@ mod tests {
                     let mut point = crate::geometry::PointLaz::new(x as f64, 30. - y as f64, z);
                     point.0.return_number = 1;
                     point.0.number_of_returns = 1;
+                    point.0.classification = Classification::Unclassified;
+                    points.push(point.clone());
                     if vegetation {
-                        point.0.classification = Classification::HighVegetation;
+                        // Same rough surface and candidate support, but most
+                        // echoes follow an earlier return through foliage.
+                        for offset in [-0.12, 0.12] {
+                            let mut echo = point.clone();
+                            echo.0.z += offset;
+                            echo.0.return_number = 2;
+                            echo.0.number_of_returns = 2;
+                            points.push(echo);
+                        }
                     }
-                    points.push(point);
                 }
             }
             PointCloud::new(points, bounds())

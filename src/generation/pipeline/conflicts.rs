@@ -29,6 +29,8 @@ pub(super) fn resolve_building_conflicts(objects: &mut Vec<MapObject>) {
                     | AreaSymbol::LightGreen
                     | AreaSymbol::MediumGreen
                     | AreaSymbol::DarkGreen
+                    | AreaSymbol::Undergrowth
+                    | AreaSymbol::BoulderField
                     | AreaSymbol::Marsh
                     | AreaSymbol::PavedAreaWithBoundary),
                 tags,

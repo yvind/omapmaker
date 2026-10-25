@@ -1,5 +1,8 @@
 #![allow(clippy::too_many_arguments)]
 
+mod bands;
+pub(super) use bands::{HeightBand, height_band};
+
 use std::collections::HashMap;
 
 use crate::geometry::MapMultiPolygon;

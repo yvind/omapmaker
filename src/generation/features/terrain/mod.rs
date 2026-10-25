@@ -1,3 +1,4 @@
+use crate::TILE_SIZE_PIXELS;
 use crate::geometry::{PointCloud, PointLaz};
 use crate::lidar::LidarStats;
 use crate::parameters::VegetationWeights;
@@ -7,16 +8,17 @@ use crate::raster::{
     LastReturn, LowVegetation, MediumVegetation, Ndvd, PointDensity, RasterMarker, Returns,
     SurfaceObjects, VegetationLikelihood, Water,
 };
-use crate::{CELL_SIZE_METERS, TILE_SIZE_PIXELS};
 
+use super::{
+    surface_features::point_cell_and_height,
+    vegetation::{HeightBand, height_band},
+};
+use las::point::Classification;
 use spade::DelaunayTriangulation;
 
 const CHM_SPIKINESS: f64 = 8.;
 const CHM_HILLSHADE_SUN_ANGLE: f64 = 3. * std::f64::consts::FRAC_PI_4;
 const VEGETATION_DENSITY_RADIUS_METERS: f64 = 2.;
-const GROUND_MAX_HEIGHT_METERS: f32 = 0.2;
-const LOW_VEGETATION_MAX_HEIGHT_METERS: f32 = 1.5;
-const MEDIUM_VEGETATION_MAX_HEIGHT_METERS: f32 = 3.;
 
 pub struct ComputedDfms {
     pub dem: Dfm<Elevation>,
@@ -39,6 +41,7 @@ pub struct ComputedDfms {
     pub point_density: Dfm<PointDensity>,
     pub ground_point_density: Dfm<GroundPointDensity>,
     pub z_range: (f32, f32),
+    pub ground_cover: super::GroundCoverRasters,
 }
 
 pub fn compute_dfms(
@@ -131,6 +134,7 @@ pub fn compute_dfms(
         vegetation_likelihood,
         filtered_surface,
     } = super::compute_surface_features(all_point_cloud, &dem);
+    let ground_cover = super::compute_ground_cover(all_point_cloud, &dem, &ground_relief_2m);
     // Preserve the legacy display product, now rendered from the actual
     // vegetation-filtered elevation surface instead of a mean of low last
     // returns. The raw metric products above remain available independently.
@@ -161,6 +165,7 @@ pub fn compute_dfms(
         point_density,
         ground_point_density,
         z_range,
+        ground_cover,
     })
 }
 
@@ -190,37 +195,50 @@ fn compute_vegetation_density_dfms(
     dem: &Dfm<Elevation>,
     radius_meters: f64,
 ) -> VegetationDensityDfms {
-    let mut ground_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut low_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut medium_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut high_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
-    let mut total_sums = vec![0_f64; TILE_SIZE_PIXELS * TILE_SIZE_PIXELS];
+    let mut ground_sums = vec![0_f64; dem.field.len()];
+    let mut low_sums = vec![0_f64; dem.field.len()];
+    let mut medium_sums = vec![0_f64; dem.field.len()];
+    let mut high_sums = vec![0_f64; dem.field.len()];
+    let mut total_sums = vec![0_f64; dem.field.len()];
 
-    let radius_cells = (radius_meters / CELL_SIZE_METERS).ceil() as isize;
+    let radius_cells = (radius_meters / dem.grid.cell_size_m).ceil() as isize;
     let radius2 = radius_meters.powi(2);
-    let sigma = (radius_meters / 2.).max(CELL_SIZE_METERS);
+    let sigma = (radius_meters / 2.).max(dem.grid.cell_size_m);
     let two_sigma2 = 2. * sigma.powi(2);
 
     for point in point_cloud.points.iter() {
+        if point.0.is_withheld
+            || matches!(
+                point.0.classification,
+                Classification::LowPoint
+                    | Classification::HighNoise
+                    | Classification::Water
+                    | Classification::Building
+            )
+        {
+            continue;
+        }
+        // Share both the ground sample and height bands with 409, including
+        // on slopes where a nearest-cell DEM would give a different height.
+        let Some((_, height)) = point_cell_and_height(point, dem) else {
+            continue;
+        };
+        let band = height_band(height);
         let x_center = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
         let y_center = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
 
         if x_center < -radius_cells
             || y_center < -radius_cells
-            || x_center >= TILE_SIZE_PIXELS as isize + radius_cells
-            || y_center >= TILE_SIZE_PIXELS as isize + radius_cells
+            || x_center >= dem.width() as isize + radius_cells
+            || y_center >= dem.height() as isize + radius_cells
         {
             continue;
         }
 
-        let dem_x = x_center.clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
-        let dem_y = y_center.clamp(0, TILE_SIZE_PIXELS as isize - 1) as usize;
-        let height_above_ground = point.0.z - f64::from(dem[(dem_y, dem_x)]);
-
         let y_min = (y_center - radius_cells).max(0) as usize;
-        let y_max = (y_center + radius_cells).min(TILE_SIZE_PIXELS as isize - 1) as usize;
+        let y_max = (y_center + radius_cells).min(dem.height() as isize - 1) as usize;
         let x_min = (x_center - radius_cells).max(0) as usize;
-        let x_max = (x_center + radius_cells).min(TILE_SIZE_PIXELS as isize - 1) as usize;
+        let x_max = (x_center + radius_cells).min(dem.width() as isize - 1) as usize;
 
         for yi in y_min..=y_max {
             for xi in x_min..=x_max {
@@ -231,17 +249,17 @@ fn compute_vegetation_density_dfms(
                 }
 
                 let weight = (-dist2 / two_sigma2).exp();
-                let index = yi * TILE_SIZE_PIXELS + xi;
+                let index = yi * dem.width() + xi;
                 total_sums[index] += weight;
 
-                if height_above_ground < f64::from(GROUND_MAX_HEIGHT_METERS) {
-                    ground_sums[index] += weight;
-                } else if height_above_ground < f64::from(LOW_VEGETATION_MAX_HEIGHT_METERS) {
-                    low_sums[index] += weight;
-                } else if height_above_ground < f64::from(MEDIUM_VEGETATION_MAX_HEIGHT_METERS) {
-                    medium_sums[index] += weight;
-                } else {
-                    high_sums[index] += weight;
+                match band {
+                    Some(HeightBand::Ground) => ground_sums[index] += weight,
+                    Some(HeightBand::Low) => low_sums[index] += weight,
+                    Some(HeightBand::Medium) => medium_sums[index] += weight,
+                    Some(HeightBand::High) => high_sums[index] += weight,
+                    // 409 is scored separately, then resolved against green
+                    // once. Its hits must not also increase the green score.
+                    Some(HeightBand::Undergrowth) | None => (),
                 }
             }
         }
@@ -301,4 +319,94 @@ pub fn compute_ndvd(
     }
 
     ndvd
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::raster::DfmGrid;
+
+    fn sample(height: f64, slope: f32) -> (PointCloud, Dfm<Elevation>) {
+        let mut dem =
+            Dfm::<Elevation>::new(DfmGrid::new(21, 21, 0.5, geo::coord! {x:0.,y:10.}).unwrap());
+        for y in 0..dem.height() {
+            for x in 0..dem.width() {
+                dem[(y, x)] = slope * x as f32;
+            }
+        }
+        let mut point = PointLaz::new(5.2, 4.8, 0.);
+        point.0.z = f64::from(
+            dem.sample_bilinear(geo::coord! {x:point.x(),y:point.y()})
+                .unwrap(),
+        ) + height;
+        point.0.classification = Classification::Unclassified;
+        point.0.is_synthetic = false;
+        (PointCloud::new(vec![point], las::Bounds::default()), dem)
+    }
+
+    #[test]
+    fn undergrowth_hits_do_not_feed_the_green_bands_even_on_a_slope() {
+        for slope in [0., 0.7] {
+            for height in [0.2, 0.4, 0.79] {
+                let (cloud, dem) = sample(height, slope);
+                let bands = compute_vegetation_density_dfms(&cloud, &dem, 2.);
+                assert!(
+                    bands.low.field.iter().all(|&v| v == 0.),
+                    "height {height}, slope {slope}"
+                );
+                assert!(bands.medium.field.iter().all(|&v| v == 0.));
+                assert!(bands.high.field.iter().all(|&v| v == 0.));
+                assert!(
+                    compute_ndvd(
+                        &bands.ground,
+                        &bands.low,
+                        &bands.medium,
+                        &bands.high,
+                        VegetationWeights::default()
+                    )
+                    .field
+                    .iter()
+                    .all(|&v| v == 0.)
+                );
+            }
+        }
+        for height in [0.8, 1.5, 1.799] {
+            let (cloud, dem) = sample(height, 0.);
+            let bands = compute_vegetation_density_dfms(&cloud, &dem, 2.);
+            assert!(bands.low.field.iter().any(|&v| v > 0.), "height {height}");
+            assert!(bands.medium.field.iter().all(|&v| v == 0.));
+        }
+        let (cloud, dem) = sample(1.8, 0.);
+        let bands = compute_vegetation_density_dfms(&cloud, &dem, 2.);
+        assert!(bands.low.field.iter().all(|&v| v == 0.));
+        assert!(bands.medium.field.iter().any(|&v| v > 0.));
+    }
+
+    #[test]
+    fn low_vegetation_uses_heights_and_ignores_untrusted_labels() {
+        let (base, dem) = sample(1., 0.);
+        let expected = compute_vegetation_density_dfms(&base, &dem, 2.);
+        for label in [
+            Classification::Unclassified,
+            Classification::LowVegetation,
+            Classification::MediumVegetation,
+            Classification::HighVegetation,
+        ] {
+            let mut cloud = base.clone();
+            cloud.points[0].0.classification = label;
+            let actual = compute_vegetation_density_dfms(&cloud, &dem, 2.);
+            assert_eq!(actual.low.field, expected.low.field);
+        }
+        for label in [
+            Classification::LowPoint,
+            Classification::HighNoise,
+            Classification::Water,
+            Classification::Building,
+        ] {
+            let mut cloud = base.clone();
+            cloud.points[0].0.classification = label;
+            let actual = compute_vegetation_density_dfms(&cloud, &dem, 2.);
+            assert!(actual.low.field.iter().all(|&v| v == 0.));
+        }
+    }
 }

@@ -29,6 +29,7 @@ use super::cache::{BoundedCache, BuildingFitCacheKey, ContourFieldCacheKey, Terr
 static NEXT_TILE_REVISION: AtomicU64 = AtomicU64::new(1);
 
 pub struct TileRasters {
+    pub ground_cover: generation::features::GroundCoverRasters,
     pub dem: Dfm<Elevation>,
     pub contour_terrain: Dfm<ContourTerrain>,
     pub slope: Dfm<Slope>,
@@ -117,6 +118,7 @@ impl PreparedTile {
             point_density,
             ground_point_density,
             z_range,
+            ground_cover,
         } = dfms;
 
         let hydro_corrected = dem.hydrological_correction();
@@ -125,6 +127,7 @@ impl PreparedTile {
 
         Self {
             rasters: TileRasters {
+                ground_cover,
                 slope: dem.slope(),
                 contour_terrain,
                 dem,
@@ -484,6 +487,7 @@ mod tests {
         let mut dem = Dfm::<Elevation>::new(grid);
         dem.field.fill(0.);
         let dfms = ComputedDfms {
+            ground_cover: generation::features::GroundCoverRasters::new_like(&dem),
             return_number: zero(&dem),
             intensity: zero(&dem),
             last_return: zero(&dem),
@@ -567,6 +571,7 @@ mod tests {
         params.building.enabled = false;
         params.cliff.enabled = false;
         params.boulder.enabled = false;
+        params.boulder_fields.enabled = false;
         params.water.enabled = false;
         params.marsh.enabled = false;
         params.streams.enabled = false;
@@ -585,6 +590,7 @@ mod tests {
                 buildings: true,
                 cliffs: true,
                 boulders: true,
+                boulder_fields: true,
                 intensity: true,
                 water: true,
                 marsh: true,
@@ -622,7 +628,7 @@ mod tests {
         .unwrap()
         .unwrap();
         // Empty entries replace previously generated objects in the preview.
-        let cleared: [Symbol; 23] = [
+        let cleared: [Symbol; 25] = [
             LineSymbol::BasemapContour.into(),
             LineSymbol::NegBasemapContour.into(),
             LineSymbol::Contour.into(),
@@ -637,6 +643,8 @@ mod tests {
             AreaSymbol::LightGreen.into(),
             AreaSymbol::MediumGreen.into(),
             AreaSymbol::DarkGreen.into(),
+            AreaSymbol::Undergrowth.into(),
+            AreaSymbol::BoulderField.into(),
             AreaSymbol::Building.into(),
             AreaSymbol::GiganticBoulder.into(),
             LineSymbol::Cliff.into(),
@@ -656,6 +664,135 @@ mod tests {
                     .is_some_and(Vec::is_empty),
                 "Missing preview removal for {symbol:?}"
             );
+        }
+    }
+
+    #[test]
+    fn disabling_boulder_fields_restores_hatching_and_removes_overlap_green() {
+        use crate::{
+            cancellation::CancellationToken,
+            generation::preview::{MapPreviewSection, RegenerationScope, regenerate_map_tile},
+            map::{AreaSymbol, PointSymbol, Symbol},
+        };
+        let mut tile = test_tile();
+        for y in 170..230 {
+            for x in 170..230 {
+                tile.rasters.ground_cover.undergrowth[(y, x)] = 1.;
+                tile.rasters.ground_cover.boulder_field[(y, x)] = 1.;
+            }
+        }
+        let mut old = MapParameters::default();
+        old.contour.enabled = false;
+        old.cliff.enabled = false;
+        old.building.enabled = false;
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        let initial = regenerate_map_tile(
+            &pool,
+            std::slice::from_ref(&tile),
+            geo::Coord::zero(),
+            &old,
+            &None,
+            RegenerationScope::Section(MapPreviewSection::BoulderFields),
+            Some(MapPreviewSection::BoulderFields),
+            &CancellationToken::default(),
+        )
+        .unwrap()
+        .unwrap();
+        let area = |map: &crate::map::InternalMap, symbol| {
+            map.objects
+                .get(&Symbol::Area(symbol))
+                .into_iter()
+                .flatten()
+                .map(|o| match o {
+                    MapObject::Area { object, .. } => object.unsigned_area(),
+                    _ => 0.,
+                })
+                .sum::<f64>()
+        };
+        assert!(area(&initial.document, AreaSymbol::BoulderField) > 500.);
+        assert!(area(&initial.document, AreaSymbol::LightGreen) > 500.);
+        let initial_hatching = area(&initial.document, AreaSymbol::Undergrowth);
+        let mut new = old.clone();
+        new.boulder_fields.enabled = false;
+        let updated = regenerate_map_tile(
+            &pool,
+            &[tile],
+            geo::Coord::zero(),
+            &new,
+            &Some(old),
+            RegenerationScope::Changed,
+            Some(MapPreviewSection::BoulderFields),
+            &CancellationToken::default(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(area(&updated.document, AreaSymbol::BoulderField), 0.);
+        assert_eq!(area(&updated.document, AreaSymbol::LightGreen), 0.);
+        assert!(area(&updated.document, AreaSymbol::Undergrowth) > initial_hatching + 500.);
+        assert!(updated.document.objects[&Symbol::Area(AreaSymbol::BoulderField)].is_empty());
+        assert!(updated.document.objects[&Symbol::Area(AreaSymbol::LightGreen)].is_empty());
+        assert!(updated.boulder_summary.is_none());
+        for point in [PointSymbol::SmallBoulder, PointSymbol::LargeBoulder] {
+            assert!(!updated.document.objects.contains_key(&Symbol::Point(point)));
+        }
+    }
+
+    #[test]
+    fn boulder_fields_and_individual_boulders_have_independent_generation_switches() {
+        use crate::{
+            generation::pipeline::{PipelineSteps, compute_tile},
+            map::{AreaSymbol, PointSymbol},
+        };
+        let mut tile = test_tile();
+        for y in 170..230 {
+            for x in 170..230 {
+                tile.rasters.ground_cover.boulder_field[(y, x)] = 1.;
+            }
+        }
+        let steps = PipelineSteps {
+            boulders: true,
+            boulder_fields: true,
+            ..Default::default()
+        };
+        for (boulders, fields) in [(false, true), (true, false), (false, false), (true, true)] {
+            let mut params = MapParameters::default();
+            params.boulder.enabled = boulders;
+            params.boulder_fields.enabled = fields;
+            let output = compute_tile(&tile, &params, steps, false).unwrap();
+            let has_fields = output.objects.iter().any(|o| {
+                matches!(
+                    o,
+                    MapObject::Area {
+                        symbol: AreaSymbol::BoulderField,
+                        ..
+                    }
+                )
+            });
+            let has_boulders = output.objects.iter().any(|o| {
+                matches!(
+                    o,
+                    MapObject::Point {
+                        symbol: PointSymbol::SmallBoulder | PointSymbol::LargeBoulder,
+                        ..
+                    }
+                )
+            });
+            assert_eq!(has_fields, fields);
+            assert_eq!(has_boulders, boulders);
+            assert_eq!(output.boulder_diagnostics.is_some(), boulders);
+            if !boulders && fields {
+                assert!(
+                    tile.boulder_evidence_cache
+                        .lock()
+                        .unwrap()
+                        .entries
+                        .is_empty()
+                );
+                assert!(tile.contour_field_cache.lock().unwrap().entries.is_empty());
+            }
         }
     }
 

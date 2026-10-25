@@ -8,6 +8,7 @@ pub(crate) enum ProcessStage {
     AdjustBuildings,
     AdjustCliffs,
     AdjustBoulders,
+    AdjustBoulderFields,
     AdjustWater,
     AdjustMarsh,
     AdjustStreams,
@@ -37,7 +38,8 @@ impl ProcessStage {
             Self::AdjustVegetation => Self::AdjustBuildings,
             Self::AdjustBuildings => Self::AdjustCliffs,
             Self::AdjustCliffs => Self::AdjustBoulders,
-            Self::AdjustBoulders => Self::AdjustWater,
+            Self::AdjustBoulders => Self::AdjustBoulderFields,
+            Self::AdjustBoulderFields => Self::AdjustWater,
             Self::AdjustWater => Self::AdjustMarsh,
             Self::AdjustMarsh => Self::AdjustStreams,
             Self::AdjustStreams => Self::AdjustIntensity,
@@ -58,7 +60,8 @@ impl ProcessStage {
             Self::AdjustIntensity => Self::AdjustStreams,
             Self::AdjustStreams => Self::AdjustMarsh,
             Self::AdjustMarsh => Self::AdjustWater,
-            Self::AdjustWater => Self::AdjustBoulders,
+            Self::AdjustWater => Self::AdjustBoulderFields,
+            Self::AdjustBoulderFields => Self::AdjustBoulders,
             Self::ShowComponents => Self::CheckLidar,
             stage => unreachable!("cannot go back from {stage:?}"),
         };
@@ -73,6 +76,7 @@ impl ProcessStage {
                 | Self::AdjustBuildings
                 | Self::AdjustCliffs
                 | Self::AdjustBoulders
+                | Self::AdjustBoulderFields
                 | Self::AdjustWater
                 | Self::AdjustMarsh
                 | Self::AdjustStreams
@@ -796,6 +800,20 @@ mod tests {
             walkers::lon_lat(max_x, min_y),
             walkers::lon_lat(max_x, max_y),
         ]
+    }
+
+    #[test]
+    fn boulder_field_adjustments_have_their_own_reversible_stage() {
+        let mut stage = ProcessStage::AdjustBoulders;
+        stage.next();
+        assert_eq!(stage, ProcessStage::AdjustBoulderFields);
+        assert!(stage.is_adjustment());
+        stage.next();
+        assert_eq!(stage, ProcessStage::AdjustWater);
+        stage.prev();
+        assert_eq!(stage, ProcessStage::AdjustBoulderFields);
+        stage.prev();
+        assert_eq!(stage, ProcessStage::AdjustBoulders);
     }
 
     #[test]

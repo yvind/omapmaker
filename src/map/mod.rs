@@ -1,4 +1,5 @@
 mod boulders;
+mod ground_cover;
 mod internal_map;
 mod merge;
 mod object;

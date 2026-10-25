@@ -35,8 +35,6 @@ struct CellReturnStats {
     pulse_count: f32,
     only_pulse_count: f32,
     multi_pulse_count: f32,
-    return_count: f32,
-    vegetation_return_count: f32,
     candidate_return_count: f32,
     elevated_min: f32,
     elevated_max: f32,
@@ -50,8 +48,6 @@ impl Default for CellReturnStats {
             pulse_count: 0.,
             only_pulse_count: 0.,
             multi_pulse_count: 0.,
-            return_count: 0.,
-            vegetation_return_count: 0.,
             candidate_return_count: 0.,
             elevated_min: f32::INFINITY,
             elevated_max: f32::NEG_INFINITY,
@@ -68,7 +64,7 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
     let mut stats = vec![CellReturnStats::default(); cell_count];
 
     for point in &cloud.points {
-        if is_noise(point.0.classification) {
+        if excluded_classification(point.0.classification) {
             continue;
         }
         let Some((cell, height)) = point_cell_and_height(point, dem) else {
@@ -81,10 +77,6 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
         }
 
         let cell_stats = &mut stats[cell];
-        cell_stats.return_count += 1.;
-        if is_vegetation(point.0.classification) {
-            cell_stats.vegetation_return_count += 1.;
-        }
         if return_number == 1 {
             // Count the first record only so a pulse that produced three
             // returns does not contribute three times the observation weight.
@@ -148,7 +140,7 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
     // cell, then accumulated spatially with the remaining return statistics.
     let mut surface_support = vec![0_f32; cell_count];
     for point in &cloud.points {
-        if is_noise(point.0.classification) {
+        if excluded_classification(point.0.classification) {
             continue;
         }
         let Some((cell, height)) = point_cell_and_height(point, dem) else {
@@ -195,24 +187,6 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
         &stats
             .iter()
             .map(|cell| cell.multi_pulse_count)
-            .collect::<Vec<_>>(),
-        dem.width(),
-        dem.height(),
-        neighborhood_radius,
-    );
-    let return_count = local_sum(
-        &stats
-            .iter()
-            .map(|cell| cell.return_count)
-            .collect::<Vec<_>>(),
-        dem.width(),
-        dem.height(),
-        neighborhood_radius,
-    );
-    let vegetation_return_count = local_sum(
-        &stats
-            .iter()
-            .map(|cell| cell.vegetation_return_count)
             .collect::<Vec<_>>(),
         dem.width(),
         dem.height(),
@@ -265,7 +239,6 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
         let pulses = pulse_count[index];
         let only_fraction = safe_ratio(only_pulse_count[index], pulses);
         let multi_fraction = safe_ratio(multi_pulse_count[index], pulses);
-        let vegetation_fraction = safe_ratio(vegetation_return_count[index], return_count[index]);
         let vertical_spread = if elevated_min[index].is_finite() && elevated_max[index].is_finite()
         {
             (elevated_max[index] - elevated_min[index]).max(0.)
@@ -273,10 +246,7 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
             0.
         };
         let spread_score = smoothstep((vertical_spread - 0.5) / 2.5);
-        let vegetation = 1.
-            - (1. - 0.85 * multi_fraction)
-                * (1. - 0.95 * vegetation_fraction)
-                * (1. - 0.75 * spread_score);
+        let vegetation = 1. - (1. - 0.85 * multi_fraction) * (1. - 0.75 * spread_score);
         vegetation_likelihood.field[index] = vegetation.clamp(0., 1.);
 
         let observation_score = (pulses / REQUIRED_LOCAL_PULSES).clamp(0., 1.);
@@ -311,7 +281,10 @@ pub fn compute_surface_features(cloud: &PointCloud, dem: &Dfm<Elevation>) -> Sur
     }
 }
 
-fn point_cell_and_height(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<(usize, f32)> {
+pub(super) fn point_cell_and_height(
+    point: &PointLaz,
+    dem: &Dfm<Elevation>,
+) -> Option<(usize, f32)> {
     let x = ((point.x() - dem.grid.top_left.x) / dem.grid.cell_size_m).round() as isize;
     let y = ((dem.grid.top_left.y - point.y()) / dem.grid.cell_size_m).round() as isize;
     if x < 0 || y < 0 || x >= dem.width() as isize || y >= dem.height() as isize {
@@ -325,19 +298,13 @@ fn point_cell_and_height(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<(usiz
     height.is_finite().then_some((index, height))
 }
 
-fn is_vegetation(classification: Classification) -> bool {
+fn excluded_classification(classification: Classification) -> bool {
     matches!(
         classification,
-        Classification::LowVegetation
-            | Classification::MediumVegetation
-            | Classification::HighVegetation
-    )
-}
-
-fn is_noise(classification: Classification) -> bool {
-    matches!(
-        classification,
-        Classification::LowPoint | Classification::HighNoise
+        Classification::LowPoint
+            | Classification::HighNoise
+            | Classification::Water
+            | Classification::Building
     )
 }
 
@@ -358,7 +325,7 @@ fn smoothstep(value: f32) -> f32 {
     value * value * (3. - 2. * value)
 }
 
-fn local_sum(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
+pub(super) fn local_sum(values: &[f32], width: usize, height: usize, radius: usize) -> Vec<f32> {
     let stride = width + 1;
     let mut prefix = vec![0_f64; stride * (height + 1)];
     for y in 0..height {
@@ -497,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn only_return_surface_survives_but_classified_tree_is_rejected() {
+    fn only_return_surface_survives_but_penetrable_tree_is_rejected() {
         let dem = test_dem();
         let mut points = Vec::new();
         for &(x, y) in &[(5., 15.), (6., 15.), (5., 14.), (6., 14.)] {
@@ -510,7 +477,9 @@ mod tests {
             (15., 14., 2.8),
         ] {
             let mut point = PointLaz::new(x, y, z);
-            point.0.classification = Classification::HighVegetation;
+            point.0.classification = Classification::Unclassified;
+            point.0.return_number = 1;
+            point.0.number_of_returns = 2;
             points.push(point);
         }
 
@@ -521,6 +490,63 @@ mod tests {
         assert!(features.hard_object_confidence.field[rock] > 0.5);
         assert_eq!(features.hard_object_height.field[tree], 0.);
         assert!(features.vegetation_likelihood.field[tree] > 0.8);
+    }
+
+    #[test]
+    fn untrusted_labels_do_not_change_hard_surfaces_or_vegetation_likelihood() {
+        let dem = test_dem();
+        let points = [(5., 15.), (6., 15.), (5., 14.), (6., 14.)]
+            .into_iter()
+            .map(|(x, y)| PointLaz::new(x, y, 0.5))
+            .collect();
+        let base = PointCloud::new(points, bounds());
+        let expected = compute_surface_features(&base, &dem);
+        for label in [
+            Classification::Unclassified,
+            Classification::LowVegetation,
+            Classification::MediumVegetation,
+            Classification::HighVegetation,
+        ] {
+            let mut cloud = base.clone();
+            for point in &mut cloud.points {
+                point.0.classification = label;
+            }
+            let actual = compute_surface_features(&cloud, &dem);
+            assert_eq!(
+                actual.hard_object_height.field,
+                expected.hard_object_height.field
+            );
+            assert_eq!(
+                actual.hard_object_confidence.field,
+                expected.hard_object_confidence.field
+            );
+            assert_eq!(
+                actual.vegetation_likelihood.field,
+                expected.vegetation_likelihood.field
+            );
+        }
+    }
+
+    #[test]
+    fn trusted_building_echoes_cannot_seed_natural_hard_objects() {
+        let dem = test_dem();
+        let points = [(5., 15.), (6., 15.), (5., 14.), (6., 14.)]
+            .into_iter()
+            .map(|(x, y)| {
+                let mut point = PointLaz::new(x, y, 0.5);
+                point.0.classification = Classification::Building;
+                point
+            })
+            .collect();
+        let features = compute_surface_features(&PointCloud::new(points, bounds()), &dem);
+        assert!(features.hard_object_height.field.iter().all(|&v| v == 0.));
+        assert!(
+            features
+                .hard_object_confidence
+                .field
+                .iter()
+                .all(|&v| v == 0.)
+        );
     }
 
     #[test]

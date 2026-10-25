@@ -18,6 +18,7 @@ pub(crate) enum MapPreviewSection {
     Buildings,
     Cliffs,
     Boulders,
+    BoulderFields,
     Water,
     Marsh,
     Streams,

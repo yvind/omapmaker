@@ -31,6 +31,10 @@ impl OmapMaker {
                 "Adjust boulder detection",
                 "Detect broad, opaque boulders from non-ground last returns, with clear separation from canopy.",
             ),
+            ProcessStage::AdjustBoulderFields => (
+                "Adjust boulder fields (211)",
+                "Tune boulder field detection and polygon geometry.",
+            ),
             ProcessStage::AdjustWater => (
                 "Adjust water settings",
                 "Tune water seeds, flood-fill behavior, and the resulting polygon geometry.",
@@ -66,6 +70,7 @@ impl OmapMaker {
             ProcessStage::AdjustBuildings => &mut params.building.enabled,
             ProcessStage::AdjustCliffs => &mut params.cliff.enabled,
             ProcessStage::AdjustBoulders => &mut params.boulder.enabled,
+            ProcessStage::AdjustBoulderFields => &mut params.boulder_fields.enabled,
             ProcessStage::AdjustWater => &mut params.water.enabled,
             ProcessStage::AdjustMarsh => &mut params.marsh.enabled,
             ProcessStage::AdjustStreams => &mut params.streams.enabled,
@@ -231,6 +236,7 @@ impl OmapMaker {
                 }
                 ProcessStage::AdjustCliffs => self.render_cliff_adjustments(ui),
                 ProcessStage::AdjustBoulders => self.render_boulder_adjustments(ui),
+                ProcessStage::AdjustBoulderFields => self.render_boulder_field_adjustments(ui),
                 ProcessStage::AdjustWater => self.render_water_adjustments(ui),
                 ProcessStage::AdjustStreams => self.render_stream_adjustments(ui),
                 ProcessStage::AdjustMarsh => self.render_marsh_adjustments(ui),

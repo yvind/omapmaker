@@ -62,7 +62,18 @@ pub(crate) fn compute_boulder_evidence(
                 .then(a.z.total_cmp(&b.z))
                 .then(a.return_number.cmp(&b.return_number))
                 .then(a.number_of_returns.cmp(&b.number_of_returns))
-                .then(u8::from(a.classification).cmp(&u8::from(b.classification)))
+                .then(
+                    (a.classification == Classification::Ground)
+                        .cmp(&(b.classification == Classification::Ground)),
+                )
+                .then(
+                    (a.classification == Classification::Water)
+                        .cmp(&(b.classification == Classification::Water)),
+                )
+                .then(
+                    (a.classification == Classification::Building)
+                        .cmp(&(b.classification == Classification::Building)),
+                )
         });
         let mut previous = None;
         for &index in indices.iter() {
@@ -73,7 +84,9 @@ pub(crate) fn compute_boulder_evidence(
                 point.z,
                 point.return_number,
                 point.number_of_returns,
-                point.classification,
+                point.classification == Classification::Ground,
+                point.classification == Classification::Water,
+                point.classification == Classification::Building,
             );
             if previous != Some(key) {
                 unique_indices.push(index);
@@ -221,11 +234,15 @@ fn usable(point: &PointLaz) -> bool {
 }
 
 pub(super) fn object_class(class: Classification) -> bool {
-    // Vegetation labels are not a physical opacity test: rocks can be
-    // mislabeled. Return termination, penetration and crown shape decide.
+    // Other class labels do not prove material or opacity. Return
+    // termination, penetration and crown geometry decide.
     !matches!(
         class,
-        Classification::Ground | Classification::Building | Classification::Water
+        Classification::Ground
+            | Classification::Building
+            | Classification::Water
+            | Classification::LowPoint
+            | Classification::HighNoise
     )
 }
 
@@ -237,13 +254,4 @@ fn point_cell(point: &PointLaz, dem: &Dfm<Elevation>) -> Option<usize> {
     } else {
         Some(y as usize * dem.width() + x as usize)
     }
-}
-
-pub(super) fn vegetation_class(class: Classification) -> bool {
-    matches!(
-        class,
-        Classification::LowVegetation
-            | Classification::MediumVegetation
-            | Classification::HighVegetation
-    )
 }
