@@ -96,7 +96,26 @@ impl Default for GeometryParameters {
             cliffs,
             intensity: Default::default(),
             water: Default::default(),
-            marsh: Default::default(),
+            marsh: BufferedGeometryParameters {
+                buffer_rules: vec![
+                    BufferRule {
+                        direction: BufferDirection::Shrink,
+                        amount: 3.,
+                        ..Default::default()
+                    },
+                    BufferRule {
+                        direction: BufferDirection::Grow,
+                        amount: 6.,
+                        ..Default::default()
+                    },
+                    BufferRule {
+                        direction: BufferDirection::Shrink,
+                        amount: 3.,
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
             streams: Default::default(),
         }
     }
