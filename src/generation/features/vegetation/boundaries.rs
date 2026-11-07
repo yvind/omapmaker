@@ -470,8 +470,10 @@ mod tests {
         }
         // Height-change and sharpness controls constrain different things.
         let raster = canopy(0.5, |x, _| if x >= 32. { 14. } else { 2. });
-        let mut params = VegetationBoundaryParameters::default();
-        params.minimum_height_change_m = 15.;
+        let mut params = VegetationBoundaryParameters {
+            minimum_height_change_m: 15.,
+            ..Default::default()
+        };
         assert!(detect(&raster, &full_clip(), &params).is_empty());
         params.minimum_height_change_m = 3.;
         params.minimum_gradient = 20.;
@@ -522,8 +524,10 @@ mod tests {
                 2.
             }
         });
-        let mut params = VegetationBoundaryParameters::default();
-        params.minimum_length_m = 5.;
+        let params = VegetationBoundaryParameters {
+            minimum_length_m: 5.,
+            ..Default::default()
+        };
         let lines = detect(&raster, &full_clip(), &params);
         assert_eq!(lines.len(), 2);
         assert!(

@@ -27,7 +27,7 @@ impl Camera {
         }
     }
 
-    pub fn to_screen(&self, anchor_px: Pos2) -> impl Fn(Mercator) -> Pos2 + Copy {
+    pub fn to_screen(self, anchor_px: Pos2) -> impl Fn(Mercator) -> Pos2 + Copy {
         let (anchor, total_px) = (self.anchor, self.total_px);
         move |p: Mercator| {
             Pos2::new(

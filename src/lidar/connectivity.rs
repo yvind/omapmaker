@@ -36,10 +36,11 @@ fn connected_components(
         let mut component = Vec::new();
         while let Some(current) = pending.pop() {
             component.push(current);
-            for candidate in 0..len {
-                if !visited[candidate] && connected(current, candidate) {
-                    visited[candidate] = true;
-                    pending.push(candidate);
+
+            for (ci, candidate) in visited.iter_mut().enumerate() {
+                if !*candidate && connected(current, ci) {
+                    *candidate = true;
+                    pending.push(ci);
                 }
             }
         }

@@ -6,6 +6,9 @@ An application for generating orienteering maps (.omap file) from ground-classif
 With a GUI with parameter tuning, area filtering and lidar conversion tools.
 The written omap-file is automatically georeferenced.
 
+Enable the `deep-learning` feature to build with burn and enable AI algorithms.
+For now only the stream detection has an AI algorithm.
+
 ### Implemented:
 - GUI with live map parameter tuning
 - Preview uses the exported OMAP symbol definitions for colours, dashed contours, area patterns, water boundaries and point shapes
